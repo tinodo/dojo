@@ -21,10 +21,13 @@ one too - could be taken out of the Record by disputing it.
 ## The decision
 
 Filing a dispute starts its review at once. The reviewer is the referee of ADR 0016: the author model, which
-neither judged the answer nor checked the judgement. It reads the sources, the item, the whole judgement and the
-learner's reason, and decides **every** point of the judgement from the answer itself. The reason points it to
-where the learner thinks the grader went wrong; it is never evidence by itself, and instructions in it are data.
-A point it gives must quote the answer, and the quote is checked exactly as the grader's is.
+neither judged the answer nor checked the judgement. It reads the sources, the item, the judgement and the
+learner's reason, and decides every point the grader decided from the answer itself. A point the referee itself
+decided when the answer was judged (two of the three models agreed on it) is not reviewed again by the same model:
+it stands, and the review says so; when it decided every point, the review is refused with that reason. The
+learner's reason points the referee to where the learner thinks the grader went wrong; it is never evidence by
+itself, and instructions in it are data. A point it gives must quote the answer, and the quote is checked exactly
+as the grader's is.
 
 - **Upheld** - at least one point changes, up or down. The referee's judgement replaces the disputed one, as when
   an answer is judged again (ADR 0015): an `answer.rejudged` event (`"by": "dispute review"`) points at the
@@ -33,9 +36,9 @@ A point it gives must quote the answer, and the quote is checked exactly as the 
   judgement the review corrected.
 - **Not upheld** - the referee finds every point right. A `dispute.reviewed` event says so, and the judgement
   counts again. The item shows the referee's reason for every point.
-- **The review cannot run** - the referee cannot be reached, a timed exam started, or in team mode today's
-  budget for graded answers is used. Nothing changes: the dispute stays open, the judgement counts neither way,
-  and **Review my dispute** starts the review later.
+- **The review cannot run** - the referee cannot be reached, a timed exam started, another job for the answer
+  is running, or in team mode today's budget for graded answers is used. Nothing changes: the dispute is filed
+  and stays open, the judgement counts neither way, and **Review my dispute** starts the review later.
 
 Each dispute is reviewed once. A judgement that came from a review can be disputed, and then counts neither way,
 but it is not reviewed again: the referee would review its own decision (EG-26).
@@ -49,7 +52,7 @@ A review costs what a graded answer costs, and in team mode it is one graded ans
    show the owner a member's answers, which ADR 0009 keeps from them. A model that took no part is independent of
    both.
 3. **Review only the points the learner names.** Rejected: the reason is free text, and a review that leaves a
-   wrong point standing because it was not named is no review. The referee decides every point.
+   wrong point standing because it was not named is no review. The referee decides every point the grader decided.
 4. **Never lower a point in a review.** Rejected: a review that can only raise would make every dispute a free
    try for a better mark. The learner is told before filing that points can go up or down.
 

@@ -4198,7 +4198,7 @@ function earlierJudgement(it) {
   const referee = (it.result.models || {}).referee;
   return h("div", { class: "note" },
     h("p", null, (byReview
-      ? `Corrected on ${fmtDate(it.result.judged_at)} after your dispute: a third model${referee ? ` (${referee})` : ""}, neither the grader nor the checker, reviewed the whole judgement and changed ${((old.disputed || {}).review || {}).changed ? old.disputed.review.changed.length : "some"} point(s). `
+      ? `Corrected on ${fmtDate(it.result.judged_at)} after your dispute: a third model${referee ? ` (${referee})` : ""}, neither the grader nor the checker, reviewed the judgement and changed ${((old.disputed || {}).review || {}).changed ? old.disputed.review.changed.length : "some"} point(s). `
       : `Judged again on ${fmtDate(it.result.judged_at)} with judging rules version ${it.result.version || 1}, at your request. `)
       + `The earlier judgement (${o.met} of ${o.total} points met, on ${fmtDate(o.judged_at)}, with version ${o.version || 1}) no longer counts. It stays in your record.`
       + (old.disputed && !byReview ? ` Your dispute of it, filed on ${fmtDate(old.disputed.at)}, stays on record too.` : "")),
@@ -4256,8 +4256,10 @@ function disputePanel(it) {
   if (!d) return null;
   const rv = d.review;
   if (rv) {
+    const kept = (rv.not_reviewed || []).length;
     return h("section", { class: "panel" }, eyebrow("scale", "Your dispute, reviewed"),
-      h("p", { class: "small ink2" }, `You disputed this judgement on ${fmtDate(d.at)}. A third model (${rv.model}), neither the grader nor the checker, reviewed the whole judgement on ${fmtDate(rv.at)} with your reason and found every point right, so the judgement counts again.`),
+      h("p", { class: "small ink2" }, `You disputed this judgement on ${fmtDate(d.at)}. A third model (${rv.model}), neither the grader nor the checker, reviewed the judgement on ${fmtDate(rv.at)} with your reason and found ${kept ? "every point it reviewed" : "every point"} right, so the judgement counts again.`
+        + (kept ? ` It did not review ${kept === 1 ? "the point" : `the ${kept} points`} it had already decided when your answer was judged: it does not review its own decisions.` : "")),
       h("p", { class: "words" }, "Your dispute: ", h("q", { class: "mine" }, d.reason)),
       h("details", { class: "how" }, h("summary", null, "The referee's reasons"),
         h("ul", { class: "judged" }, (rv.points || []).map((p) => {
@@ -4272,7 +4274,7 @@ function disputePanel(it) {
   const head = h("p", { class: "small ink2" }, `You disputed this judgement on ${fmtDate(d.at)}. Until its review is done it counts neither way.`);
   if (dr.busy) {
     return h("section", { class: "panel" }, eyebrow("scale", "Your dispute"), head,
-      h("p", { class: "sub" }, "A third model is reviewing the whole judgement with your reason right now."),
+      h("p", { class: "sub" }, "A third model is reviewing the judgement with your reason right now."),
       h("div", { class: "actions top" }, button("Refresh", () => route())));
   }
   if (dr.refusal) return h("section", { class: "panel" }, eyebrow("scale", "Your dispute"), head, h("p", { class: "small muted" }, dr.refusal));
@@ -4295,7 +4297,7 @@ function disputePanel(it) {
   }, "ghost");
   if (dr.waits) b.disabled = true;
   return h("section", { class: "panel" }, eyebrow("scale", "Your dispute"), head,
-    h("p", { class: "small ink2" }, "Its review has not run yet. A third model, neither the grader nor the checker, reads the whole judgement with your reason."),
+    h("p", { class: "small ink2" }, "Its review has not run yet. A third model, neither the grader nor the checker, reads the judgement with your reason."),
     h("div", { class: "actions top" }, b), status);
 }
 
@@ -4358,7 +4360,7 @@ function resultCards(it) {
       eyebrow("alert", "Disagree?"),
       h("p", { class: "small ink2" }, own
         ? "This judgement comes from the review of your earlier dispute. You can dispute it: it then counts neither way, but the same referee does not review its own decision."
-        : "A third model, neither the grader nor the checker, reviews the whole judgement with your reason, usually within a minute. If it finds a point wrong, it corrects the judgement: points can go up or down, and this judgement stays visible. If it finds every point right, the judgement counts again. Until then it counts neither way."),
+        : "A third model, neither the grader nor the checker, reviews the judgement with your reason, usually within a minute. If it finds a point wrong, it corrects the judgement: points can go up or down, and this judgement stays visible. If it finds every point right, the judgement counts again. Until then it counts neither way."),
       h("label", { class: "field", for: "dispute" }, "Why", reason),
       h("div", { class: "actions top" }, b), status)));
   }

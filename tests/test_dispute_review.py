@@ -13,12 +13,13 @@ os.environ.setdefault("DOJO_LOCAL", "1")
 os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-dispute-import-"))
 
 import httpx  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import ai as ai_mod  # noqa: E402
 from app.budget import Refused  # noqa: E402
 from app.core import Learner, learner_key  # noqa: E402
-from app.learning import GRADING_VERSION, REVIEW_EXAM, REVIEW_OWN, judge_again_refusal  # noqa: E402
+from app.learning import GRADING_VERSION, REVIEW_ALL_REFEREED, REVIEW_EXAM, REVIEW_OWN, judge_again_refusal  # noqa: E402
 from app.main import create_app  # noqa: E402
 from tests.test_api import POST, settings, web  # noqa: E402
 
@@ -176,6 +177,47 @@ class DisputeReviewTests(unittest.TestCase):
         self.assertEqual(out["job"]["state"], "failed")
         self.assertIn(REVIEW_EXAM, out["job"]["error"])
         self.assertTrue(self.view(item)["dispute_open"])
+
+    def test_points_the_referee_decided_when_judged_are_not_reviewed_again(self):
+        item = self.judged_one_short()
+        it = self.dojo.item(self.me, item)
+        for p in it["result"]["points"]:
+            if p["id"] == "r1":
+                p["refereed"] = {"grader_met": True, "objection": "The checker found the reason does not hold."}
+        self.dojo._save_item(self.me, it)
+        asked: list[list[str]] = []
+
+        def referee(user: str) -> dict:
+            asked.append(ai_mod._RUBRIC.findall(user))
+            return {"points": [{"id": r, "met": True, "learner_quote": QUOTE, "why": "Referee."} for r in asked[-1]]}
+        out = self.dispute(item, referee=referee)
+        self.assertEqual(asked, [["r2"]], "only the points the grader decided are reviewed")
+        self.assertEqual(out["job"]["result"]["changed"], ["r2"])
+        v = self.view(item)
+        r1 = next(p for p in v["result"]["points"] if p["id"] == "r1")
+        self.assertEqual(r1["refereed"]["objection"], "The checker found the reason does not hold.", "r1 stands as decided")
+        self.assertEqual(v["history"][-1]["disputed"]["review"]["not_reviewed"], ["r1"])
+        self.assertTrue(v["result"]["all_met"])
+
+    def test_a_judgement_the_referee_decided_entirely_is_not_reviewed(self):
+        item = self.judged_one_short()
+        it = self.dojo.item(self.me, item)
+        for p in it["result"]["points"]:
+            p["refereed"] = {"grader_met": p["met"], "objection": "x"}
+        self.dojo._save_item(self.me, it)
+        out = self.dispute(item)
+        self.assertEqual((out["review"], out["review_waits"]), (None, REVIEW_ALL_REFEREED))
+        self.assertTrue(self.view(item)["dispute_open"])
+
+    def test_a_dispute_is_filed_even_when_its_review_cannot_start(self):
+        item = self.judged_one_short()
+        with mock.patch.object(self.dojo, "review_dispute", side_effect=HTTPException(409, "This answer is already being judged.")):
+            out = self.dispute(item)
+        self.assertIsNone(out["review"])
+        self.assertIn("Your dispute is filed", out["review_waits"])
+        self.assertIn("This answer is already being judged.", out["review_waits"])
+        self.assertTrue(self.view(item)["dispute_open"])
+        self.assertEqual(len(self.events(item, "dispute.filed")), 1)
 
     def test_when_the_budget_refuses_the_dispute_is_filed_and_its_review_waits(self):
         item = self.judged_one_short()

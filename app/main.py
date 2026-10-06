@@ -1387,6 +1387,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         except Refused as e:
             return {"review": None, "review_waits": f"Your dispute is filed: the judgement counts neither way. Its review "
                                                     f"could not start now: {e} Press \"Review my dispute\" then."}
+        except HTTPException as e:
+            # Filed all the same: another job for this answer is running, or the queue is full. Review it later.
+            return {"review": None, "review_waits": f"Your dispute is filed: the judgement counts neither way. Its review "
+                                                    f"could not start now: {e.detail} Press \"Review my dispute\" in a moment."}
 
     @app.post("/api/rehearsals")
     def new_rehearsal(body: RehearsalRequest, learner: Learner = Me) -> dict:

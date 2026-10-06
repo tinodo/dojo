@@ -141,7 +141,7 @@ In team mode, if today's budget is used up, your answer is saved. **Judge my ans
 
 ### Disputes
 
-If you think a judgement is wrong, press **Dispute this judgement** and give a short reason. Then a third model, the referee, reviews it, usually within a minute. It is neither the grader nor the checker. It reads the whole judgement with your reason and decides every point from your answer.
+If you think a judgement is wrong, press **Dispute this judgement** and give a short reason. Then a third model, the referee, reviews it, usually within a minute. It is neither the grader nor the checker. It reads the judgement with your reason and decides every point the grader decided, from your answer. A point the referee itself already decided when your answer was judged stands: it does not review its own decisions.
 
 - **Upheld**: if it finds a point wrong, it corrects the judgement. Points can go up or down. The corrected judgement counts, and the old one stays visible.
 - **Not upheld**: if it finds every point right, the judgement counts again, and you can read its reason for each point.

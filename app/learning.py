@@ -161,6 +161,8 @@ JUDGE_AGAIN_WAITS = ("Today's budget for graded answers does not cover judging t
 # A dispute is reviewed by the referee, a model that neither judged nor checked the answer (ADR 0017).
 REVIEW_OWN = ("This judgement comes from the review of an earlier dispute. Your dispute stays on record and the judgement "
               "counts neither way, but the referee does not review its own decision.")
+REVIEW_ALL_REFEREED = ("The referee already decided every point of this judgement when it was made. Your dispute stays on "
+                       "record and the judgement counts neither way, but the referee does not review its own decisions.")
 REVIEW_WAITS = ("Your dispute is filed: the judgement counts neither way. Today's budget for graded answers does not "
                 "cover its review; press \"Review my dispute\" after midnight UTC, or when the owner raises the cap.")
 REVIEW_EXAM = "Nothing was changed: a timed practice exam started, and it closes feedback. Your dispute stays open."
@@ -182,6 +184,8 @@ def dispute_review_refusal(it: dict) -> str | None:
         return "This dispute was reviewed already."
     if ((it["result"].get("rejudged") or {}).get("by")) == "dispute review":
         return REVIEW_OWN
+    if all(p.get("refereed") for p in it["result"].get("points") or []):
+        return REVIEW_ALL_REFEREED
     return None
 # A timed practice exam closes feedback (ADR 0012): one that starts while an answer is judged again stops it.
 REJUDGE_EXAM = ("A timed practice exam started, so nothing was changed: the earlier judgement stands. "
@@ -2032,7 +2036,7 @@ Elements:
         return {"ok": True}
 
     def review_dispute(self, learner: Learner, item_id: str) -> dict:
-        """Starts the review of a filed dispute (ADR 0017): the referee reads the whole judgement with the learner's reason."""
+        """Starts the review of a filed dispute (ADR 0017): the referee reads the judgement with the learner's reason."""
         refusal = dispute_review_refusal(self.item(learner, item_id))
         if refusal:
             raise HTTPException(409, refusal)
@@ -2063,26 +2067,33 @@ Elements:
         g = self.item_grounding(it)
         answer = it["answer"]["text"]
         before = {p["id"]: bool(p["met"] and p["verified"]) for p in judged["points"]}
+        # A point the referee decided when the answer was judged (two of three models agree on it) is not reviewed
+        # again by the same model: the review covers the points the grader decided (EG-26).
+        kept = [p["id"] for p in judged["points"] if p.get("refereed")]
         contested = [{**p, "objection_by": "Learner", "objection": "disputes this judgement; their reason is below."}
-                     for p in judged["points"]]
-        progress("A third model reviews the whole judgement with your reason (referee model)")
+                     for p in judged["points"] if p["id"] not in kept]
+        progress("A third model reviews the judgement with your reason (referee model)")
         decided = self._referee(g, it, answer, contested, dispute=disputed["reason"])
-        changed = [i for i in before if decided[i]["met"] != before[i]]
+        changed = [i for i in decided if decided[i]["met"] != before[i]]
         referee = self.models("author")["author"]
         review = {"at": iso(), "model": referee, "outcome": "upheld" if changed else "not_upheld", "changed": changed,
-                  "points": [{"id": i, "met": decided[i]["met"], "why": decided[i]["why"]} for i in before],
-                  "judged_at": judged.get("judged_at"), "version": judgement_version(judged)}
+                  "points": [{"id": i, "met": decided[i]["met"], "why": decided[i]["why"]} for i in before if i in decided],
+                  "not_reviewed": kept, "judged_at": judged.get("judged_at"), "version": judgement_version(judged)}
         where = {"package": it["package"], "skill": it["skill"], "item": item_id}
         result = None
         if changed:
             points = []
             for p in judged["points"]:
+                if p["id"] in kept:
+                    points.append(dict(p))
+                    continue
                 d = decided[p["id"]]
                 points.append({"id": p["id"], "point": p["point"], "met": d["met"], "verified": True, "learner_quote": d["learner_quote"],
                                "why": d["why"], "stitched": d["stitched"], "not_shown": False,
                                "refereed": {"grader_met": before[p["id"]], "objection": "Your dispute."}})
-            met = sum(1 for p in points if p["met"])
-            result = {"points": points, "met": met, "total": len(points), "all_met": met == len(points), "unverified": 0,
+            met = sum(1 for p in points if p["met"] and p["verified"])
+            result = {"points": points, "met": met, "total": len(points), "all_met": met == len(points),
+                      "unverified": sum(1 for p in points if p["met"] and not p["verified"]),
                       "feedback": "", "feedback_withheld": True,
                       "withheld_reason": "it was written for the judgement your dispute corrected.", "misconception": "",
                       "judged_at": review["at"], "models": {**(judged.get("models") or {}), "referee": referee},
@@ -2110,7 +2121,7 @@ Elements:
                 result["rejudged"] = {"at": result["judged_at"], "replaces": replaces, "by": "dispute review"}
                 it["history"] = [*(it.get("history") or []), {
                     "result": judged, "disputed": {**disputed, "review": review}, "replaced_at": result["judged_at"],
-                    "why": "Your dispute was upheld: a third model reviewed the whole judgement and corrected it."}]
+                    "why": "Your dispute was upheld: a third model reviewed the judgement and corrected it."}]
                 it["result"], it["disputed"] = result, None
                 self._save_item(learner, it)
                 self.store.append_event(learner.key, "dispute.reviewed", reviewed)
@@ -2119,12 +2130,12 @@ Elements:
         if result is not None:
             self._log_recall(learner, it, rejudged=True)
             self.quality(learner.key, "dispute", {**where, "text": disputed["reason"][:300], "reason": (
-                f"Your dispute was upheld: a third model ({referee}) reviewed the whole judgement and changed "
+                f"Your dispute was upheld: a third model ({referee}) reviewed the judgement and changed "
                 f"{len(changed)} point{'s' if len(changed) != 1 else ''}: {result['met']} of {result['total']} points met now, "
                 f"{judged.get('met')} before. The earlier judgement stays on the item.")})
         else:
             self.quality(learner.key, "dispute", {**where, "text": disputed["reason"][:300], "reason": (
-                f"Your dispute was not upheld: a third model ({referee}) reviewed the whole judgement and found every point "
+                f"Your dispute was not upheld: a third model ({referee}) reviewed the judgement and found every point it reviewed "
                 "right, so it counts again. Its reasons are on the item.")})
         return {"item": item_id, "outcome": review["outcome"], "changed": changed,
                 "met": (result or judged)["met"], "total": (result or judged)["total"]}
