@@ -9,6 +9,7 @@ run against real models:
   DOJO_LOCAL=1 DOJO_LOCAL_AI=real DOJO_TENANT_ID=... DOJO_AI_ENDPOINT=... DOJO_MODELS='{"author":...,"gate":...,"grader":...}'
   python tools/grader_bench.py [--only TEXT] [--repeat N] [--workers N] [--out results.json] [--min-agreement 0.9]
 
+It exits 1 when nothing was judged, when a judgement failed, or below --min-agreement.
 The official pages are read as they are today; the sha256 of each page used is kept in the results.
 """
 from __future__ import annotations
@@ -159,7 +160,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.out:
         Path(args.out).write_text(json.dumps({"summary": summary, "tokens": tokens, "calls": usage, "pages": pages,
                                               "runs": runs}, ensure_ascii=False, indent=1), "utf-8")
-    return 1 if summary["agreement"] is not None and summary["agreement"] < args.min_agreement else 0
+    # An incomplete measurement is no measurement: nothing judged, or a judgement that failed, exits 1 too.
+    if summary["agreement"] is None or summary["failed"]:
+        return 1
+    return 1 if summary["agreement"] < args.min_agreement else 0
 
 
 if __name__ == "__main__":
