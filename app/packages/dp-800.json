@@ -1,0 +1,1138 @@
+{
+  "id": "dp-800",
+  "exam": "DP-800",
+  "title": "Developing AI-Enabled Database Solutions",
+  "issuer": "Microsoft",
+  "kind": "certification",
+  "version": "2026-10-19",
+  "source": {
+    "name": "Study Guide for Exam DP-800: Developing AI-Enabled Database Solutions",
+    "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/dp-800",
+    "skills_as_of": "2026-10-19",
+    "retrieved": "2026-09-27",
+    "git_commit_id": "b1597b276fbb60bdf9b34a7a14301e5ca98ef4bb"
+  },
+  "passing_score": 700,
+  "official_practice_assessment": null,
+  "exam_page": "https://learn.microsoft.com/en-us/credentials/certifications/developing-ai-enabled-database-solutions/",
+  "exam_format": {
+    "duration_minutes": 120,
+    "duration_quote": "You will have 120 minutes to complete this assessment.",
+    "duration_source": "https://learn.microsoft.com/en-us/credentials/certifications/developing-ai-enabled-database-solutions/",
+    "question_count": null,
+    "question_count_note": "Microsoft Learn does not publish how many questions DP-800 has. Its support page says only that most Microsoft exams contain between 40 and 60 questions and that the number varies per exam.",
+    "question_count_source": "https://learn.microsoft.com/en-us/credentials/support/exam-duration-exam-experience",
+    "level": "associate",
+    "level_quote": "Microsoft Certified: SQL AI Developer Associate",
+    "level_source": "https://learn.microsoft.com/en-us/credentials/certifications/developing-ai-enabled-database-solutions/",
+    "checked": "2026-09-28"
+  },
+  "notes": [
+    "The DP-800 study guide page retrieved on 2026-09-27 listed only 'Skills measured as of October 19, 2026', which is future-dated relative to the retrieval date; no separate current section was visible on the page.",
+    "The practice assessment link on the DP-800 study guide points to an Azure Administrator assessment, so it was not recorded as an official DP-800 practice assessment.",
+    "The certification page 'Microsoft Certified: SQL AI Developer Associate' was checked on 2026-09-28: it states 120 minutes under 'Take the exam', offers an exam sandbox but no practice assessment, and states no question count."
+  ],
+  "domains": [
+    {
+      "id": "d1",
+      "title": "Design and develop database solutions",
+      "weight_min": 35,
+      "weight_max": 40,
+      "groups": [
+        {
+          "title": "Design and implement database objects",
+          "skills": [
+            {
+              "id": "d1.g1.s1",
+              "text": "Design and implement tables, including data types, size, columns, indexes, and columnstore indexes",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-table-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE TABLE (Transact-SQL)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s2",
+              "text": "Design and implement specialized tables, including in-memory, temporal, external, ledger, and graph",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/tables/temporal/overview?view=sql-server-ver17",
+                  "title": "Temporal tables",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s3",
+              "text": "Design and implement JSON columns and indexes",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/json/index-json-data?view=sql-server-ver17",
+                  "title": "Index JSON data",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s4",
+              "text": "Design and implement database constraints, including PRIMARY KEY, FOREIGN KEY, UNIQUE, CHECK, and DEFAULT",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/tables/create-primary-keys?view=sql-server-ver17",
+                  "title": "Create primary keys",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s5",
+              "text": "Design and implement SEQUENCES",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/sequence-numbers/sequence-numbers?view=sql-server-ver17",
+                  "title": "Sequence numbers",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s6",
+              "text": "Design and implement partitioning for tables and indexes",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/partitions/create-partitioned-tables-and-indexes?view=sql-server-ver17",
+                  "title": "Create partitioned tables and indexes",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Implement programmability objects",
+          "skills": [
+            {
+              "id": "d1.g2.s1",
+              "text": "Create views",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-view-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE VIEW",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g2.s2",
+              "text": "Create scalar functions",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-function-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE FUNCTION",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g2.s3",
+              "text": "Create table-valued functions",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-function-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE FUNCTION",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g2.s4",
+              "text": "Create stored procedures",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-procedure-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE PROCEDURE",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g2.s5",
+              "text": "Create triggers",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-trigger-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE TRIGGER",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Write advanced T-SQL code",
+          "skills": [
+            {
+              "id": "d1.g3.s1",
+              "text": "Write common table expressions (CTEs)",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/queries/with-common-table-expression-transact-sql?view=sql-server-ver17",
+                  "title": "WITH common_table_expression",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s2",
+              "text": "Write queries that include window functions",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-over-clause-transact-sql?view=sql-server-ver17",
+                  "title": "SELECT - OVER Clause",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s3",
+              "text": "Write queries that include JSON functions, such as JSON_OBJECT, JSON_ARRAY, JSON_ARRAYAGG, JSON_CONTAINS, OPENJSON, and JSON_VALUE",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/json-functions-transact-sql?view=sql-server-ver17",
+                  "title": "JSON functions",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s4",
+              "text": "Write queries that include regular expressions, such as REGEXP_LIKE, REGEXP_REPLACE, REGEXP_SUBSTR, REGEXP_INSTR, REGEXP_COUNT, REGEXP_MATCHES, and REGEXP_SPLIT_TO_TABLE",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/regular-expressions-functions-transact-sql?view=sql-server-ver17",
+                  "title": "Regular expressions functions",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s5",
+              "text": "Write queries that include fuzzy string matching functions, such as EDIT_DISTANCE, EDIT_DISTANCE_SIMILARITY, and JARO_WINKLER_DISTANCE",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/edit-distance-transact-sql?view=sql-server-ver17",
+                  "title": "EDIT_DISTANCE",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s6",
+              "text": "Write graph queries that use the MATCH operator",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/queries/match-sql-graph?view=sql-server-ver17",
+                  "title": "MATCH (SQL Graph)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s7",
+              "text": "Write correlated queries",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/subqueries?view=sql-server-ver17",
+                  "title": "Subqueries",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g3.s8",
+              "text": "Implement error handling",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/language-elements/try-catch-transact-sql?view=sql-server-ver17",
+                  "title": "TRY...CATCH",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Design and implement SQL solutions by using AI-assisted tools",
+          "skills": [
+            {
+              "id": "d1.g4.s1",
+              "text": "Interpret security impact of using AI-assisted tools",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/inline-suggestions",
+                  "title": "Responsible use of GitHub Copilot code completion",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g4.s2",
+              "text": "Enable GitHub Copilot and Copilot in Fabric",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/fabric/fundamentals/copilot-enable-fabric",
+                  "title": "Enable Copilot in Microsoft Fabric",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g4.s3",
+              "text": "Configure model and Model Context Protocol (MCP) tool options in a GitHub Copilot or Copilot in Fabric chat session",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/extend-copilot-chat-with-mcp",
+                  "title": "Extending GitHub Copilot Chat with MCP servers",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g4.s4",
+              "text": "Create and configure GitHub Copilot instruction files",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/response-customization",
+                  "title": "About customizing GitHub Copilot responses",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g4.s5",
+              "text": "Connect to MCP server endpoints, including Microsoft SQL Server and Fabric lakehouse",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/mcp/?view=sql-server-ver17",
+                  "title": "SQL MCP Server Documentation",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d2",
+      "title": "Secure, optimize, and deploy database solutions",
+      "weight_min": 35,
+      "weight_max": 40,
+      "groups": [
+        {
+          "title": "Implement data security and compliance",
+          "skills": [
+            {
+              "id": "d2.g1.s1",
+              "text": "Design and implement data encryption, including Always Encrypted and column-level encryption",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/encryption/always-encrypted-database-engine?view=sql-server-ver17",
+                  "title": "Always Encrypted",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s2",
+              "text": "Design and implement Dynamic Data Masking",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/dynamic-data-masking?view=sql-server-ver17",
+                  "title": "Dynamic Data Masking",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s3",
+              "text": "Design and implement Row-Level Security (RLS)",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+                  "title": "Row-Level Security",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s4",
+              "text": "Design and implement object-level permissions",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/getting-started-with-database-engine-permissions?view=sql-server-ver17",
+                  "title": "Database Engine permissions",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s5",
+              "text": "Implement secure database access, including passwordless",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-overview?view=azuresql",
+                  "title": "Microsoft Entra authentication with Azure SQL",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s6",
+              "text": "Implement auditing",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/auditing/sql-server-audit-database-engine?view=sql-server-ver17",
+                  "title": "SQL Server Audit",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s7",
+              "text": "Secure model endpoints, including Managed Identity",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/foundry/concepts/rbac-foundry",
+                  "title": "Role-based access control for Microsoft Foundry",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s8",
+              "text": "Secure GraphQL, REST, and MCP endpoints",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/concept/security/",
+                  "title": "Security in Data API builder",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Optimize database performance",
+          "skills": [
+            {
+              "id": "d2.g2.s1",
+              "text": "Recommend database configurations",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/query-processing-architecture-guide?view=sql-server-ver17",
+                  "title": "Query processing architecture guide",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s2",
+              "text": "Preserve data integrity and consistency by using transaction isolation levels and concurrency controls",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/set-transaction-isolation-level-transact-sql?view=sql-server-ver17",
+                  "title": "SET TRANSACTION ISOLATION LEVEL",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s3",
+              "text": "Evaluate query performance by using query execution plans, dynamic management views (DMVs), Query Store, and Query Performance Insight",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/display-an-actual-execution-plan?view=sql-server-ver17",
+                  "title": "Display an actual execution plan",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s4",
+              "text": "Identify and resolve query performance issues, including blocking and deadlocks",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-deadlocks-guide?view=sql-server-ver17",
+                  "title": "SQL Server deadlocks guide",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Implement CI/CD by using SQL Database Projects",
+          "skills": [
+            {
+              "id": "d2.g3.s1",
+              "text": "Design and implement a testing strategy, including unit tests and integration tests",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
+                  "title": "SQL database projects",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s2",
+              "text": "Create and manage reference/static data in source control",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
+                  "title": "SQL database projects",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s3",
+              "text": "Create, build, and validate database models by using SQL Database Projects, including SDK-style models",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
+                  "title": "SQL database projects",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s4",
+              "text": "Configure source control for SQL Database Projects",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
+                  "title": "SQL database projects",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s5",
+              "text": "Manage branching, pull requests, and conflict resolution",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/pull-requests",
+                  "title": "Collaborating with pull requests",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s6",
+              "text": "Implement secrets management",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets",
+                  "title": "Using secrets in GitHub Actions",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s7",
+              "text": "Detect schema drift by using SQL Database Projects",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
+                  "title": "SQL database projects",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s8",
+              "text": "Update an SQL database project and deploy changes",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
+                  "title": "SQL database projects",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s9",
+              "text": "Design and implement controls for deployment pipelines, including branching policies, triggers in approvals, authentication tables, and code owners",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches",
+                  "title": "About protected branches",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Integrate SQL solutions with Azure services",
+          "skills": [
+            {
+              "id": "d2.g4.s1",
+              "text": "Create configuration files for Data API builder (DAB)",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/configuration/",
+                  "title": "Data API builder configuration file",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s2",
+              "text": "Configure entities for REST and GraphQL, including data caching, pagination, searching, and filtering",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/configuration/entities",
+                  "title": "Data API builder entity configuration",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s3",
+              "text": "Configure REST or GraphQL endpoints",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/concept/rest/overview",
+                  "title": "Data API builder REST API",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s4",
+              "text": "Expose database objects, stored procedures, and views, including GraphQL relationships",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/concept/graphql/overview",
+                  "title": "Data API builder GraphQL API",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s5",
+              "text": "Configure and implement DAB deployment",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/configuration/",
+                  "title": "Data API builder configuration file",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s6",
+              "text": "Recommend Azure Monitor configurations, including Application Insights and Log Analytics",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview",
+                  "title": "Application Insights overview",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s7",
+              "text": "Handle changes by using change event streaming (CES), change data capture (CDC), Change Tracking, Azure Functions with SQL trigger binding, or Azure Logic Apps",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/track-changes/about-change-tracking-sql-server?view=sql-server-ver17",
+                  "title": "Change Tracking",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d3",
+      "title": "Implement AI capabilities in database solutions",
+      "weight_min": 25,
+      "weight_max": 30,
+      "groups": [
+        {
+          "title": "Design and implement models and embeddings",
+          "skills": [
+            {
+              "id": "d3.g1.s1",
+              "text": "Evaluate external models, including multimodal, multilanguage, sizes, and structured output",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/foundry/concepts/foundry-models-overview",
+                  "title": "Microsoft Foundry Models overview",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s2",
+              "text": "Create and manage external models",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/foundry/concepts/foundry-models-overview",
+                  "title": "Microsoft Foundry Models overview",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s3",
+              "text": "Choose an embedding maintenance method, including table triggers, Change Tracking, Azure Functions with SQL trigger binding, Azure Logic Apps, CDC, and Microsoft Foundry",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
+                  "title": "Generate embeddings with Azure OpenAI",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s4",
+              "text": "Identify which columns to include in embeddings",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s5",
+              "text": "Design and implement chunks for embeddings",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
+                  "title": "Generate embeddings with Azure OpenAI",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s6",
+              "text": "Generate embeddings",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
+                  "title": "Generate embeddings with Azure OpenAI",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Design and implement intelligent search",
+          "skills": [
+            {
+              "id": "d3.g2.s1",
+              "text": "Choose from full-text, semantic vector, and hybrid search",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s2",
+              "text": "Implement full-text search",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/search/full-text-search?view=sql-server-ver17",
+                  "title": "Full-Text Search",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s3",
+              "text": "Design for vector data, including vector data type, vector indexes, and size",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/data-types/vector-data-type?view=sql-server-ver17",
+                  "title": "Vector data type",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s4",
+              "text": "Identify when to use vector-related types and functions for semantic searching, including VECTOR_NORMALIZE, VECTOR_DISTANCE, VECTORPROPERTY, and VECTOR_SEARCH",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/vector-normalize-transact-sql?view=sql-server-ver17",
+                  "title": "VECTOR_NORMALIZE",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s5",
+              "text": "Choose between using ANN and KNN for vector search",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/vector-search-transact-sql?view=sql-server-ver17",
+                  "title": "VECTOR_SEARCH",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s6",
+              "text": "Evaluate vector index types and metrics",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s7",
+              "text": "Implement vector search",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/vector-search-transact-sql?view=sql-server-ver17",
+                  "title": "VECTOR_SEARCH",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s8",
+              "text": "Implement hybrid search",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s9",
+              "text": "Implement reciprocal rank fusion (RRF)",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s10",
+              "text": "Evaluate performance of vector and hybrid search",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Design and implement retrieval-augmented generation (RAG)",
+          "skills": [
+            {
+              "id": "d3.g3.s1",
+              "text": "Identify use cases for RAG",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/artificial-intelligence-intelligent-applications?view=sql-server-ver17",
+                  "title": "Intelligent Applications and AI",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g3.s2",
+              "text": "Create a prompt by using the sp_invoke_external_rest_endpoint stored procedure",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-invoke-external-rest-endpoint-transact-sql?view=sql-server-ver17",
+                  "title": "sys.sp_invoke_external_rest_endpoint",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g3.s3",
+              "text": "Convert structured data to JSON for language model processing",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/json-functions-transact-sql?view=sql-server-ver17",
+                  "title": "JSON functions",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g3.s4",
+              "text": "Send results to language model",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-invoke-external-rest-endpoint-transact-sql?view=sql-server-ver17",
+                  "title": "sys.sp_invoke_external_rest_endpoint",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g3.s5",
+              "text": "Extract language model responses",
+              "sources": [
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/json-functions-transact-sql?view=sql-server-ver17",
+                  "title": "JSON functions",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

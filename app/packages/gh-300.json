@@ -1,0 +1,731 @@
+{
+  "id": "gh-300",
+  "exam": "GH-300",
+  "title": "GitHub Copilot",
+  "issuer": "GitHub",
+  "kind": "certification",
+  "version": "2026-08-07",
+  "source": {
+    "name": "Study guide for Exam GH-300: GitHub Copilot",
+    "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-300",
+    "skills_as_of": "2026-08-07",
+    "retrieved": "2026-09-27",
+    "git_commit_id": "f4e384b61cefe9943cd297953ccecb90be33aeb9"
+  },
+  "passing_score": 700,
+  "official_practice_assessment": {
+    "title": "Practice Assessment for GH-300: GitHub Copilot",
+    "url": "https://learn.microsoft.com/en-us/credentials/certifications/github-copilot/practice/assessment?assessment-type=practice&assessmentId=218035372&practice-assessment-type=certification",
+    "assessment_id": "218035372",
+    "found_on": "https://learn.microsoft.com/en-us/credentials/certifications/github-copilot/",
+    "checked": "2026-09-28"
+  },
+  "exam_page": "https://learn.microsoft.com/en-us/credentials/certifications/github-copilot/",
+  "exam_format": {
+    "duration_minutes": 100,
+    "duration_quote": "You will have 100 minutes to complete this assessment.",
+    "duration_source": "https://learn.microsoft.com/en-us/credentials/certifications/github-copilot/",
+    "question_count": null,
+    "question_count_note": "Microsoft Learn does not publish how many questions GH-300 has. Its support page says only that most Microsoft exams contain between 40 and 60 questions and that the number varies per exam.",
+    "question_count_source": "https://learn.microsoft.com/en-us/credentials/support/exam-duration-exam-experience",
+    "checked": "2026-09-28"
+  },
+  "notes": [
+    "The study guide's Skills at a glance contains a duplicate 25–30% line: 'Use GitHub Copilot features' and 'GitHub Copilot features'; this package uses the six body sections.",
+    "The certification page https://learn.microsoft.com/en-us/credentials/certifications/github-copilot/ was checked on 2026-09-28: it states 100 minutes under 'Take the exam' and links a free practice assessment (assessmentId 218035372), which opens. It does not state a question count."
+  ],
+  "domains": [
+    {
+      "id": "d1",
+      "title": "Use GitHub Copilot responsibly",
+      "weight_min": 15,
+      "weight_max": 20,
+      "groups": [
+        {
+          "title": "Understand responsible AI principles",
+          "skills": [
+            {
+              "id": "d1.g1.s1",
+              "text": "Describe risks and limitations of Generative AI tools",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/inline-suggestions",
+                  "title": "Responsible use of GitHub Copilot code completion",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s2",
+              "text": "Describe ethical and responsible AI usage",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/chat",
+                  "title": "Responsible use of GitHub Copilot Chat in GitHub",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g1.s3",
+              "text": "Identify potential harms and mitigation strategies of AI usage",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/inline-suggestions",
+                  "title": "Responsible use of GitHub Copilot code completion",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Validate and operate AI tools",
+          "skills": [
+            {
+              "id": "d1.g2.s1",
+              "text": "Explain the need to validate AI output",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/inline-suggestions",
+                  "title": "Responsible use of GitHub Copilot code completion",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d1.g2.s2",
+              "text": "Identify how to operate GitHub Copilot responsibly",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/chat",
+                  "title": "Responsible use of GitHub Copilot Chat in GitHub",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d2",
+      "title": "Use GitHub Copilot features",
+      "weight_min": 25,
+      "weight_max": 30,
+      "groups": [
+        {
+          "title": "Use GitHub Copilot in the IDE",
+          "skills": [
+            {
+              "id": "d2.g1.s1",
+              "text": "Enable Copilot in the IDE",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-extension",
+                  "title": "Installing the GitHub Copilot extension in your environment",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s2",
+              "text": "Trigger Copilot through inline suggestions, chat, CLI, and agent mode",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/get-code-suggestions/get-ide-code-suggestions",
+                  "title": "Getting code suggestions in your IDE with GitHub Copilot",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g1.s3",
+              "text": "Configure content exclusions for specific files or repositories (app knowledge)",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/content-exclusion",
+                  "title": "Content exclusion for GitHub Copilot",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Use GitHub Copilot CLI",
+          "skills": [
+            {
+              "id": "d2.g2.s1",
+              "text": "Define GitHub Copilot CLI and how it benefits developers",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli",
+                  "title": "About GitHub Copilot CLI",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s2",
+              "text": "Identify the steps for installing GitHub Copilot CLI",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+                  "title": "Installing GitHub Copilot CLI",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s3",
+              "text": "Describe key GitHub Copilot CLI features and commands",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference",
+                  "title": "GitHub Copilot CLI command reference",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s4",
+              "text": "Use GitHub Copilot CLI interactively and in sessions",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/overview",
+                  "title": "Using GitHub Copilot CLI",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g2.s5",
+              "text": "Generate scripts and manage files with GitHub Copilot CLI",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically",
+                  "title": "Running GitHub Copilot CLI programmatically",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Use GitHub Copilot features and capabilities",
+          "skills": [
+            {
+              "id": "d2.g3.s1",
+              "text": "Use Agent Mode, Copilot Edits, and MCP for enhanced development and workflows; manage Agent Sessions and delegate tasks to Sub‑Agents for optimized context usage",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent",
+                  "title": "About GitHub Copilot cloud agent",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s2",
+              "text": "Use Copilot for code review and coding assistance",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review",
+                  "title": "Using GitHub Copilot code review",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s3",
+              "text": "Utilize Spaces, Spark, Pull Request summaries, and customizable review standards via instructions files",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/context/spaces",
+                  "title": "About GitHub Copilot Spaces",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g3.s4",
+              "text": "Understand the limits, options, feedback, and commands of GitHub Copilot Chat; include prompt file reuse for consistent responses",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/reference/chat-cheat-sheet",
+                  "title": "GitHub Copilot Chat cheat sheet",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Manage organization-wide settings and policies",
+          "skills": [
+            {
+              "id": "d2.g4.s1",
+              "text": "Configure organization-wide policy management; enable Copilot Code Review policies and manage feature availability across IDEs and github.com",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+                  "title": "Managing policies and features for Copilot in your organization",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s2",
+              "text": "Utilize audit log events",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/audit-log-events-for-your-organization",
+                  "title": "Audit log events for your organization",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d2.g4.s3",
+              "text": "Manage subscriptions using the REST API",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/rest/copilot/copilot-user-management",
+                  "title": "REST API endpoints for Copilot user management",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d3",
+      "title": "Understand GitHub Copilot data and architecture",
+      "weight_min": 10,
+      "weight_max": 15,
+      "groups": [
+        {
+          "title": "Describe data handling and flow",
+          "skills": [
+            {
+              "id": "d3.g1.s1",
+              "text": "Explain data usage, flow, and sharing",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+                  "title": "About GitHub Copilot session data",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s2",
+              "text": "Describe input processing and prompt building",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+                  "title": "About GitHub Copilot session data",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g1.s3",
+              "text": "Explain proxy filtering and post-processing",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/completions/code-referencing",
+                  "title": "GitHub Copilot code referencing",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Understand lifecycle and limitations",
+          "skills": [
+            {
+              "id": "d3.g2.s1",
+              "text": "Visualize code suggestion lifecycle",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/get-code-suggestions/get-ide-code-suggestions",
+                  "title": "Getting code suggestions in your IDE with GitHub Copilot",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d3.g2.s2",
+              "text": "Describe limitations of LLMs and Copilot",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/responsible-use/inline-suggestions",
+                  "title": "Responsible use of GitHub Copilot code completion",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d4",
+      "title": "Apply prompt engineering and context crafting",
+      "weight_min": 10,
+      "weight_max": 15,
+      "groups": [
+        {
+          "title": "Craft effective prompts",
+          "skills": [
+            {
+              "id": "d4.g1.s1",
+              "text": "Describe prompt structure and context",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d4.g1.s2",
+              "text": "Understand how context is determined",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/response-customization",
+                  "title": "About customizing GitHub Copilot responses",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d4.g1.s3",
+              "text": "Use zero-shot and few-shot prompting",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d4.g1.s4",
+              "text": "Apply best practices for prompt crafting",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Engineer prompts for performance",
+          "skills": [
+            {
+              "id": "d4.g2.s1",
+              "text": "Explain prompt engineering principles",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d4.g2.s2",
+              "text": "Describe prompt process flow and chat history usage",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/chat-with-copilot/chat-in-ide",
+                  "title": "Asking GitHub Copilot questions in your IDE",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d5",
+      "title": "Improve developer productivity with GitHub Copilot",
+      "weight_min": 10,
+      "weight_max": 15,
+      "groups": [
+        {
+          "title": "Enhance productivity and code quality",
+          "skills": [
+            {
+              "id": "d5.g1.s1",
+              "text": "Use Copilot for code generation, refactoring, and documentation",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/chat-with-copilot/chat-in-ide",
+                  "title": "Asking GitHub Copilot questions in your IDE",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d5.g1.s2",
+              "text": "Accelerate learning and reduce context switching",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/chat-with-copilot/chat-in-ide",
+                  "title": "Asking GitHub Copilot questions in your IDE",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d5.g1.s3",
+              "text": "Generate sample data and modernize legacy code",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Support testing and security",
+          "skills": [
+            {
+              "id": "d5.g2.s1",
+              "text": "Generate unit and integration tests",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d5.g2.s2",
+              "text": "Identify edge cases and write assertions",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+                  "title": "Prompt engineering for GitHub Copilot Chat",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d5.g2.s3",
+              "text": "Suggest security improvements and performance optimizations",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review",
+                  "title": "Using GitHub Copilot code review",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d6",
+      "title": "Configure privacy, content exclusions, and safeguards",
+      "weight_min": 10,
+      "weight_max": 15,
+      "groups": [
+        {
+          "title": "Manage privacy settings and exclusions",
+          "skills": [
+            {
+              "id": "d6.g1.s1",
+              "text": "Configure content exclusions and editor settings",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/configure-content-exclusion/review-changes",
+                  "title": "Reviewing changes to content exclusions for GitHub Copilot",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d6.g1.s2",
+              "text": "Describe ownership and limitations of outputs",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/concepts/completions/code-referencing",
+                  "title": "GitHub Copilot code referencing",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        },
+        {
+          "title": "Apply safeguards and troubleshoot",
+          "skills": [
+            {
+              "id": "d6.g2.s1",
+              "text": "Enable suggestions matching public code filtering",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/get-code-suggestions/find-matching-code",
+                  "title": "Finding public code that matches GitHub Copilot suggestions",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            },
+            {
+              "id": "d6.g2.s2",
+              "text": "Resolve issues with suggestions and content exclusions",
+              "sources": [
+                {
+                  "url": "https://docs.github.com/en/copilot/how-tos/troubleshoot-copilot/troubleshoot-common-issues",
+                  "title": "Troubleshooting common issues with GitHub Copilot",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                }
+              ],
+              "learn": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Dojo</title>
+<link rel="icon" href="/static/icon.svg?v={{BUILD}}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v={{BUILD}}">
+<link rel="manifest" href="/static/manifest.webmanifest?v={{BUILD}}" crossorigin="use-credentials">
+<meta name="theme-color" content="#F4EFE6">
+<meta name="apple-mobile-web-app-title" content="Dojo">
+<link rel="preload" href="/static/fonts/Inter-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/Fraunces-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/fonts.css?v={{BUILD}}">
+<link rel="stylesheet" href="/static/app.css?v={{BUILD}}">
+<script src="/static/app.js?v={{BUILD}}" defer></script>
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<div class="app">
+  <header class="hdr">
+    <a class="brand" href="#/today"><span class="mark" aria-hidden="true">D</span><span class="word">Dojo</span></a>
+    <div class="exam-pill" id="exam-pill">
+      <span class="code" id="exam-code">—</span>
+      <span class="t" id="exam-title">Loading…</span>
+      <span class="d" id="exam-when"></span>
+      <select id="exam" aria-label="Exam package"></select>
+    </div>
+    <form class="ask" id="askform">
+      <svg class="i sm" aria-hidden="true"><use href="/static/icons.svg?v={{BUILD}}#i-chat"></use></svg>
+      <label class="skip" for="askq">Ask the coach anything</label>
+      <input id="askq" name="q" type="text" placeholder="Ask the coach anything…" autocomplete="off">
+      <span class="go">Ask</span>
+    </form>
+    <div class="right">
+      <a class="hlink" href="#/help"><svg class="i sm" aria-hidden="true"><use href="/static/icons.svg?v={{BUILD}}#i-help"></use></svg><span class="lbl">Help</span></a>
+      <a class="hlink" href="#/about"><svg class="i sm" aria-hidden="true"><use href="/static/icons.svg?v={{BUILD}}#i-shield"></use></svg><span class="lbl">How Dojo works</span></a>
+      <span class="me" id="me-initials" title="You" aria-hidden="true">·</span>
+    </div>
+  </header>
+  <nav class="side" id="side" aria-label="Main"></nav>
+  <main class="main" id="view" tabindex="-1"><p class="loading">Loading…</p></main>
+</div>
+</body>
+</html>

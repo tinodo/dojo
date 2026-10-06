@@ -1,0 +1,119 @@
+name: deploy
+
+# The only way Dojo reaches Azure. Signs in with OpenID Connect as the deploy identity, which is
+# Contributor on rg-dojo-swc only and trusts pushes to main of this repository only. No credentials:
+# the ids below are repository secrets only so that they stay out of public logs. No step prints them.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-dojo-swc
+  SITE: dojo-tinodo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Test
+        env:
+          DOJO_LOCAL: "1"
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m unittest discover -s tests -t .
+          python tools/secret_scan.py
+      - name: Sign in to Azure (OpenID Connect, no secret)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # Team mode (ADR 0009) is on only when the repository variable DOJO_TEAM_MODE is exactly "true". Unset or
+      # anything else (also "True") deploys the template's default: off, owner only. A switch, not an identifier,
+      # so a variable, not a secret. The shell compares it, case-sensitively; Actions expressions would not.
+      - name: Team mode switch
+        id: team
+        env:
+          SWITCH: ${{ vars.DOJO_TEAM_MODE }}
+        run: |
+          if [ "$SWITCH" = "true" ]; then on=true; else on=false; fi
+          echo "on=$on" >> "$GITHUB_OUTPUT"
+          echo "team mode: $on"
+      # Public logs: every az step keeps its output in files, and tools/public_log.py prints only counts and, on a
+      # failure, the error codes. Never resource names, ids or messages (docs/operations.md, "When a deploy fails").
+      - name: Preview infrastructure changes
+        env:
+          AUTH_CLIENT_ID: ${{ secrets.DOJO_AUTH_CLIENT_ID }}
+          OWNER_OID: ${{ secrets.DOJO_OWNER_OID }}
+          TEAM_MODE: ${{ steps.team.outputs.on }}
+        run: |
+          status=0
+          az deployment group what-if --resource-group "$RESOURCE_GROUP" --template-file infra/main.bicep \
+            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" --no-pretty-print --output json \
+            > whatif.json 2> whatif.err || status=$?
+          python tools/public_log.py preview "$status" whatif.err whatif.json
+      - name: Deploy infrastructure (incremental, rg-dojo-swc only)
+        env:
+          AUTH_CLIENT_ID: ${{ secrets.DOJO_AUTH_CLIENT_ID }}
+          OWNER_OID: ${{ secrets.DOJO_OWNER_OID }}
+          TEAM_MODE: ${{ steps.team.outputs.on }}
+        run: |
+          status=0
+          az deployment group create --resource-group "$RESOURCE_GROUP" --name "dojo-${GITHUB_RUN_NUMBER}" \
+            --template-file infra/main.bicep --mode Incremental \
+            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" --output none 2> deploy.err || status=$?
+          python tools/public_log.py infra "$status" deploy.err
+      - name: Package the app
+        run: |
+          echo "${GITHUB_SHA}" > app/build.txt
+          zip -qr dojo.zip app requirements.txt docs/user-guide.md LICENSE THIRD-PARTY-NOTICES.md -x "*/__pycache__/*"
+      - name: Deploy the app
+        # The platform's own startup tracker remembers failed boots from before any code existed (the
+        # infrastructure step creates the site first), so it is off; the smoke test below checks the exact build.
+        # The infrastructure step can restart the deployment service a minute later, in the middle of this upload or
+        # of the build that installs the requirements: az then fails, and the build goes on or was stopped. So it
+        # tries once more after a pause (refused while the first build still runs, or a new build if it stopped),
+        # and this step may fail: the smoke test decides (docs/operations.md, "Troubleshooting").
+        continue-on-error: true
+        run: |
+          status=0
+          az webapp deploy --resource-group "$RESOURCE_GROUP" --name "$SITE" --src-path dojo.zip --type zip \
+            --track-status false --output none 2> webapp.err || status=$?
+          if [ "$status" -ne 0 ]; then
+            python tools/public_log.py app "$status" webapp.err || true
+            echo "Trying once more in 90 seconds; the smoke test decides."
+            sleep 90
+            status=0
+            az webapp deploy --resource-group "$RESOURCE_GROUP" --name "$SITE" --src-path dojo.zip --type zip \
+              --track-status false --output none 2> webapp.err || status=$?
+          fi
+          python tools/public_log.py app "$status" webapp.err
+      - name: Smoke test (the running app checks its models, Speech both ways and sign-in)
+        run: |
+          for i in $(seq 1 60); do
+            body=$(curl -fsS --max-time 20 "https://$SITE.azurewebsites.net/healthz" || true)
+            echo "$body"
+            if printf '%s' "$body" | python -c "import json,os,sys; s=json.load(sys.stdin); sys.exit(0 if s['build']==os.environ['GITHUB_SHA'] and s['status']=='ok' else 1)" 2>/dev/null; then
+              echo "Healthy."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "The app did not report healthy with this build within 20 minutes."
+          exit 1

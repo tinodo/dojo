@@ -1,0 +1,449 @@
+{
+  "id": "lesson-de0c0ffee000000b0110",
+  "package": "xy-110",
+  "skill": "d2.g1.s1",
+  "skill_text": "Plan and monitor widget sync",
+  "created": "2026-10-05T18:00:00+00:00",
+  "rounds": 1,
+  "template": 2,
+  "kept_share": 0.95,
+  "models": {
+    "author": "gpt-5.5",
+    "gate": "grok-4-1-fast-reasoning"
+  },
+  "sources": [
+    {
+      "n": 1,
+      "url": "https://learn.microsoft.com/en-us/contoso/widgets/sync-overview",
+      "title": "Widget sync overview",
+      "publisher": "Contoso Docs",
+      "license": "CC-BY-4.0",
+      "fetched_at": "2026-10-05T17:50:00+00:00",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "stale": false,
+      "excerpt_chars": 6400
+    },
+    {
+      "n": 2,
+      "url": "https://learn.microsoft.com/en-us/contoso/widgets/sync-troubleshoot",
+      "title": "Monitor and troubleshoot widget sync",
+      "publisher": "Contoso Docs",
+      "license": "CC-BY-4.0",
+      "fetched_at": "2026-10-05T17:50:00+00:00",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "stale": false,
+      "excerpt_chars": 6400
+    }
+  ],
+  "cited": [
+    "https://learn.microsoft.com/en-us/contoso/widgets/sync-overview",
+    "https://learn.microsoft.com/en-us/contoso/widgets/sync-troubleshoot"
+  ],
+  "offered": [
+    "https://learn.microsoft.com/en-us/contoso/widgets/sync-overview",
+    "https://learn.microsoft.com/en-us/contoso/widgets/sync-troubleshoot"
+  ],
+  "blocked": [],
+  "title": "Widget sync: how settings reach every device",
+  "summary": "Widget sync carries settings from the hub to every enrolled device. This lesson covers the four stages of a run, who may change what, the three sync modes and when to use each, how retries work, and how to read a sync.yaml file.",
+  "sections": [
+    {
+      "heading": "How a sync run works",
+      "points": [
+        {
+          "text": "A sync run collects, validates, packages and delivers settings, in that order.",
+          "quote": "Each sync run moves through four stages: collect, validate, package and deliver.",
+          "source": 1
+        },
+        {
+          "text": "A run that fails validation delivers nothing, so devices keep their last good settings.",
+          "quote": "A run that fails validation stops before anything is delivered, so devices keep their last good settings.",
+          "source": 1
+        }
+      ]
+    },
+    {
+      "heading": "Who can change sync",
+      "points": [
+        {
+          "text": "Hub administrators manage sync for the whole hub; site operators manage their own sites only.",
+          "quote": "Site operators can change sync settings for their own sites only.",
+          "source": 1
+        },
+        {
+          "text": "A device owner can pause sync on one device for up to 24 hours.",
+          "quote": "Device owners can pause sync on a single device for up to 24 hours.",
+          "source": 1
+        },
+        {
+          "text": "The most specific setting wins: device over site, site over hub.",
+          "quote": "The most specific setting wins.",
+          "source": 1
+        }
+      ]
+    },
+    {
+      "heading": "Sync modes",
+      "points": [
+        {
+          "text": "Push mode delivers settings as soon as they are published, and needs a live connection.",
+          "quote": "Push mode needs a live connection to the hub.",
+          "source": 1
+        },
+        {
+          "text": "Pull and mirror modes keep working when the connection to the hub is lost.",
+          "quote": "Pull mode and mirror mode keep working when the connection to the hub is lost",
+          "source": 1
+        },
+        {
+          "text": "In pull mode a device checks every 15 minutes unless you set another interval from 5 to 240 minutes.",
+          "quote": "You can set the interval from 5 to 240 minutes.",
+          "source": 1
+        }
+      ]
+    },
+    {
+      "heading": "Retries and the sync agent",
+      "points": [
+        {
+          "text": "Retries start after 1 minute and double each time, up to 60 minutes.",
+          "quote": "The first retry comes after 1 minute, and each later retry waits twice as long as the one before it, up to 60 minutes.",
+          "source": 2
+        },
+        {
+          "text": "After 8 failed retries a device is marked unreachable until it checks in again.",
+          "quote": "After 8 failed retries the device is marked as unreachable",
+          "source": 2
+        },
+        {
+          "text": "The agent never applies a package whose signature does not verify.",
+          "quote": "A package whose signature does not verify is never applied.",
+          "source": 2
+        }
+      ]
+    },
+    {
+      "heading": "Configuring and rolling out",
+      "points": [
+        {
+          "text": "A sync.yaml file sets the mode, the interval, a quiet window and the retry limit.",
+          "quote": "The following sync.yaml file sets pull mode with a 30-minute interval and a quiet window at night",
+          "source": 2
+        },
+        {
+          "text": "Large changes roll out in stages: a pilot site, then a region, then every site.",
+          "quote": "Contoso recommends a staged rollout for large changes.",
+          "source": 2
+        }
+      ]
+    }
+  ],
+  "misconceptions": [
+    {
+      "wrong": "A failed sync run leaves devices with half-applied settings.",
+      "right": "A run that fails validation stops before delivery, so devices keep their last good settings.",
+      "quote": "A run that fails validation stops before anything is delivered, so devices keep their last good settings.",
+      "source": 1
+    },
+    {
+      "wrong": "Site operators can change sync for the whole hub.",
+      "right": "Site operators change sync for their own sites only; hub administrators manage the whole hub.",
+      "quote": "Site operators can change sync settings for their own sites only.",
+      "source": 1
+    },
+    {
+      "wrong": "A shorter interval is always better.",
+      "right": "A shorter interval delivers changes sooner, but every device then sends more requests to the hub.",
+      "quote": "A shorter interval delivers changes sooner but sends more requests to the hub.",
+      "source": 1
+    }
+  ],
+  "example": {
+    "title": "Bringing back a device marked unreachable",
+    "situation": "After a weekend power cut, one device at a site shows as unreachable on the Sync health page.",
+    "steps": [
+      "Open the Sync health page and find the device's last status record.",
+      "Read why delivery stopped: after 8 failed retries the hub stopped trying.",
+      "Bring the device back online so that it checks in with the hub.",
+      "Confirm that the next sync run for the device is marked healthy."
+    ]
+  },
+  "self_check": [
+    {
+      "question": "What happens to devices when a sync run fails validation?",
+      "answer": "Nothing is delivered, so they keep their last good settings.",
+      "quote": "A run that fails validation stops before anything is delivered, so devices keep their last good settings.",
+      "source": 1
+    },
+    {
+      "question": "Which sync modes keep working when the connection to the hub is lost?",
+      "answer": "Pull mode and mirror mode; mirror mode serves the last copy the relay received.",
+      "quote": "Pull mode and mirror mode keep working when the connection to the hub is lost",
+      "source": 1
+    },
+    {
+      "question": "How long does the hub wait before the first retry, and how does the wait grow?",
+      "answer": "1 minute, then each retry waits twice as long as the one before, up to 60 minutes.",
+      "quote": "The first retry comes after 1 minute, and each later retry waits twice as long as the one before it, up to 60 minutes.",
+      "source": 2
+    },
+    {
+      "question": "Who can pause sync on a single device, and for how long?",
+      "answer": "The device owner, for up to 24 hours.",
+      "quote": "Device owners can pause sync on a single device for up to 24 hours.",
+      "source": 1
+    }
+  ],
+  "slides": [
+    {
+      "title": "Every sync run has four stages",
+      "bullets": [
+        "Collect, validate, package, deliver",
+        "Always in that order",
+        "A failed validation stops the run",
+        "Devices keep their last good settings"
+      ],
+      "narration": [
+        {
+          "voice": "coach",
+          "text": "So what actually happens when the hub syncs a device?"
+        },
+        {
+          "voice": "guide",
+          "text": "Every run moves through four stages: it collects the settings, validates them, packages them and delivers them."
+        },
+        {
+          "voice": "guide",
+          "text": "The order matters. Validation comes before anything leaves the hub."
+        },
+        {
+          "voice": "guide",
+          "text": "So when validation fails, the run stops there, and devices simply keep their last good settings."
+        }
+      ]
+    },
+    {
+      "title": "Who can change sync",
+      "bullets": [
+        "Hub administrators: the whole hub",
+        "Site operators: their own sites only",
+        "Device owners: pause one device for up to 24 hours",
+        "The most specific setting wins"
+      ],
+      "narration": [
+        {
+          "voice": "coach",
+          "text": "Can anyone with access change how sync works?"
+        },
+        {
+          "voice": "guide",
+          "text": "No. Hub administrators can change sync settings for the whole hub."
+        },
+        {
+          "voice": "guide",
+          "text": "Site operators can change them for their own sites only, and a device owner can pause sync on one device for up to 24 hours."
+        },
+        {
+          "voice": "coach",
+          "text": "And if the hub and a site disagree?"
+        },
+        {
+          "voice": "guide",
+          "text": "The most specific setting wins: a site setting beats the hub, and a device setting beats the site."
+        }
+      ]
+    },
+    {
+      "title": "Three ways to sync",
+      "bullets": [
+        "Push: delivered as soon as it is published",
+        "Pull: each device asks on its own schedule",
+        "Mirror: devices read from a relay at the site"
+      ],
+      "narration": [
+        {
+          "voice": "guide",
+          "text": "There are three sync modes. Push mode delivers settings as soon as a hub administrator publishes them."
+        },
+        {
+          "voice": "guide",
+          "text": "Pull mode lets each device ask the hub for changes on its own schedule."
+        },
+        {
+          "voice": "guide",
+          "text": "Mirror mode keeps a full copy of the hub settings on a local relay at the site, and devices read from the relay."
+        },
+        {
+          "voice": "coach",
+          "text": "What if the connection to the hub drops?"
+        },
+        {
+          "voice": "guide",
+          "text": "Push needs a live connection. Pull and mirror keep working, and mirror serves the last copy the relay received."
+        }
+      ]
+    },
+    {
+      "title": "Pick the mode for a site",
+      "bullets": [
+        "Reliable link, changes at once: push",
+        "Changes can wait: pull",
+        "Link often drops: mirror"
+      ],
+      "narration": [
+        {
+          "voice": "coach",
+          "text": "How do I choose between them for a site?"
+        },
+        {
+          "voice": "guide",
+          "text": "Look at two things: how reliable the site's connection is, and how fast changes must arrive."
+        },
+        {
+          "voice": "guide",
+          "text": "A reliable connection and changes that must arrive at once point to push mode."
+        },
+        {
+          "voice": "guide",
+          "text": "If devices can wait for their next check, pull mode is enough. And for a site whose connection often drops, use mirror mode."
+        }
+      ]
+    },
+    {
+      "title": "How often a device checks",
+      "bullets": [
+        "Every 15 minutes by default",
+        "Set it from 5 to 240 minutes",
+        "Shorter: changes sooner, more requests"
+      ],
+      "narration": [
+        {
+          "voice": "guide",
+          "text": "In pull mode each device checks the hub every 15 minutes by default."
+        },
+        {
+          "voice": "guide",
+          "text": "You can set the interval anywhere from 5 to 240 minutes."
+        },
+        {
+          "voice": "coach",
+          "text": "So shorter is better?"
+        },
+        {
+          "voice": "guide",
+          "text": "Not always. A shorter interval brings changes sooner, but it also sends more requests to the hub."
+        }
+      ]
+    },
+    {
+      "title": "When delivery fails",
+      "bullets": [
+        "The first retry comes after 1 minute",
+        "Each wait doubles, up to 60 minutes",
+        "After 8 failed retries: unreachable"
+      ],
+      "narration": [
+        {
+          "voice": "coach",
+          "text": "What does the hub do when a device does not answer?"
+        },
+        {
+          "voice": "guide",
+          "text": "It waits and tries again. The first retry comes after one minute."
+        },
+        {
+          "voice": "guide",
+          "text": "Each later retry waits twice as long as the one before, up to sixty minutes."
+        },
+        {
+          "voice": "guide",
+          "text": "After eight failed retries the device is marked as unreachable, and the hub stops trying until the device checks in again."
+        }
+      ]
+    },
+    {
+      "title": "Inside the sync agent",
+      "bullets": [
+        "Scheduler: starts each check",
+        "Downloader: fetches the package",
+        "Verifier: checks the signature",
+        "Reporter: sends the result to the hub"
+      ],
+      "narration": [
+        {
+          "voice": "guide",
+          "text": "On every device, the sync agent does the work in four parts."
+        },
+        {
+          "voice": "guide",
+          "text": "The scheduler starts each check, and the downloader fetches the settings package."
+        },
+        {
+          "voice": "guide",
+          "text": "The verifier checks the package signature, and the reporter sends the result back to the hub."
+        },
+        {
+          "voice": "coach",
+          "text": "And a package with a bad signature?"
+        },
+        {
+          "voice": "guide",
+          "text": "It is never applied."
+        }
+      ]
+    },
+    {
+      "title": "Reading a sync.yaml file",
+      "bullets": [
+        "mode and interval_minutes: how a device checks",
+        "quiet_window: no new checks at night",
+        "retry: the most attempts"
+      ],
+      "narration": [
+        {
+          "voice": "guide",
+          "text": "Here is a sync.yaml file. It sets pull mode with a thirty-minute interval."
+        },
+        {
+          "voice": "guide",
+          "text": "The quiet window runs from ten at night to six in the morning. During it, the agent starts no new checks."
+        },
+        {
+          "voice": "coach",
+          "text": "And a check that is already running?"
+        },
+        {
+          "voice": "guide",
+          "text": "It finishes. The retry block allows up to eight attempts, and results are reported to the hub."
+        }
+      ]
+    },
+    {
+      "title": "Rolling out a big change",
+      "bullets": [
+        "Day 1: one pilot site",
+        "Day 3: one region",
+        "Day 7: every site",
+        "Check Sync health before each stage"
+      ],
+      "narration": [
+        {
+          "voice": "guide",
+          "text": "For a large change, Contoso recommends a staged rollout."
+        },
+        {
+          "voice": "guide",
+          "text": "Start with one pilot site on day one, extend to one region on day three, and to every site on day seven."
+        },
+        {
+          "voice": "coach",
+          "text": "And between the stages?"
+        },
+        {
+          "voice": "guide",
+          "text": "Review the Sync health page before each stage, so a problem stays small."
+        }
+      ]
+    }
+  ]
+}

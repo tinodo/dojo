@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+*.zip
+.dojo-data/
+app/build.txt

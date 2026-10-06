@@ -1,0 +1,380 @@
+{
+  "note": "Dojo's own synthetic deck spec for the fictional widget-sync lesson, as the author model would return it.",
+  "outcomes": [
+    "Name the four stages of a sync run and what a failed validation stops",
+    "Choose push, pull or mirror mode for a site",
+    "Explain how retries grow and when a device counts as unreachable",
+    "Read a sync.yaml file and plan a staged rollout"
+  ],
+  "sections": [
+    {
+      "title": "How sync works",
+      "slides": [
+        0,
+        1
+      ]
+    },
+    {
+      "title": "Choosing a mode",
+      "slides": [
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "title": "Keeping sync healthy",
+      "slides": [
+        5,
+        6,
+        7,
+        8
+      ]
+    }
+  ],
+  "slides": [
+    {
+      "slide": 0,
+      "visual": {
+        "type": "flow",
+        "steps": [
+          {
+            "label": "Collect",
+            "note": "",
+            "icon": "download",
+            "cue": 1
+          },
+          {
+            "label": "Validate",
+            "note": "a failed check stops the run here",
+            "icon": "shield",
+            "cue": 1
+          },
+          {
+            "label": "Package",
+            "note": "",
+            "icon": "file",
+            "cue": 1
+          },
+          {
+            "label": "Deliver",
+            "note": "to every enrolled device",
+            "icon": "share",
+            "cue": 1
+          }
+        ]
+      },
+      "tip": {
+        "kind": "trap",
+        "text": "A run that fails validation delivers nothing, so devices keep their last good settings.",
+        "quote": "A run that fails validation stops before anything is delivered, so devices keep their last good settings.",
+        "source": 1,
+        "cue": 3
+      }
+    },
+    {
+      "slide": 1,
+      "visual": {
+        "type": "stack",
+        "layers": [
+          {
+            "label": "Hub administrators",
+            "note": "change sync for the whole hub",
+            "icon": "studio",
+            "cue": 1
+          },
+          {
+            "label": "Site operators",
+            "note": "change sync for their own sites only",
+            "icon": "pin",
+            "cue": 2
+          },
+          {
+            "label": "Device owners",
+            "note": "pause sync on one device for up to 24 hours",
+            "icon": "phone",
+            "cue": 2
+          }
+        ]
+      },
+      "tip": null
+    },
+    {
+      "slide": 2,
+      "visual": {
+        "type": "compare",
+        "columns": [
+          "Push",
+          "Pull",
+          "Mirror"
+        ],
+        "rows": [
+          {
+            "label": "Delivers",
+            "cells": [
+              "as soon as it is published",
+              "when a device asks",
+              "from a relay at the site"
+            ],
+            "cue": 0
+          },
+          {
+            "label": "Who starts it",
+            "cells": [
+              "the hub, on publish",
+              "each device",
+              "each device, at the relay"
+            ],
+            "cue": 1
+          },
+          {
+            "label": "Works if the hub link drops",
+            "cells": [
+              "no",
+              "yes",
+              "yes"
+            ],
+            "cue": 4
+          }
+        ]
+      }
+    },
+    {
+      "slide": 3,
+      "visual": {
+        "type": "matrix",
+        "x": {
+          "label": "Hub connection",
+          "low": "often drops",
+          "high": "reliable"
+        },
+        "y": {
+          "label": "Changes must arrive",
+          "low": "by the next check",
+          "high": "at once"
+        },
+        "cells": [
+          {
+            "x": 1,
+            "y": 1,
+            "label": "Push mode",
+            "note": "delivered as soon as published",
+            "cue": 2
+          },
+          {
+            "x": 1,
+            "y": 0,
+            "label": "Pull mode",
+            "note": "devices check on their own schedule",
+            "cue": 3
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "label": "Mirror mode",
+            "note": "devices read from a local relay",
+            "cue": 3
+          },
+          {
+            "x": 0,
+            "y": 1,
+            "label": "Mirror mode",
+            "note": "the relay serves the last copy it received",
+            "cue": 3
+          }
+        ]
+      }
+    },
+    {
+      "slide": 4,
+      "visual": {
+        "type": "keynum",
+        "value": "15",
+        "unit": "minutes",
+        "label": "How often a device in pull mode checks the hub, by default",
+        "quote": "In pull mode, each device checks the hub every 15 minutes by default.",
+        "source": 1
+      },
+      "tip": {
+        "kind": "tip",
+        "text": "Shorter is not free: a shorter interval brings changes sooner but sends more requests to the hub.",
+        "quote": "A shorter interval delivers changes sooner but sends more requests to the hub.",
+        "source": 1,
+        "cue": 3
+      }
+    },
+    {
+      "slide": 5,
+      "visual": {
+        "type": "cycle",
+        "steps": [
+          {
+            "label": "Delivery fails",
+            "note": "",
+            "icon": "alert",
+            "cue": 0
+          },
+          {
+            "label": "Wait",
+            "note": "1 minute at first, then twice as long each time",
+            "icon": "clock",
+            "cue": 1
+          },
+          {
+            "label": "Try again",
+            "note": "the wait grows up to 60 minutes",
+            "icon": "refresh",
+            "cue": 2
+          }
+        ]
+      },
+      "tip": {
+        "kind": "trap",
+        "text": "After 8 failed retries the device is marked unreachable and the hub stops trying until it checks in.",
+        "quote": "After 8 failed retries the device is marked as unreachable, and the hub stops trying until the device checks in again.",
+        "source": 2,
+        "cue": 3
+      }
+    },
+    {
+      "slide": 6,
+      "visual": {
+        "type": "hub",
+        "center": "Sync agent",
+        "icon": "refresh",
+        "spokes": [
+          {
+            "label": "Scheduler",
+            "note": "starts each check",
+            "icon": "clock",
+            "cue": 1
+          },
+          {
+            "label": "Downloader",
+            "note": "fetches the settings package",
+            "icon": "download",
+            "cue": 1
+          },
+          {
+            "label": "Verifier",
+            "note": "checks the package signature",
+            "icon": "shield",
+            "cue": 2
+          },
+          {
+            "label": "Reporter",
+            "note": "sends the result back to the hub",
+            "icon": "share",
+            "cue": 2
+          }
+        ]
+      },
+      "tip": {
+        "kind": "trap",
+        "text": "The verifier is a hard stop: a package whose signature does not verify is never applied.",
+        "quote": "A package whose signature does not verify is never applied.",
+        "source": 2,
+        "cue": 4
+      }
+    },
+    {
+      "slide": 7,
+      "visual": {
+        "type": "code",
+        "lang": "yaml",
+        "source": 2,
+        "lines": [
+          "mode: pull",
+          "interval_minutes: 30",
+          "quiet_window:",
+          "  start: \"22:00\"",
+          "  end: \"06:00\"",
+          "retry:",
+          "  max_attempts: 8",
+          "report_to: hub"
+        ],
+        "marks": [
+          {
+            "line": 0,
+            "note": "pull mode: each device asks the hub",
+            "cue": 0
+          },
+          {
+            "line": 1,
+            "note": "a check every 30 minutes",
+            "cue": 0
+          },
+          {
+            "line": 2,
+            "note": "no new checks from 22:00 to 06:00",
+            "cue": 1
+          },
+          {
+            "line": 6,
+            "note": "up to 8 attempts",
+            "cue": 3
+          }
+        ]
+      }
+    },
+    {
+      "slide": 8,
+      "visual": {
+        "type": "timeline",
+        "events": [
+          {
+            "when": "Day 1",
+            "label": "One pilot site",
+            "cue": 1
+          },
+          {
+            "when": "Day 3",
+            "label": "One region",
+            "cue": 1
+          },
+          {
+            "when": "Day 7",
+            "label": "Every site",
+            "cue": 1
+          }
+        ]
+      },
+      "tip": {
+        "kind": "tip",
+        "text": "Before each stage, review the Sync health page.",
+        "quote": "Review the Sync health page before each stage.",
+        "source": 2,
+        "cue": 3
+      }
+    }
+  ],
+  "recap": [
+    "A sync run collects, validates, packages and delivers; a failed validation delivers nothing.",
+    "Hub administrators, site operators and device owners each reach a different level.",
+    "Push needs a live hub; pull and mirror keep working without it.",
+    "Retries wait 1 minute, then double up to 60; 8 failures mark a device unreachable.",
+    "sync.yaml sets the mode, interval, quiet window and retries; big changes roll out in stages."
+  ],
+  "alternates": {
+    "2": {
+      "type": "contrast",
+      "left": {
+        "title": "Needs a live hub link",
+        "tone": "bad",
+        "icon": "link",
+        "points": [
+          "Push mode delivers only while the hub connection is live"
+        ]
+      },
+      "right": {
+        "title": "Keeps working offline",
+        "tone": "good",
+        "icon": "shield",
+        "points": [
+          "Pull mode keeps working",
+          "Mirror mode serves the last copy the relay received"
+        ]
+      }
+    }
+  }
+}
