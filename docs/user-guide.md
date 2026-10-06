@@ -131,9 +131,11 @@ Your Record shows how well your sureness matched your results, in **Know what yo
 
 ### How judging works
 
-A grader model judges each answer against the points the question expects. For every point it gives you, it must quote your own words. Then a checker model reads the quoted words and decides whether they really show the point. You see which points were met, with the quotes.
+A grader model judges each answer against the points the question expects. For every point it gives you, it must quote your own words. Then a checker model reads the quoted words and the grader's reasons, and decides whether they really show the point. When the checker disagrees with the grader about a point, a third model, the referee, reads your answer and decides that point; the point then says so. You see which points were met, with the quotes.
 
-Feedback is checked too. If feedback does not pass the check, Dojo holds it back and logs why in the Studio log.
+Feedback is checked too. If feedback does not pass the check, Dojo holds it back and logs why in the Studio log. When the referee changed a point, the grader's feedback is held back as well, because it was written for the grader's verdicts.
+
+How well this works is measured: a bench of 36 answers with known results is judged before any change to the judging rules. The current rules got all 144 points right, three times over (`docs/adr/0016-grader-bench-and-referee.md`). That is a measurement on known answers, not a promise for every answer: use Dispute when a judgement looks wrong.
 
 In team mode, if today's budget is used up, your answer is saved. **Judge my answer now** opens again after midnight UTC.
 
@@ -158,8 +160,9 @@ Dojo's judging rules improve over time. If an answer was judged with older rules
 A point counts as not met when:
 
 - your answer does not say it. Leaving something out never meets a point: a point such as "Do not use X" is met only when you name the right choice or reject X;
-- the grader's quote of your answer was not found in your answer, word for word (a list may be quoted in parts, each word for word); or
-- the checker finds that the quoted words do not show the point.
+- the grader's quote of your answer was not found in your answer, word for word (a list may be quoted in parts, each word for word);
+- the checker finds that the quoted words do not show the point, and the referee agrees; or
+- the referee decides the point and cannot quote your answer for it.
 
 So a right idea that you did not write down, or wrote only vaguely, does not count. Write the point in plain words.
 
@@ -453,7 +456,7 @@ All members together also share a daily cap, by default 5 US dollars at list pri
 
 ## Limitations
 
-- **AI can be wrong.** A second model checks what the first one writes, and quotes are matched word for word. Mistakes can still get through. Use Dispute when a judgement looks wrong.
+- **AI can be wrong.** A second model checks what the first one writes, a third decides where they disagree about a judgement, and quotes are matched word for word. Mistakes can still get through. Use Dispute when a judgement looks wrong.
 - **Only Microsoft Learn and GitHub Docs.** Dojo uses only pages from these two sites. A skill with no verified page is not taught.
 - **Not real exam questions.** Dojo writes its own questions in the exam's formats. They are practice, not the real exam.
 - **No pass prediction.** Readiness is advice from your own record, not a chance of passing.
@@ -538,6 +541,7 @@ Team mode is not a button in the app. It is a setting of the deployment (`teamMo
 - **Domain**: a group of skills in the study guide, with its share of the exam.
 - **Gate**: the checker model. It checks every model-written text you see against the official sources, and removes what does not hold.
 - **Grader**: the model that judges your answers. It must quote your own words for every point it gives.
+- **Referee**: the third model that decides a point when the checker disagrees with the grader about it.
 - **Pip**: one of the four small circles next to a skill. Each stands for a condition: with help, on your own, later, in a new situation.
 - **Relearned**: a skill you got right in 3 on-time recalls on different days.
 - **Skill**: one line of the official study guide, such as a task you should be able to do or explain.

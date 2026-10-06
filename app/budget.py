@@ -79,7 +79,7 @@ TOKENS_PER_REQUEST = 64      # and per request
 MAX_OUT_ROLE = {"author": 16000, "gate": 12000, "grader": 8000}
 MAX_OUT = {
     ("author", "lesson"): 32000, ("author", "deep_narration"): 24000, ("author", "item_case"): 24000,
-    ("author", "answer"): 8000, ("gate", "gate_elements"): 16000,
+    ("author", "answer"): 8000, ("gate", "gate_elements"): 16000, ("author", "referee"): 4000,
     ("author", "ping"): 2000, ("gate", "ping"): 2000, ("grader", "ping"): 2000,
 }
 # The worst case of each action, reserved together at the route before anything is recorded: every model
@@ -98,7 +98,8 @@ MAX_OUT = {
 # fails. So no action is ever stopped half-way for lack of money with ordinary inputs.
 TRIES = 2
 PRE_INPUT_TOKENS = 48000
-PRE_INPUT = {("grader", "grade"): 64000, ("gate", "gate_judgement"): 64000, ("gate", "gate_elements"): 80000}
+PRE_INPUT = {("grader", "grade"): 64000, ("gate", "gate_judgement"): 64000, ("gate", "gate_elements"): 80000,
+             ("author", "referee"): 64000}
 # A lesson has at most 171 elements to check (the caps of learning._clean_lesson: title, summary, 6
 # sections of 1 + 6, 4 misconceptions, example title, situation and 8 steps, 5 questions, 9 slides of
 # 1 + 5 + 6), sent to the gate 40 at a time.
@@ -126,8 +127,9 @@ def pre_input(role: str, task: str) -> int:
 ACTION_CALLS: dict[str, tuple[tuple[str, str, int], ...]] = {
     # The tutor's answer, then the gate over its points (at most 8 and "not covered": one chunk).
     "ask": (("author", "answer", TRIES), ("gate", "gate_elements", TRIES)),
-    # The grader once, and once more with the quotes that did not verify; then the gate on what is shown.
-    "answer": (("grader", "grade", 2 * TRIES), ("gate", "gate_judgement", TRIES)),
+    # The grader once, and once more with the quotes that did not verify; then the gate on what is shown; then, once,
+    # the referee on the points the gate disagreed about (ADR 0016: one try; if it fails, the grader's verdict stands).
+    "answer": (("grader", "grade", 2 * TRIES), ("gate", "gate_judgement", TRIES), ("author", "referee", 1)),
     "item": ITEM_ROUND,
     # A check writes one item per question (make_item), so its route passes the questions as batches.
     "check": ITEM_ROUND,
