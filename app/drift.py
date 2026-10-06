@@ -54,7 +54,7 @@ from fastapi import HTTPException
 
 from . import items as exam_items
 from .avatar import lesson_turns, media_id_for
-from .core import Learner, UserError, iso, parse_iso, sha256, utcnow
+from .core import Learner, UserError, iso, one_line, parse_iso, sha256, utcnow
 from .costs import LABEL as PRICE_LABEL
 from .labs import LABS
 from .sources import check_url, docs_url
@@ -307,7 +307,7 @@ class DriftCheck:
             self._save(doc)
         for cache in (self._written, self._plans, self._verdicts, self._titles):
             cache.clear()
-        log.info("drift check: forgot what it wrote down for the removed exam %s", pid)
+        log.info("drift check: forgot what it wrote down for the removed exam %s", one_line(pid))
 
     def forget_pages(self, urls: list[str]) -> None:
         """Pages Dojo had found for a skill that went gone and that a search replaced (ADR 0008): no package
@@ -700,7 +700,7 @@ class DriftCheck:
                               **{url: mark for url in self._lab_urls(spec) if (mark := self._mark(url))}}
             watch["looked"] = iso(self.now())
             self._save(doc)
-        log.info("drift check: the owner looked at lab %s after its page changed", lab)
+        log.info("drift check: the owner looked at lab %s after its page changed", one_line(lab))
         return self.summary()
 
     def _lab_now(self, entry: dict, url: str, doc: dict) -> dict:

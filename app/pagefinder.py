@@ -68,7 +68,7 @@ KNOWN_RULE = ("Some skills already cite a page, named under the skill. Never pic
 
 _ANGLE = str.maketrans({"<": "\u2039", ">": "\u203a"})
 _BACK = str.maketrans({"\u2039": "<", "\u203a": ">"})
-_TAG = re.compile(r"<[^>]*>")
+_TAG = re.compile(r"<[^<>]*>")   # [^<>], not [^>]: a run of "<" with no ">" costs linear time, not quadratic
 
 
 def untrusted(value: Any, limit: int | None = None) -> str:
