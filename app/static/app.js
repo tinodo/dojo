@@ -4269,13 +4269,14 @@ function resultCards(it) {
         p.met && !p.verified ? h("p", { class: "words" }, p.not_shown
           ? "The checker read the quoted parts of your answer in the whole answer and found they do not show this point, so it counts as not met."
           : "The grader's quote of your answer was not found in it, so this point counts as not met.") : null,
-        p.why ? h("p", { class: "words muted" }, p.why) : null);
+        p.why ? h("p", { class: "words muted" }, p.why) : null,
+        p.refereed ? h("p", { class: "words muted" }, `The checker disagreed with the grader about this point, so a third model${r.models && r.models.referee ? ` (${r.models.referee})` : ""} decided it. The grader had said ${p.refereed.grader_met ? "met" : "not met"}.`) : null);
     })),
     r.feedback
       ? h("div", { class: "feedback" }, h("b", null, "Feedback"), h("p", null, r.feedback),
           r.misconception ? h("p", null, h("strong", null, "A likely misconception: "), r.misconception) : null)
       : h("p", { class: "note top" }, `Feedback withheld: ${r.withheld_reason || "it did not pass the independent check."}`),
-    h("p", { class: "small muted" }, `Judged by ${r.models.grader}; feedback checked by ${r.models.gate}, with Dojo's judging rules version ${r.version || 1}. Every point it gives you must quote your own words.`)));
+    h("p", { class: "small muted" }, `Judged by ${r.models.grader}; feedback checked by ${r.models.gate}${r.models.referee ? `; points they disagreed about decided by ${r.models.referee}` : ""}, with Dojo's judging rules version ${r.version || 1}. Every point it gives you must quote your own words.`)));
   out.push(judgeAgainPanel(it));
   out.push(h("section", { class: "panel" }, eyebrow("file", "What a full answer covers"),
     it.changed_condition ? h("p", { class: "cond" }, icon("refresh", "sm"), h("span", null, h("b", null, "The changed condition: "), it.changed_condition)) : null,

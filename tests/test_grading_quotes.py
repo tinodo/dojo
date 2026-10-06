@@ -224,18 +224,45 @@ class GradeFlowTests(unittest.TestCase):
                       "placedat: datetime2, non-null' show the rubric point", self.gate_prompts[0])
         self.assertTrue(all(p["stitched"] for p in it["result"]["points"]))
 
-    def test_a_stitched_quote_the_gate_rejects_is_not_met_and_logged(self):
-        def gate(user: str) -> dict:
-            return {"verdicts": [{"id": eid, "holds": not eid.startswith("q."), "reason": "the fragments drop a 'no'"}
-                                 for eid in ai_mod._ELEMENT.findall(user)]}
-        it, prompts = self.grade(STITCHED, gate=gate)
+    @staticmethod
+    def gate_rejecting_fragments(user: str) -> dict:
+        return {"verdicts": [{"id": eid, "holds": not eid.startswith("q."), "reason": "the fragments drop a 'no'"}
+                             for eid in ai_mod._ELEMENT.findall(user)]}
+
+    def test_a_stitched_quote_the_gate_rejects_goes_to_the_referee(self):
+        def referee(user: str) -> dict:   # agrees with the checker
+            return {"points": [{"id": rid, "met": False, "learner_quote": "", "why": "The fragments leave out a 'no'."}
+                               for rid in ai_mod._RUBRIC.findall(user)]}
+        with mock.patch.object(self.dojo.ai, "_referee", referee):
+            it, prompts = self.grade(STITCHED, gate=self.gate_rejecting_fragments)
+        r = it["result"]
+        self.assertEqual((r["met"], r["unverified"]), (0, 0))
+        self.assertTrue(all(p["refereed"] == {"grader_met": True, "objection": "the fragments drop a 'no'"} for p in r["points"]))
+        self.assertTrue(all(not p["met"] for p in self.judged(it["id"])["points"]))
+        log = [x for x in self.c.get("/api/quality").json() if x.get("item") == it["id"]]
+        decided = [x for x in log if "a third model decided it: not met (the grader had said met)" in x["reason"]]
+        self.assertEqual(len(decided), r["total"])
+
+    def test_a_stitched_quote_the_checker_gives_no_verdict_on_goes_to_the_referee(self):
+        def gate(user: str) -> dict:   # leaves out every verdict on fragments
+            return {"verdicts": [{"id": eid, "holds": True, "reason": ""} for eid in ai_mod._ELEMENT.findall(user)
+                                 if not eid.startswith("q.")]}
+        it, _ = self.grade(STITCHED, gate=gate)   # the stub referee decides as the stub grader: met, quoting the fragments
+        r = it["result"]
+        self.assertEqual((r["met"], r["unverified"]), (r["total"], 0))
+        self.assertTrue(all(p["refereed"] == {"grader_met": True, "objection": "The checker gave no verdict on the quoted fragments."}
+                            for p in r["points"]))
+
+    def test_a_stitched_quote_the_gate_rejects_is_not_met_and_logged_without_a_referee(self):
+        with mock.patch.object(self.dojo, "_referee", side_effect=ai_mod.AIError("author model: down")):
+            it, prompts = self.grade(STITCHED, gate=self.gate_rejecting_fragments)
         r = it["result"]
         self.assertEqual((r["met"], r["unverified"]), (0, r["total"]))
         self.assertTrue(all(p["not_shown"] and not p["why"] and p["learner_quote"] == STITCHED for p in r["points"]))
         self.assertTrue(all(not p["met"] for p in self.judged(it["id"])["points"]))
         log = [x for x in self.c.get("/api/quality").json() if x.get("item") == it["id"]]
-        self.assertEqual(len(log), r["total"])
-        self.assertTrue(all("do not show this point (the fragments drop a 'no')" in x["reason"] for x in log))
+        self.assertEqual(len([x for x in log if "do not show this point (the fragments drop a 'no')" in x["reason"]]), r["total"])
+        self.assertEqual(len([x for x in log if "The referee could not be reached" in x["reason"]]), 1)
 
     def test_a_stitched_quote_is_not_met_when_the_gate_cannot_be_reached(self):
         def gate(user: str) -> dict:

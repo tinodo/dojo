@@ -363,6 +363,10 @@ class StubAI:
             points.append({"id": rid, "met": met, "learner_quote": quote if met else "", "why": "stub"})
         return {"points": points, "feedback": "Stub feedback.", "misconception": ""}
 
+    def _referee(self, user: str) -> dict:
+        """Decides the listed points the way the stub grader judges them."""
+        return {"points": [{**p, "why": "stub referee"} for p in self._grade(user)["points"]]}
+
     def _mcq(self, user: str) -> dict:
         items = []
         batch = next(self._batches)  # a real author writes a different question every time

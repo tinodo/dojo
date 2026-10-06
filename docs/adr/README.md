@@ -25,6 +25,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0013](0013-phone.md) | Phone: an installable web app, opt-in push nudges (at most one a day) and a 5-minute session. | Proposed (built) |
 | [0014](0014-present-deck.md) | Present is a real deck: built from the checked lesson at no cost, with SVG visuals from one gated author call per lesson, synced to the slide narration. No AI images. | Proposed |
 | [0015](0015-judge-again.md) | Judge again: an answer judged with older judging rules can be judged again with today's, once, at the learner's request. A new event points at the old judgement, which stays visible; a dispute stays with the judgement it was filed against. | Proposed (built) |
+| [0016](0016-grader-bench-and-referee.md) | The grader bench measures judgements against answers with known results (version 2: 97.9%); judging rules version 3 adds a referee, a third model that decides the points the checker disagrees about (version 3: 432 of 432). | Proposed (built) |
 
 ## Writing a new ADR
 

@@ -452,10 +452,12 @@ class WorstCaseTests(unittest.TestCase):
                 t = self.b.open_call(f"{role}/{task}", self.bound(role, task))
                 self.b.settle(t, t.bound)
 
-    def test_grading_reserves_both_grader_calls_twice_and_the_gate(self):
-        self.assertEqual(budget_mod.ACTION_CALLS["answer"], (("grader", "grade", 4), ("gate", "gate_judgement", 2)))
+    def test_grading_reserves_both_grader_calls_twice_the_gate_and_one_referee_call(self):
+        self.assertEqual(budget_mod.ACTION_CALLS["answer"],
+                         (("grader", "grade", 4), ("gate", "gate_judgement", 2), ("author", "referee", 1)))
         with self.b.action("m1", "answer", "gh-300"):
-            # The grader, its retry, the second ask when quotes fail and its retry; the gate and its retry.
+            # The grader, its retry, the second ask when quotes fail and its retry; the gate and its retry; the
+            # referee once (ADR 0016: one try).
             self.run_calls(budget_mod.ACTION_CALLS["answer"])
         self.grow.assert_not_called()
 
@@ -521,7 +523,7 @@ class WorstCaseTests(unittest.TestCase):
                          {t for _, t, _ in budget_mod.ACTION_CALLS["check"]})
         self.assertEqual(budget_mod.ACTION_CALLS["check"], budget_mod.ACTION_CALLS["item"])
         self.assertEqual({t for _, t, _ in budget_mod.ACTION_CALLS["answer"]},
-                         {task_of(learning.GRADE_SYSTEM), task_of(learning.GATE_JUDGEMENT_SYSTEM)})
+                         {task_of(learning.GRADE_SYSTEM), task_of(learning.GATE_JUDGEMENT_SYSTEM), task_of(learning.REFEREE_SYSTEM)})
         self.assertEqual({t for _, t, _ in budget_mod.ACTION_CALLS["lesson"]},
                          {task_of(learning.LESSON_SYSTEM), task_of(learning.GATE_ELEMENTS_SYSTEM)})
         self.assertEqual({t for _, t, _ in budget_mod.ACTION_CALLS["ask"]},

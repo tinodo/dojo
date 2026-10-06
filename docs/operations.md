@@ -382,6 +382,12 @@ To try the real models from your laptop, also set `DOJO_LOCAL_AI=real`, `DOJO_AI
 `tools/dev_real.py` runs a lesson, an item or a rehearsal this way. It reads these settings from the
 environment and stops with a clear message if one is missing.
 
+`tools/grader_bench.py` measures the grader with the same settings: it judges the answers in
+`tests/data/grader_bench/`, whose right results are known, and reports agreement, judgements too generous or
+too harsh, and how often the referee decided a point (ADR 0016). Run it with `--repeat 3` before any change to
+the judging rules (`GRADING_VERSION` in `app/learning.py`) or to a model, and keep the result in the pull
+request. It costs about 1.5 US cents an answer.
+
 Before you push, run the same checks as CI:
 
 ```powershell
