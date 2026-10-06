@@ -331,6 +331,25 @@ class JudgeAgainTests(unittest.TestCase):
             out = self.post(f"/api/items/{item}/dispute", {"reason": reason})
             self.assertEqual(self.wait(out["review"], ok=False)["state"], "failed")
 
+    def test_a_dispute_filed_while_judging_again_wins(self):
+        item, sid = self.answered()
+        real = self.dojo._judge
+
+        def judge_while_a_dispute_lands(progress, it):
+            out = real(progress, it)
+            with self.dojo.store.lock:   # a dispute filed in the moment before this job was registered
+                stored = self.dojo.item(self.me, item)
+                stored["disputed"] = {"at": "2026-10-06T12:00:00+00:00", "reason": "Filed in the gap."}
+                self.dojo._save_item(self.me, stored)
+            return out
+        with mock.patch.object(self.dojo, "_judge", judge_while_a_dispute_lands):
+            job = self.wait(self.post(f"/api/items/{item}/judge-again"), ok=False)
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("A dispute was filed while this answer was judged again", job["error"])
+        it = self.dojo.item(self.me, item)
+        self.assertEqual(it["disputed"]["reason"], "Filed in the gap.")
+        self.assertFalse(it.get("history"), "nothing was replaced")
+
     def test_a_dispute_stays_on_record_with_the_earlier_judgement(self):
         item, sid = self.answered()
         self.open_dispute(item, WHY)

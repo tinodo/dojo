@@ -1750,6 +1750,7 @@ Model answer: {item["model_answer"]}"""
         if self.open_attempt(learner):   # an exam opened while this waited for a slot
             raise UserError(REJUDGE_EXAM)
         replaced = it["result"]
+        disputed_before = (it.get("disputed") or {}).get("at")
         j = self._judge(progress, it)
         if j["gate_error"]:
             # An answer is judged again only once, so never with a checker that could not check it.
@@ -1762,6 +1763,10 @@ Model answer: {item["model_answer"]}"""
             it = self.item(learner, item_id)
             if judge_again_refusal(it) or it["result"].get("judged_at") != replaced.get("judged_at"):
                 raise UserError("This answer's judgement changed while it was judged again, so nothing was replaced.")
+            # A dispute filed while this ran is about the judgement it would replace: its review decides (ADR 0017).
+            if (it.get("disputed") or {}).get("at") != disputed_before:
+                raise UserError("A dispute was filed while this answer was judged again, so nothing was replaced: "
+                                "the review of your dispute decides.")
             # A timed exam closes feedback (ADR 0012). ExamRoom.start opens one under this same lock, so the
             # new judgement lands either before the exam starts or not at all.
             if self.open_attempt(learner):
