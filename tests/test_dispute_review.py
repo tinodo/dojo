@@ -219,6 +219,14 @@ class DisputeReviewTests(unittest.TestCase):
         self.assertTrue(self.view(item)["dispute_open"])
         self.assertEqual(len(self.events(item, "dispute.filed")), 1)
 
+    def test_no_dispute_while_the_answer_is_being_judged(self):
+        item = self.judged_one_short()
+        with mock.patch.object(self.dojo.jobs, "busy", return_value=True):
+            r = self.c.post(f"/api/items/{item}/dispute", json={"reason": REASON}, headers=POST)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("being judged right now", r.json()["detail"])
+        self.assertEqual(len(self.events(item, "dispute.filed")), 0)
+
     def test_when_the_budget_refuses_the_dispute_is_filed_and_its_review_waits(self):
         item = self.judged_one_short()
         with mock.patch.object(self.app.state.budget, "action", side_effect=Refused("You have used today's allowance.")):

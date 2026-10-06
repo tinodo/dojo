@@ -2025,6 +2025,9 @@ Elements:
                 raise HTTPException(409, "Only a judged answer can be disputed.")
             if it.get("disputed"):
                 raise HTTPException(409, "This judgement is already disputed.")
+            # A judgement being replaced (judged again, or a review) would take the dispute with it (ADR 0017).
+            if self.jobs.busy(learner, "grade", item_id):
+                raise HTTPException(409, "This answer is being judged right now. Dispute its judgement when that is done.")
             it["disputed"] = {"at": iso(), "reason": reason}
             self._save_item(learner, it)
             # The dispute names the judgement it is about: an answer judged again has more than one (ADR 0015).
