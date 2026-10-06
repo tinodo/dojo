@@ -10,8 +10,10 @@ Rules (Interaction-to-Evidence Contract v4 and the learning-integrity review):
   In a timed practice exam the rationales are held back until the end, so the clock starts when they
   are shown, not when the question was answered.
 - Items are never repeated, so every attempt is on a new item.
-- A disputed judgement is taken out of what the record claims. It never upgrades anything: the standing
-  state is never better than the judgements as they were made.
+- A disputed judgement is taken out of what the record claims while its dispute is open. It never upgrades
+  anything: the standing state is never better than the judgements as they were made. A dispute is reviewed by the
+  referee (ADR 0017): upheld, its judgement replaces the disputed one (answer.rejudged, as below); not upheld, the
+  judgement counts again (dispute.reviewed).
 - An answer judged again (answer.rejudged, ADR 0015) keeps its place: it was answered when it was answered,
   under the same conditions. The new judgement replaces the earlier one in what the record claims; the
   earlier one is listed with the attempt and no longer counts. A dispute is about the judgement that
@@ -144,7 +146,8 @@ def derive(events: list[dict], package: dict, later_hours: int = 20) -> dict[str
     unknown_help: set[str] = set()
     teach: dict[str, datetime] = {}
     until: dict[str, datetime] = {}
-    # Which judgement of an item each dispute is about: 0 is the first, and every answer.rejudged adds one.
+    # Which judgement of an item each dispute is about: 0 is the first, and every answer.rejudged adds one. A dispute
+    # whose review found the judgement right (dispute.reviewed, not upheld, ADR 0017) no longer takes it out.
     disputed: dict[str, set[int]] = {}
     seen: Counter = Counter()
     for ev in events:
@@ -153,6 +156,8 @@ def derive(events: list[dict], package: dict, later_hours: int = 20) -> dict[str
             seen[item_id] += 1
         elif ev.get("type") == "dispute.filed":
             disputed.setdefault(item_id, set()).add(seen[item_id])
+        elif ev.get("type") == "dispute.reviewed" and (ev.get("data") or {}).get("outcome") == "not_upheld":
+            disputed.get(item_id, set()).discard(seen[item_id])
     judgement: dict[str, int] = {}  # which judgement of each item counts, so far in the Record
     for ev in events:
         d = ev.get("data") or {}

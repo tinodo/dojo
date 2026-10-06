@@ -325,9 +325,50 @@ class JudgeAgainTests(unittest.TestCase):
 
     # ---- a dispute stays with the judgement it was about
 
+    def open_dispute(self, item: str, reason: str) -> None:
+        """A dispute whose review could not run (the referee unreachable): it stays open (ADR 0017)."""
+        with mock.patch.object(self.dojo, "_referee", side_effect=ai_mod.AIError("author model: HTTP 503")):
+            out = self.post(f"/api/items/{item}/dispute", {"reason": reason})
+            self.assertEqual(self.wait(out["review"], ok=False)["state"], "failed")
+
+    def test_a_dispute_filed_while_judging_again_wins(self):
+        item, sid = self.answered()
+        real = self.dojo._judge
+
+        def judge_while_a_dispute_lands(progress, it):
+            out = real(progress, it)
+            with self.dojo.store.lock:   # a dispute filed in the moment before this job was registered
+                stored = self.dojo.item(self.me, item)
+                stored["disputed"] = {"at": "2026-10-06T12:00:00+00:00", "reason": "Filed in the gap."}
+                self.dojo._save_item(self.me, stored)
+            return out
+        with mock.patch.object(self.dojo, "_judge", judge_while_a_dispute_lands):
+            job = self.wait(self.post(f"/api/items/{item}/judge-again"), ok=False)
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("A dispute was filed while this answer was judged again", job["error"])
+        it = self.dojo.item(self.me, item)
+        self.assertEqual(it["disputed"]["reason"], "Filed in the gap.")
+        self.assertFalse(it.get("history"), "nothing was replaced")
+
+    def test_a_dispute_filed_before_the_job_runs_wins_too(self):
+        item, sid = self.answered()
+        real_start = self.dojo.jobs.start
+
+        def start_after_a_dispute(*args, **kwargs):   # the dispute lands between the route's check and the job
+            with self.dojo.store.lock:
+                stored = self.dojo.item(self.me, item)
+                stored["disputed"] = {"at": "2026-10-06T12:00:00+00:00", "reason": "Filed in the gap."}
+                self.dojo._save_item(self.me, stored)
+            return real_start(*args, **kwargs)
+        with mock.patch.object(self.dojo.jobs, "start", start_after_a_dispute):
+            job = self.wait(self.post(f"/api/items/{item}/judge-again"), ok=False)
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("waiting to be judged again", job["error"])
+        self.assertFalse(self.dojo.item(self.me, item).get("history"), "nothing was replaced")
+
     def test_a_dispute_stays_on_record_with_the_earlier_judgement(self):
         item, sid = self.answered()
-        self.post(f"/api/items/{item}/dispute", {"reason": WHY})
+        self.open_dispute(item, WHY)
         filed = self.events("dispute.filed")[-1]["data"]
         first = self.dojo.item(self.me, item)
         self.assertEqual((filed["judged_at"], filed["version"]), (first["result"]["judged_at"], 1))
@@ -353,8 +394,8 @@ class JudgeAgainTests(unittest.TestCase):
         log = [x for x in self.c.get("/api/quality").json() if x.get("item") == item and x["kind"] == "judged again"]
         self.assertIn("Your dispute of it stays on record.", log[0]["reason"])
 
-        # The new judgement can be disputed on its own, and then it counts neither way.
-        self.post(f"/api/items/{item}/dispute", {"reason": "The new one is wrong too."})
+        # The new judgement can be disputed on its own, and then it counts neither way while its review is open.
+        self.open_dispute(item, "The new one is wrong too.")
         again = self.events("dispute.filed")[-1]["data"]
         self.assertEqual(again["version"], GRADING_VERSION)
         self.assertEqual(again["judged_at"], self.dojo.item(self.me, item)["result"]["judged_at"])

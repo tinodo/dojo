@@ -110,6 +110,9 @@ Evidence (`app/evidence.py`) reads the new judgement in place of the old one.
 
 ### 5. What happens to a dispute
 
+Amended by ADR 0017 (6 October): a dispute is now reviewed by the referee; this section describes judging again
+an answer whose dispute is still open.
+
 The dispute stays on the Record, unchanged, attached to the judgement it was filed against. That
 judgement no longer counts. The new judgement counts, and can be disputed on its own.
 
