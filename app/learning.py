@@ -1732,17 +1732,19 @@ Model answer: {item["model_answer"]}"""
         refusal = judge_again_refusal(it)
         if refusal:
             raise HTTPException(409, refusal)
-        return self.jobs.start(learner, "grade", self.rejudge, learner, item_id, ref=item_id,
+        # The dispute as it stands now, before the job is registered: one filed after this is not replaced (ADR 0017).
+        disputed_at = (it.get("disputed") or {}).get("at")
+        return self.jobs.start(learner, "grade", self.rejudge, learner, item_id, disputed_at, ref=item_id,
                                busy_message="This answer is already being judged.")
 
-    def rejudge(self, progress: Progress, learner: Learner, item_id: str) -> dict:
+    def rejudge(self, progress: Progress, learner: Learner, item_id: str, disputed_at: Any = None) -> dict:
         try:
-            return self._rejudge(progress, learner, item_id)
+            return self._rejudge(progress, learner, item_id, disputed_at)
         except Refused as e:
             # Team mode, rarely: a call past its reservation and the members' cap is full (ADR 0009).
             raise Refused(f"Nothing was changed: the earlier judgement stands. {e}") from None
 
-    def _rejudge(self, progress: Progress, learner: Learner, item_id: str) -> dict:
+    def _rejudge(self, progress: Progress, learner: Learner, item_id: str, disputed_at: Any = None) -> dict:
         it = self.item(learner, item_id)
         refusal = judge_again_refusal(it)
         if refusal:
@@ -1750,7 +1752,10 @@ Model answer: {item["model_answer"]}"""
         if self.open_attempt(learner):   # an exam opened while this waited for a slot
             raise UserError(REJUDGE_EXAM)
         replaced = it["result"]
-        disputed_before = (it.get("disputed") or {}).get("at")
+        if (it.get("disputed") or {}).get("at") != disputed_at:
+            raise UserError("A dispute was filed while this answer was waiting to be judged again, so nothing was "
+                            "replaced: the review of your dispute decides.")
+        disputed_before = disputed_at
         j = self._judge(progress, it)
         if j["gate_error"]:
             # An answer is judged again only once, so never with a checker that could not check it.

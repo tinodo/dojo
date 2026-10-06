@@ -350,6 +350,22 @@ class JudgeAgainTests(unittest.TestCase):
         self.assertEqual(it["disputed"]["reason"], "Filed in the gap.")
         self.assertFalse(it.get("history"), "nothing was replaced")
 
+    def test_a_dispute_filed_before_the_job_runs_wins_too(self):
+        item, sid = self.answered()
+        real_start = self.dojo.jobs.start
+
+        def start_after_a_dispute(*args, **kwargs):   # the dispute lands between the route's check and the job
+            with self.dojo.store.lock:
+                stored = self.dojo.item(self.me, item)
+                stored["disputed"] = {"at": "2026-10-06T12:00:00+00:00", "reason": "Filed in the gap."}
+                self.dojo._save_item(self.me, stored)
+            return real_start(*args, **kwargs)
+        with mock.patch.object(self.dojo.jobs, "start", start_after_a_dispute):
+            job = self.wait(self.post(f"/api/items/{item}/judge-again"), ok=False)
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("waiting to be judged again", job["error"])
+        self.assertFalse(self.dojo.item(self.me, item).get("history"), "nothing was replaced")
+
     def test_a_dispute_stays_on_record_with_the_earlier_judgement(self):
         item, sid = self.answered()
         self.open_dispute(item, WHY)
