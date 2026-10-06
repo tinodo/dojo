@@ -55,6 +55,7 @@ from .drift import DriftCheck
 from . import items as exam_items
 from .exam import ExamRoom, PoolKeeper
 from . import helpdoc
+from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
 from .learning import Dojo
@@ -1551,10 +1552,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         # One attempt is open at a time, and it closes everything that teaches whichever package it
         # belongs to, so the page is told which exam is running rather than only this package's.
         open_doc = room.open_attempt(learner)
-        try:
-            lengths, untimed = {length: exam_spec(pkg, length) for length in ("full", "short")}, None
-        except UserError as e:
-            lengths, untimed = None, str(e)   # an added exam with no stated duration, or a domain with no checked source
+        # Why there is no practice exam (an added exam with no stated duration, or a domain with no checked
+        # source): the reason's own words, not an exception's.
+        untimed = exam_blocker(pkg)
+        lengths = None if untimed else {length: exam_spec(pkg, length) for length in ("full", "short")}
         # The exam format's mix, in questions per kind: a yes/no series counts its statements, a case study its questions.
         mixes = {k: {kind: n * exam_items.UNIT_SIZE.get(kind, 1) for kind, n in exam_items.mix(v["questions"]).items() if n}
                  for k, v in (lengths or {}).items()}
@@ -1849,10 +1850,12 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @app.api_route("/feed/{token}/{name}", methods=["GET", "HEAD"], include_in_schema=False)
     def feed(token: str, name: str, request: Request) -> Response:
         m = re.match(r"^([a-z0-9-]{2,40})\.(xml|png)$", name)
-        learner = _feed_owner(token, m.group(1)) if m and m.group(1) in packages.by_id else None
+        # The catalogue's own id, never the address's string: no file name or log line is built from a URL.
+        pid = next((p for p in packages.by_id if m and p == m.group(1)), None)
+        learner = _feed_owner(token, pid) if pid else None
         if learner is None:
             return _bare(404)
-        pid, kind = m.groups()
+        kind = m.group(2)
         if kind == "png":
             cover = APP_DIR / "static" / "podcast" / f"{pid}.png"
             if not cover.is_file():

@@ -1589,7 +1589,7 @@ class CostEstimateTests(unittest.TestCase):
                 "turns": {"guide": [["x" * 560]], "coach": [["y" * 280, "z" * 280]]}}
         film = costs.film_estimate([plan])
         self.assertEqual((film["stale"], film["fetched"], film["complete"]), (True, old, True))
-        self.assertEqual(len([u for u in self.web.seen if "prices.azure.com" in u]), 2, "one refresh tried, then an hour's rest")
+        self.assertEqual(len([u for u in self.web.seen if urlparse(u).hostname == "prices.azure.com"]), 2, "one refresh tried, then an hour's rest")
 
     def test_data_zone_deployments_have_their_own_prices(self):
         est = self.costs(PRICES, models=self.LIVE, model_sku="DataZoneStandard").course_estimate(20)

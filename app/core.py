@@ -43,6 +43,12 @@ def iso(dt: datetime | None = None) -> str:
     return (dt or utcnow()).isoformat(timespec="seconds")
 
 
+def one_line(value: Any, limit: int = 200) -> str:
+    """A value that came with a request, as one log line can carry it: bounded, and no line break can start a
+    forged entry."""
+    return str(value)[:limit].replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+
 def where_stored() -> str:
     """Where the app's storage is, for About and the notice. App Service sets REGION_NAME (for example
     "Sweden Central"); without it, name no region rather than a wrong one."""

@@ -699,13 +699,14 @@ def reconcile(doc: dict, needs: list[Need], events: list[dict], now: datetime, a
 
 # ---------------------------------------------------------------- the calendar feed (RFC 5545)
 
-_NOT_TEXT = re.compile("[\x00-\x08\x0b-\x1f\x7f]")
+# The control characters a TEXT value cannot carry (tab and line feed stay: the escapes below handle them).
+_NOT_TEXT = dict.fromkeys([*range(0x00, 0x09), *range(0x0B, 0x20), 0x7F])
 
 
 def ics_text(value: Any) -> str:
     """A TEXT value (RFC 5545 3.3.11): backslash, semicolon, comma and line breaks escaped, other
     control characters removed."""
-    v = _NOT_TEXT.sub("", str(value).replace("\r\n", "\n").replace("\r", "\n"))
+    v = str(value).replace("\r\n", "\n").replace("\r", "\n").translate(_NOT_TEXT)
     return v.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 

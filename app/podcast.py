@@ -238,19 +238,21 @@ class FeedLinks:
 
 # ---------------------------------------------------------------- episodes and the feed
 
-_NOT_XML = re.compile("[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+# What XML 1.0 cannot carry (its Char production): C0 controls other than tab, line feed and carriage return,
+# the surrogates, and U+FFFE and U+FFFF. Every other character, astral ones included, stays.
+_NOT_XML = dict.fromkeys([*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), *range(0xD800, 0xE000), 0xFFFE, 0xFFFF])
 
 
 def _text(value: Any) -> str:
-    return xml_escape(_NOT_XML.sub("", str(value)))
+    return xml_escape(str(value).translate(_NOT_XML))
 
 
 def _attr(value: Any) -> str:
-    return xml_escape(_NOT_XML.sub("", str(value)), {'"': "&quot;"})
+    return xml_escape(str(value).translate(_NOT_XML), {'"': "&quot;"})
 
 
 def _cdata(html: str) -> str:
-    return "<![CDATA[" + _NOT_XML.sub("", html).replace("]]>", "]]]]><![CDATA[>") + "]]>"
+    return "<![CDATA[" + html.translate(_NOT_XML).replace("]]>", "]]]]><![CDATA[>") + "]]>"
 
 
 def _web(url: Any) -> str | None:
