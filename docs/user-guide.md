@@ -141,7 +141,12 @@ In team mode, if today's budget is used up, your answer is saved. **Judge my ans
 
 ### Disputes
 
-If you think a judgement is wrong, press **Dispute this judgement** and give a short reason. A disputed judgement then counts neither for nor against you in your pips. It stays visible, marked as disputed.
+If you think a judgement is wrong, press **Dispute this judgement** and give a short reason. Then a third model, the referee, reviews it, usually within a minute. It is neither the grader nor the checker. It reads the whole judgement with your reason and decides every point from your answer.
+
+- **Upheld**: if it finds a point wrong, it corrects the judgement. Points can go up or down. The corrected judgement counts, and the old one stays visible.
+- **Not upheld**: if it finds every point right, the judgement counts again, and you can read its reason for each point.
+- Until the review is done, the judgement counts neither for nor against you. If the review cannot run, press **Review my dispute** later.
+- Each dispute is reviewed once. A judgement that came from a review can be disputed, but the referee does not review its own decision.
 
 A dispute does not undo a missed recall. A disputed miss still brings the skill back sooner. See [Recalls](#recalls).
 
@@ -151,7 +156,7 @@ Dojo's judging rules improve over time. If an answer was judged with older rules
 
 - You can do it once per answer, and only when you ask.
 - The new judgement counts in place of the old one, whether it is higher or lower. The old one stays visible on the answer and in your record.
-- If you disputed the old judgement, your dispute stays on record with it. Judging again is not a review of your dispute. You can dispute the new judgement on its own.
+- If you disputed the old judgement, your dispute stays on record with it. Judging again does not review your dispute. You can dispute the new judgement on its own.
 - Your answer keeps its date and conditions, such as hints and time since teaching.
 - It is closed during a timed practice exam. In team mode it uses one graded answer from your daily allowance.
 

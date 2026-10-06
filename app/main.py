@@ -58,7 +58,7 @@ from . import helpdoc
 from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
-from .learning import Dojo
+from .learning import Dojo, dispute_review_refusal
 from .labs import LABS, FakeRunner, LabRoom, LabUser, SqlRunner, is_waking, sql_error_reason
 from .mirror import Mirror
 from .newexam import NewExams
@@ -1363,7 +1363,30 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @app.post("/api/items/{item_id}/dispute")
     def dispute(item_id: str, body: DisputeRequest, learner: Learner = Me) -> dict:
         _no_help_during_exam(learner, "Dojo holds back feedback on your answers")
-        return dojo.dispute(learner, _check_id(item_id), body.reason)
+        item_id = _check_id(item_id)
+        out = dojo.dispute(learner, item_id, body.reason)
+        # Filed, it counts neither way; then the referee reviews it (ADR 0017), in team mode as a graded answer.
+        return {**out, **_start_review(learner, item_id)}
+
+    @app.post("/api/items/{item_id}/dispute/review")
+    def review_dispute(item_id: str, learner: Learner = Me) -> dict:
+        _no_help_during_exam(learner, "Dojo holds back feedback on your answers")
+        item_id = _check_id(item_id)
+        started = _start_review(learner, item_id)
+        if started["review"] is None:
+            raise HTTPException(409, started["review_waits"])
+        return started["review"]
+
+    def _start_review(learner: Learner, item_id: str) -> dict:
+        refusal = dispute_review_refusal(dojo.item(learner, item_id))
+        if refusal:
+            return {"review": None, "review_waits": refusal}
+        try:
+            with budget.action(learner, "answer", dojo.item(learner, item_id).get("package")):
+                return {"review": dojo.review_dispute(learner, item_id), "review_waits": None}
+        except Refused as e:
+            return {"review": None, "review_waits": f"Your dispute is filed: the judgement counts neither way. Its review "
+                                                    f"could not start now: {e} Press \"Review my dispute\" then."}
 
     @app.post("/api/rehearsals")
     def new_rehearsal(body: RehearsalRequest, learner: Learner = Me) -> dict:

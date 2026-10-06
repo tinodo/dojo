@@ -4194,10 +4194,14 @@ function earlierJudgement(it) {
   const hist = it.history || [];
   if (!hist.length) return null;
   const old = hist[hist.length - 1], o = old.result || {};
+  const byReview = (it.result.rejudged || {}).by === "dispute review";
+  const referee = (it.result.models || {}).referee;
   return h("div", { class: "note" },
-    h("p", null, `Judged again on ${fmtDate(it.result.judged_at)} with judging rules version ${it.result.version || 1}, at your request. `
+    h("p", null, (byReview
+      ? `Corrected on ${fmtDate(it.result.judged_at)} after your dispute: a third model${referee ? ` (${referee})` : ""}, neither the grader nor the checker, reviewed the whole judgement and changed ${((old.disputed || {}).review || {}).changed ? old.disputed.review.changed.length : "some"} point(s). `
+      : `Judged again on ${fmtDate(it.result.judged_at)} with judging rules version ${it.result.version || 1}, at your request. `)
       + `The earlier judgement (${o.met} of ${o.total} points met, on ${fmtDate(o.judged_at)}, with version ${o.version || 1}) no longer counts. It stays in your record.`
-      + (old.disputed ? ` Your dispute of it, filed on ${fmtDate(old.disputed.at)}, stays on record too.` : "")),
+      + (old.disputed && !byReview ? ` Your dispute of it, filed on ${fmtDate(old.disputed.at)}, stays on record too.` : "")),
     h("details", { class: "how" }, h("summary", null, "The earlier judgement"),
       h("ul", { class: "judged" }, (o.points || []).map((p) => {
         const ok = p.met && p.verified;
@@ -4246,6 +4250,55 @@ function judgeAgainPanel(it) {
     h("div", { class: "actions top" }, b), status);
 }
 
+// A filed dispute is reviewed by the referee (ADR 0017): running, waiting, refused, possible, or done and not upheld.
+function disputePanel(it) {
+  const d = it.disputed;
+  if (!d) return null;
+  const rv = d.review;
+  if (rv) {
+    return h("section", { class: "panel" }, eyebrow("scale", "Your dispute, reviewed"),
+      h("p", { class: "small ink2" }, `You disputed this judgement on ${fmtDate(d.at)}. A third model (${rv.model}), neither the grader nor the checker, reviewed the whole judgement on ${fmtDate(rv.at)} with your reason and found every point right, so the judgement counts again.`),
+      h("p", { class: "words" }, "Your dispute: ", h("q", { class: "mine" }, d.reason)),
+      h("details", { class: "how" }, h("summary", null, "The referee's reasons"),
+        h("ul", { class: "judged" }, (rv.points || []).map((p) => {
+          const pt = (it.result.points || []).find((x) => x.id === p.id) || {};
+          return h("li", null,
+            h("div", { class: "pt" }, h("span", { class: `mk ${p.met ? "ok" : "no"}` }, icon(p.met ? "check" : "x", "xs bold")),
+              h("span", null, h("b", null, p.met ? "Met: " : "Not met: "), pt.point || p.id)),
+            p.why ? h("p", { class: "words muted" }, p.why) : null);
+        }))));
+  }
+  const dr = it.dispute_review || {};
+  const head = h("p", { class: "small ink2" }, `You disputed this judgement on ${fmtDate(d.at)}. Until its review is done it counts neither way.`);
+  if (dr.busy) {
+    return h("section", { class: "panel" }, eyebrow("scale", "Your dispute"), head,
+      h("p", { class: "sub" }, "A third model is reviewing the whole judgement with your reason right now."),
+      h("div", { class: "actions top" }, button("Refresh", () => route())));
+  }
+  if (dr.refusal) return h("section", { class: "panel" }, eyebrow("scale", "Your dispute"), head, h("p", { class: "small muted" }, dr.refusal));
+  const failed = sessionStorage.getItem(`review:${it.id}`);
+  sessionStorage.removeItem(`review:${it.id}`);
+  const status = h("p", { class: "small muted" }, dr.waits || (failed ? `The review did not finish: ${failed}` : ""));
+  const b = button("Review my dispute", async () => {
+    b.disabled = true;
+    const token = state.nav;
+    try {
+      const job = await api(`/api/items/${it.id}/dispute/review`, { method: "POST" });
+      await withProgress("Reviewing your dispute", Promise.resolve(job));
+      if (token === state.nav) route();
+    } catch (e) {
+      if (token !== state.nav) return;
+      if (!e.status) { sessionStorage.setItem(`review:${it.id}`, e.message); route(); return; }   // the job failed: the dispute stays open
+      status.textContent = e.message;
+      b.disabled = e.status === 409;
+    }
+  }, "ghost");
+  if (dr.waits) b.disabled = true;
+  return h("section", { class: "panel" }, eyebrow("scale", "Your dispute"), head,
+    h("p", { class: "small ink2" }, "Its review has not run yet. A third model, neither the grader nor the checker, reads the whole judgement with your reason."),
+    h("div", { class: "actions top" }, b), status);
+}
+
 function resultCards(it) {
   const r = it.result;
   const out = [];
@@ -4255,11 +4308,11 @@ function resultCards(it) {
       chip(`${Math.max(1, Math.round((it.answer.elapsed_s || 0) / 60))} min`, "line"), chip(MODE_NAME[it.mode], "line"),
       spokenChip(it.answer), sureChip(it.answer),
       (it.history || []).length ? chip("judged again", "line") : null,
-      it.disputed ? chip("disputed", "ochre") : null)));
+      it.dispute_open ? chip("disputed", "ochre") : it.disputed ? chip("dispute reviewed", "line") : null)));
   out.push(h("section", { class: "panel" },
     h("div", { class: "panel-h" }, eyebrow("scale", "The judgement"), h("b", null, `${r.met} of ${r.total} points met`)),
     earlierJudgement(it),
-    it.disputed ? h("p", { class: "note" }, `You disputed this judgement on ${fmtDate(it.disputed.at)}. It no longer counts either way.`) : null,
+    it.dispute_open ? h("p", { class: "note" }, `You disputed this judgement on ${fmtDate(it.disputed.at)}. It counts neither way until its review is done.`) : null,
     h("ul", { class: "judged" }, r.points.map((p) => {
       const ok = p.met && p.verified;
       return h("li", null,
@@ -4278,22 +4331,34 @@ function resultCards(it) {
       : h("p", { class: "note top" }, `Feedback withheld: ${r.withheld_reason || "it did not pass the independent check."}`),
     h("p", { class: "small muted" }, `Judged by ${r.models.grader}; feedback checked by ${r.models.gate}${r.models.referee ? `; points they disagreed about decided by ${r.models.referee}` : ""}, with Dojo's judging rules version ${r.version || 1}. Every point it gives you must quote your own words.`)));
   out.push(judgeAgainPanel(it));
+  out.push(disputePanel(it));
   out.push(h("section", { class: "panel" }, eyebrow("file", "What a full answer covers"),
     it.changed_condition ? h("p", { class: "cond" }, icon("refresh", "sm"), h("span", null, h("b", null, "The changed condition: "), it.changed_condition)) : null,
     h("ul", { class: "points" }, it.rubric.map((p) => { const [b, q] = quoteToggle(p, it.sources); return h("li", null, h("span", { class: "dotm" }), h("span", null, p.point, " ", b, q)); })),
     h("h3", null, "A model answer"), h("p", { class: "sub" }, it.model_answer)));
   if (!it.disputed) {
+    const own = (it.result.rejudged || {}).by === "dispute review";
     const reason = h("textarea", { rows: 3, maxlength: 2000, id: "dispute", placeholder: "What is wrong with this judgement?" });
     const status = h("p", { class: "small muted" });
     const b = button("Dispute this judgement", async () => {
       if (reason.value.trim().length < 3) { status.textContent = "Say briefly what is wrong."; return; }
       b.disabled = true;
-      try { await api(`/api/items/${it.id}/dispute`, { method: "POST", body: { reason: reason.value.trim() } }); route(); }
+      const token = state.nav;
+      try {
+        const out = await api(`/api/items/${it.id}/dispute`, { method: "POST", body: { reason: reason.value.trim() } });
+        if (out.review) {
+          try { await withProgress("Reviewing your dispute", Promise.resolve(out.review)); }
+          catch (e) { if (!e.status) sessionStorage.setItem(`review:${it.id}`, e.message); }   // the dispute stays open
+        }
+        if (token === state.nav) route();
+      }
       catch (e) { status.textContent = e.message; b.disabled = false; }
     }, "dispute");
     out.push(h("section", { class: "panel" }, h("div", { class: "disputebox" },
       eyebrow("alert", "Disagree?"),
-      h("p", { class: "small ink2" }, "A disputed judgement is taken out of your record: it no longer counts as met or as not met."),
+      h("p", { class: "small ink2" }, own
+        ? "This judgement comes from the review of your earlier dispute. You can dispute it: it then counts neither way, but the same referee does not review its own decision."
+        : "A third model, neither the grader nor the checker, reviews the whole judgement with your reason, usually within a minute. If it finds a point wrong, it corrects the judgement: points can go up or down, and this judgement stays visible. If it finds every point right, the judgement counts again. Until then it counts neither way."),
       h("label", { class: "field", for: "dispute" }, "Why", reason),
       h("div", { class: "actions top" }, b), status)));
   }

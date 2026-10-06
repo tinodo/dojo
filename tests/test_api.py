@@ -149,7 +149,14 @@ class ApiFlowTests(unittest.TestCase):
         self.assertTrue(skill["evidence"]["checks"]["unaided"])
         self.assertFalse(skill["evidence"]["checks"]["later"])
 
-        self.post(f"/api/items/{check}/dispute", {"reason": "It was too lenient."})
+        # An open dispute (its review could not run, ADR 0017) takes the judgement out of what the record counts.
+        from app.ai import AIError
+        with mock.patch.object(self.app.state.dojo, "_referee", side_effect=AIError("author model: HTTP 503")):
+            review = self.post(f"/api/items/{check}/dispute", {"reason": "It was too lenient."})["review"]
+            for _ in range(200):
+                if self.c.get(f"/api/jobs/{review['id']}").json()["state"] not in ("queued", "running"):
+                    break
+                time.sleep(0.05)
         skill = self.c.get(f"/api/skills/{self.pid}/{self.sid}").json()
         self.assertEqual(skill["evidence"]["state"], "met_with_help")
         self.assertEqual(skill["evidence"]["disputed"], 1)

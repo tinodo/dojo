@@ -325,9 +325,15 @@ class JudgeAgainTests(unittest.TestCase):
 
     # ---- a dispute stays with the judgement it was about
 
+    def open_dispute(self, item: str, reason: str) -> None:
+        """A dispute whose review could not run (the referee unreachable): it stays open (ADR 0017)."""
+        with mock.patch.object(self.dojo, "_referee", side_effect=ai_mod.AIError("author model: HTTP 503")):
+            out = self.post(f"/api/items/{item}/dispute", {"reason": reason})
+            self.assertEqual(self.wait(out["review"], ok=False)["state"], "failed")
+
     def test_a_dispute_stays_on_record_with_the_earlier_judgement(self):
         item, sid = self.answered()
-        self.post(f"/api/items/{item}/dispute", {"reason": WHY})
+        self.open_dispute(item, WHY)
         filed = self.events("dispute.filed")[-1]["data"]
         first = self.dojo.item(self.me, item)
         self.assertEqual((filed["judged_at"], filed["version"]), (first["result"]["judged_at"], 1))
@@ -353,8 +359,8 @@ class JudgeAgainTests(unittest.TestCase):
         log = [x for x in self.c.get("/api/quality").json() if x.get("item") == item and x["kind"] == "judged again"]
         self.assertIn("Your dispute of it stays on record.", log[0]["reason"])
 
-        # The new judgement can be disputed on its own, and then it counts neither way.
-        self.post(f"/api/items/{item}/dispute", {"reason": "The new one is wrong too."})
+        # The new judgement can be disputed on its own, and then it counts neither way while its review is open.
+        self.open_dispute(item, "The new one is wrong too.")
         again = self.events("dispute.filed")[-1]["data"]
         self.assertEqual(again["version"], GRADING_VERSION)
         self.assertEqual(again["judged_at"], self.dojo.item(self.me, item)["result"]["judged_at"])
