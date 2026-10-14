@@ -155,7 +155,9 @@ if (-not $sp) {
     }
     if (-not $sp) { throw "Could not create the service principal for $appId" }
 }
-Invoke-Api PATCH "$graph/servicePrincipals/$($sp.id)" @{ appRoleAssignmentRequired = $true } | Out-Null
+# Team Dojo's default gate is inside Dojo: invited tenant users reach "Ask for access", and the owner approves
+# there. Assignment required is optional hardening only; turning it on makes every member a second Entra task.
+Invoke-Api PATCH "$graph/servicePrincipals/$($sp.id)" @{ appRoleAssignmentRequired = $false } | Out-Null
 $assigned = (Invoke-Api GET "$graph/servicePrincipals/$($sp.id)/appRoleAssignedTo").value | Where-Object { $_.principalId -eq $ownerOid }
 if (-not $assigned) {
     Invoke-Api POST "$graph/servicePrincipals/$($sp.id)/appRoleAssignedTo" @{ principalId = $ownerOid; resourceId = $sp.id; appRoleId = "00000000-0000-0000-0000-000000000000" } | Out-Null
