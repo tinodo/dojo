@@ -149,15 +149,16 @@ if (-not ($fics | Where-Object { $_.name -eq $ficName })) {
 }
 
 $sp = (Invoke-Api GET "$graph/servicePrincipals?`$filter=appId eq '$appId'&`$select=id").value | Select-Object -First 1
+$createdSp = $false
 if (-not $sp) {
     for ($i = 0; $i -lt 6 -and -not $sp; $i++) {
-        try { $sp = Invoke-Api POST "$graph/servicePrincipals" @{ appId = $appId } } catch { Start-Sleep -Seconds 10 }
+        try { $sp = Invoke-Api POST "$graph/servicePrincipals" @{ appId = $appId }; $createdSp = $true } catch { Start-Sleep -Seconds 10 }
     }
     if (-not $sp) { throw "Could not create the service principal for $appId" }
 }
 # Team Dojo's default gate is inside Dojo: invited tenant users reach "Ask for access", and the owner approves
 # there. Assignment required is optional hardening only; turning it on makes every member a second Entra task.
-Invoke-Api PATCH "$graph/servicePrincipals/$($sp.id)" @{ appRoleAssignmentRequired = $false } | Out-Null
+if ($createdSp) { Invoke-Api PATCH "$graph/servicePrincipals/$($sp.id)" @{ appRoleAssignmentRequired = $false } | Out-Null }
 $assigned = (Invoke-Api GET "$graph/servicePrincipals/$($sp.id)/appRoleAssignedTo").value | Where-Object { $_.principalId -eq $ownerOid }
 if (-not $assigned) {
     Invoke-Api POST "$graph/servicePrincipals/$($sp.id)/appRoleAssignedTo" @{ principalId = $ownerOid; resourceId = $sp.id; appRoleId = "00000000-0000-0000-0000-000000000000" } | Out-Null
