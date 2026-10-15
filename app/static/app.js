@@ -252,23 +252,37 @@ async function api(path, opts = {}) {
   return data;
 }
 
+/* A deploy or a restart answers a poll with an error for a moment, and one failed answer is not a failed job:
+   Dojo asks again for about a minute before it says it lost contact. A refusal (not a 5xx, no network error)
+   or an ended sign-in is final at once. */
+const POLL_TRIES = 30;
+
 async function runJob(start, onStep) {
   let job = await start;
   const t0 = Date.now();
+  let missed = 0;
   while (job.state === "queued" || job.state === "running") {
-    if (onStep) onStep(job.step || "Working", Math.round((Date.now() - t0) / 1000));
+    if (onStep) onStep(missed ? "Waiting for Dojo to answer again" : job.step || "Working", Math.round((Date.now() - t0) / 1000));
     await sleep(2000);
-    job = await api(`/api/jobs/${job.id}`);
+    try {
+      job = await api(`/api/jobs/${job.id}`);
+      missed = 0;
+    } catch (e) {
+      if (e.signedOut || (e.status && e.status < 500)) throw e;
+      if (++missed >= POLL_TRIES) {
+        throw new Error("Dojo did not answer for about a minute, maybe because it restarted. Reload this page to see how far the work got: what was running when Dojo restarted has stopped.");
+      }
+    }
   }
   if (job.state !== "done") throw new Error(job.error || `This ${job.kind} was ${job.state}.`);
   return job.result;
 }
 
-function jobCard(title, start, onDone, onFail) {
+function jobCard(title, start, onDone, onFail, note) {
   const step = h("p", { class: "muted small" }, "Starting…");
   const el = panel(eyebrow("wand", "Working"), h("h2", null, title),
     h("div", { class: "progress", role: "progressbar", "aria-label": title }, h("div", { class: "progress-fill" })), step,
-    h("p", { class: "small muted" }, "The models write this from the official sources, and an independent model checks it. It can take a minute or two. You can leave this page; the result will be on the skill page."));
+    h("p", { class: "small muted" }, note || "The models write this from the official sources, and an independent model checks it. It can take a minute or two. You can leave this page; the result will be on the skill page."));
   const token = state.nav;
   runJob(start, (s, secs) => { step.textContent = `${s} · ${secs}s`; })
     .then((res) => { if (token === state.nav) onDone(res); })
@@ -281,7 +295,7 @@ function jobCard(title, start, onDone, onFail) {
   return el;
 }
 
-const withProgress = (title, start) => new Promise((resolve, reject) => { put($view(), jobCard(title, start, resolve, reject)); });
+const withProgress = (title, start, note) => new Promise((resolve, reject) => { put($view(), jobCard(title, start, resolve, reject, note)); });
 
 async function act(action, pid, sid) {
   const token = state.nav;
@@ -8080,15 +8094,31 @@ function matchingPanel(st) {
     h("p", { class: "note top" }, "For each skill, one AI picks official pages from Microsoft Learn or GitHub Docs, and a second AI must quote a sentence from the page that Dojo then finds there word for word. You can leave this page: the build goes on, and the exam appears in the exam switcher when it is ready."));
 }
 
+const REPAIR_NOTE = "Dojo searches again for every skill without a verified page, among the products the exam's documentation is about, and a second model checks each page it finds. It takes a few minutes for each group of skills, up to half an hour for a whole course. You can leave this page: the work goes on in Dojo, and this exam's page shows how far it got.";
+
+function repairQuestion(R, n) {
+  const lines = [`Look again for official pages for ${plural(n, "skill")} that have none?`, ""];
+  if (R && R.complete) {
+    lines.push(`Searching and checking pages: about ${usd(R.search)} at list price, whether or not it finds anything.`,
+      `For each skill that gets a page, Dojo then writes and narrates its lesson in the background: about ${usd(R.lesson)} each, so up to ${usd(R.most - R.search)} more if all ${n} get one.`,
+      `At most about ${usd(R.most)} in total.`);
+  } else {
+    lines.push("Dojo could not read the price list, so it cannot say what this costs. Every skill that gets a page has its lesson written and narrated.");
+  }
+  lines.push("", "Nothing is filmed by this: presenter videos stay yours to approve. Deeper Listen is written later, within its daily limit, and is not included.");
+  return lines.join("\n");
+}
+
 function lessonsPanel(st) {
-  const L = st.lessons, P = st.preparing;
+  const L = st.lessons, P = st.preparing, R = st.repair;
   const all = L.ready >= L.teachable;
   const mine = P.current && P.current.startsWith(`${st.package}/`);
   const repair = async () => {
     const token = state.nav;
+    if (!window.confirm(repairQuestion(R, L.unsourced))) return;
     try {
       const started = await api(`/api/exam-packages/${st.package}/repair-sources`, { method: "POST" });
-      await withProgress("Checking official pages again", Promise.resolve(started.job));
+      await withProgress("Checking official pages again", Promise.resolve(started.job), REPAIR_NOTE);
       if (token === state.nav) route();
     } catch (e) {
       if (token === state.nav) put($view(), errorPanel(e));
@@ -8099,7 +8129,11 @@ function lessonsPanel(st) {
     : mine ? "Writing one of its lessons now."
     : P.failed ? `${plural(P.failed, "lesson")} did not pass preparation and will be tried again later. You can use the lessons that are ready now.`
     : "Lessons are written and narrated in the background, one at a time, taking turns with your other exams.";
-  const partial = L.unsourced ? `Only ${plural(L.teachable, "skill")} of ${plural(L.skills, "skill")} has a verified official page.` : "";
+  const partial = L.unsourced ? `Only ${L.teachable} of ${plural(L.skills, "skill")} have a verified official page.` : "";
+  const last = st.last_repair;
+  const searching = st.repairing
+    ? `Dojo is looking for official pages now: ${st.repairing.step || "starting"}. This page updates by itself.`
+    : last ? `Last search for missing pages, ${fmtWhen(last.at)}: pages found for ${last.sourced} of ${plural(last.searched, "skill")}.` : "";
   return h("section", { class: "panel hero" },
     h("div", { class: "panel-h" }, eyebrow("course", "The course"), chip(all ? "all teachable lessons ready" : "preparing", all ? "sage" : "amber")),
     h("p", { class: "bigline" }, all ? `All ${plural(L.teachable, "lesson")} ready` : `${L.ready} of ${L.teachable} lessons ready`),
@@ -8110,10 +8144,11 @@ function lessonsPanel(st) {
       h("li", null, `${L.filmed} filmed with presenters`),
       L.unsourced ? h("li", null, `${plural(L.unsourced, "skill")} of ${L.skills} without a verified official page: not taught, not asked, counted as not shown`) : null),
     partial ? h("p", { class: "note top" }, partial) : null,
+    searching ? h("p", { class: "note top", role: "status" }, searching) : null,
     st.no_exam ? h("p", { class: "note top" }, st.no_exam) : null,
     h("p", { class: "small muted top" }, now),
     h("div", { class: "actions top" }, button("Open the course", () => openExam(st.package), "sm"),
-      L.unsourced ? button("Find sources for missing skills", repair, "ghost sm") : null));
+      L.unsourced && !st.repairing ? button("Find sources for missing skills", repair, "ghost sm") : null));
 }
 
 function sourcePanel(st) {
@@ -8234,7 +8269,7 @@ function examProgress(st) {
   let filmKey = "";
   let following = false;
   const busy = (s) => (s.preparing.running && (s.lessons.ready < s.lessons.teachable || s.lessons.narrated < s.lessons.ready))
-    || s.film.waiting > 0 || s.film.filming > 0;
+    || s.film.waiting > 0 || s.film.filming > 0 || !!s.repairing;
   const show = (s, note) => {
     put(lessonsBox, lessonsPanel(s));
     const key = JSON.stringify([s.film, s.lessons]);

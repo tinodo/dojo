@@ -49,6 +49,21 @@ it cannot add an address. The gate model must copy a full sentence from each pic
 page teaches the skill. Dojo then finds that sentence, word for word, on the page itself (`quote_ok`).
 Only then does the page become one of the skill's sources.
 
+**Narrowing the search to the exam's own products.** A study guide's bullet seldom names the product
+("Configure server and database audits"), so an unnarrowed search returns pages of every product, and the
+right page is not among the first few. The guide's "Find documentation" links are pages of Learn that
+declare, in their `cmProducts` tags, which Learn products they belong to. `PageFinder.scope` reads up to
+eight of them once per build, drops the families of products (a top-level product of Learn's product tree
+with ten or more products below it, such as Azure) because they say nothing about the service, and keeps the
+rest, the most often declared first. For DP-300 that is Azure SQL Database and SQL Server. Learn's search
+then runs narrowed to those products, asking for 20 results, because it ranks the right page low. The pages
+found without the narrowing follow, up to eight: a guide may link to the documentation of only part of a
+broad exam. When the guide links to no documentation, declares no product beyond a family, or Learn's product
+tree cannot be read, nothing is narrowed and the search is the plain one. A product id from a page reaches
+the search filter only after it matches Learn's id shape (EG-37). The checker reads up to 10,000 characters of
+a page, and it is told that a page about a different product (a Power BI page for an Azure SQL exam) does
+not teach the skill, while another edition of the same product (SQL Server) can.
+
 Only documentation is read, never training (EG-39). Before anything is fetched, `docs_url` in
 `app/sources.py` resolves dot segments, including encoded ones such as `%2e%2e`. It refuses a path that
 leaves Learn's `/en-us/` documentation or GitHub Docs' `/en/`, and one that lands in `training`,

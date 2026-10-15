@@ -111,7 +111,7 @@ Each module starts with a docstring that states what it does and the rules it ke
 | `mirror.py` | Mirrors the deletion list, membership changes and Pause into the lab database, so a restore of either side cannot undo a deletion. |
 | `newexam.py` | Add an exam (ADR 0005): reads the study guide, finds and checks pages per skill, prices the course and builds the package. |
 | `packages.py` | Loads and validates exam packages (built-in, added, and the deeper-lessons page overlay). |
-| `pagefinder.py` | Finds official pages that teach a skill: site search, the author picks, the gate must quote the page, Dojo finds the quote. |
+| `pagefinder.py` | Finds official pages that teach a skill: site search (narrowed to the products the exam's documentation declares), the author picks, the gate must quote the page, Dojo finds the quote. |
 | `plan.py` | The study plan inside the learner's free times, and its private iCalendar feed (ADR 0004). |
 | `play.py` | Play's personal layer (ADR 0010): study points, weeks met and the moments shelf, all derived from the Record. |
 | `play_board.py` | Play's effort board: weekly bands of effort with no order (team mode, opt-in). |

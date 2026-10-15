@@ -474,9 +474,23 @@ class NewExams:
                                                "does not teach them or ask about them. They count as not shown.")
         self.packages.add(raw)
         self.store.write("packages", pid, value=raw)
-        self._change(pid, lambda d: d.update(skills=total, checked=total, sourced=total - unsourced, repaired=iso()))
+        self._change(pid, lambda d: d.update(skills=total, checked=total, sourced=total - unsourced, repaired=iso(),
+                                             last_repair={"at": iso(), "searched": searched, "sourced": sourced,
+                                                          "unsourced": unsourced}))
         self.preparer.wake()
         return {"package": pid, "searched": searched, "sourced": sourced, "unsourced": unsourced}
+
+    def _repairing(self, pid: str) -> dict | None:
+        job = self.jobs.existing(self.owner, REPAIR, pid)
+        return {"step": job.get("step"), "since": job.get("created")} if job else None
+
+    def _repair_offer(self, unsourced: int) -> dict:
+        """What another search for the skills without a page can cost at list prices: the search itself, whether
+        or not it finds anything, and a lesson written and narrated for each skill that gets a page, at most all of them."""
+        searching, lesson = self.costs.deeper_estimate(unsourced, 0), self.costs.deeper_estimate(0, 1)
+        return {"skills": unsourced, "search": searching["total"], "lesson": lesson["total"],
+                "most": round(searching["total"] + unsourced * lesson["total"], 2),
+                "complete": searching["complete"] and lesson["complete"], "stale": searching["stale"]}
 
     # ------------------------------------------------------------ progress, filming and cost
 
@@ -630,7 +644,9 @@ class NewExams:
             practice=meta.get("official_practice_assessment"), passing_score=meta.get("passing_score"),
             duration_minutes=(meta.get("exam_format") or {}).get("duration_minutes"), notes=meta.get("notes") or [],
             added_at=meta.get("added"), version=meta["version"], no_exam=exam_blocker(pkg),
-            lessons={k: v for k, v in lessons.items() if k != "unfilmed"}, film=self._film_view(doc, lessons))
+            lessons={k: v for k, v in lessons.items() if k != "unfilmed"}, film=self._film_view(doc, lessons),
+            repair=self._repair_offer(lessons["unsourced"]) if lessons["unsourced"] else None,
+            repairing=self._repairing(pid), last_repair=doc.get("last_repair"))
         return out
 
     def approve_film(self, learner: Learner, pid: str, token: str) -> dict:
