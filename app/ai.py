@@ -25,6 +25,15 @@ from .core import Tokens
 
 log = logging.getLogger("dojo.ai")
 ROLES = ("author", "gate", "grader")
+# Web search (Foundry's Responses API with the web_search tool, ADR 0018). The tool puts what it found into the
+# prompt, so a call reads about 10,000 tokens per search; Grounding with Bing is billed per search on top.
+WEB_SEARCH_FEE = 0.04      # USD, a ceiling for one search
+WEB_PRE_INPUT = 60000      # tokens reserved for one call before it is made
+WEB_MAX_OUT = 2500
+WEB_TRIES = 5
+WEB_WAIT_S = 60            # the longest wait between two tries
+WEB_INPUT = ("Find official documentation pages for this certification exam skill. Run exactly {n} web search{s}, then "
+             "reply with one short line. Skill and context: {query}")
 
 
 class AIError(Exception):
@@ -53,6 +62,7 @@ class Foundry:
         self._lock = threading.Lock()
         self.meter: Any = None   # the Budget, in team mode (app/budget.py)
         self._limit_key: dict[str, str] = {}   # a model that wants max_tokens instead of max_completion_tokens
+        self._web = threading.Lock()           # one web search at a time: the author deployment's token rate limit is shared
 
     def _candidates(self, role: str) -> list[tuple[str, str]]:
         with self._lock:
@@ -149,6 +159,117 @@ class Foundry:
             time.sleep(min(30, 4 * 2 ** attempt))
         raise AIError(f"{role} model: {last}")
 
+    def web_search(self, query: str, domains: tuple[str, ...] = (), max_searches: int = 1) -> dict:
+        """Foundry's web search tool through the Responses API, without an agent (ADR 0018, R4).
+
+        Returns {"urls": [...], "queries": [...]}: the addresses the tool read (its source list first, then the
+        pages the model cited) and the searches it ran. The model's own words are dropped: only addresses leave
+        this method, and Dojo reads and judges every page itself (EG-14). `query` holds public strings only (an
+        exam, a skill, product names). One search at a time, because the author deployment's token rate limit is
+        shared; a 429 is waited out. In team mode the call is reserved before it is sent and settled after."""
+        if not self.settings.ai_endpoint:
+            raise AIError("No model endpoint is configured.")
+        role = "author"
+        tool: dict[str, Any] = {"type": "web_search"}
+        if domains:
+            tool["filters"] = {"allowed_domains": list(domains)}
+        body = {"model": role, "tools": [tool], "tool_choice": "required", "include": ["web_search_call.action.sources"],
+                "max_tool_calls": max_searches, "max_output_tokens": WEB_MAX_OUT,
+                "input": WEB_INPUT.format(n=max_searches, s="" if max_searches == 1 else "es", query=query[:600])}
+        url = f"{self.settings.ai_endpoint}/responses"
+        meter = self.meter
+        last = "no route was tried"
+        with self._web:
+            for attempt in range(WEB_TRIES):
+                wait = min(WEB_WAIT_S, 5 * 2 ** attempt)
+                for scope in self._web_scopes(role):
+                    ticket = (meter.open_call(f"{role}/web_search", meter.chat_cost(role, WEB_PRE_INPUT, WEB_MAX_OUT)
+                                              + WEB_SEARCH_FEE * max_searches) if meter is not None else None)
+                    cost: float | None = 0.0   # nothing was charged unless a call got an answer
+                    try:
+                        try:
+                            r = self._post(url, scope, body)
+                        except httpx.ConnectError as e:
+                            last = f"network: {type(e).__name__}"
+                            continue
+                        except httpx.HTTPError as e:
+                            cost = None   # the request may have reached the service
+                            last = f"network: {type(e).__name__}"
+                            continue
+                        except Exception as e:  # noqa: BLE001 - token failures: try the next scope
+                            last = f"token: {type(e).__name__}: {str(e)[:200]}"
+                            continue
+                        if r.status_code == 200:
+                            try:
+                                payload = r.json()
+                            except ValueError:
+                                cost, last = None, "the web search answered with something that is not JSON"
+                                break
+                            cost = self._web_cost(meter, role, payload)
+                            if isinstance(payload, dict) and payload.get("status") in ("failed", "cancelled"):
+                                last = f"the web search {payload['status']}: {str(payload.get('error'))[:200]}"
+                                break
+                            return self._web_found(payload)
+                        last = f"HTTP {r.status_code}: {r.text[:300]}"
+                        if r.status_code == 429:
+                            try:
+                                wait = min(WEB_WAIT_S, max(wait, float(r.headers.get("retry-after") or 0)))
+                            except ValueError:
+                                pass
+                            break
+                        if r.status_code in (408, 500, 502, 503, 504):
+                            break
+                        if r.status_code in (401, 403, 404):
+                            continue
+                        raise AIError(f"web search refused the request: {last}")
+                    finally:
+                        if ticket is not None:
+                            meter.settle(ticket, ticket.bound if cost is None else cost)
+                time.sleep(wait)
+        raise AIError(f"web search: {last}")
+
+    def _web_scopes(self, role: str) -> list[str]:
+        with self._lock:
+            cached = self._routes.get(role)
+        both = ["https://cognitiveservices.azure.com/.default", "https://ai.azure.com/.default"]
+        return ([cached[1]] + [s for s in both if s != cached[1]]) if cached else both
+
+    @staticmethod
+    def _web_cost(meter: Any, role: str, payload: Any) -> float | None:
+        """What a web search call cost: its tokens at list price and a fee for each search it ran."""
+        if meter is None:
+            return None
+        try:
+            usage = payload["usage"]
+            searches = sum(1 for i in payload.get("output") or [] if isinstance(i, dict) and i.get("type") == "web_search_call")
+            return meter.chat_cost(role, int(usage["input_tokens"]), int(usage["output_tokens"])) + WEB_SEARCH_FEE * max(1, searches)
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _web_found(payload: Any) -> dict:
+        """The addresses and searches of a Responses API answer (no address when the search found nothing)."""
+        urls: list[str] = []
+        cited: list[str] = []
+        queries: list[str] = []
+        for item in (payload.get("output") if isinstance(payload, dict) else None) or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "web_search_call":
+                action = item.get("action") if isinstance(item.get("action"), dict) else {}
+                asked = action.get("queries") if isinstance(action.get("queries"), list) else [action.get("query")]
+                queries += [str(q)[:300] for q in asked if q][:6]
+                for s in action.get("sources") or []:
+                    if isinstance(s, dict) and isinstance(s.get("url"), str):
+                        urls.append(s["url"])
+            elif item.get("type") == "message":
+                for part in item.get("content") or []:
+                    for a in (part.get("annotations") if isinstance(part, dict) else None) or []:
+                        if isinstance(a, dict) and a.get("type") == "url_citation" and isinstance(a.get("url"), str):
+                            cited.append(a["url"])
+        found = list(dict.fromkeys(urls + cited))
+        return {"urls": found, "queries": queries}
+
 
 def task_of(system: str) -> str:
     found = re.search(r"TASK: (\w+)", system or "")
@@ -218,6 +339,10 @@ _CANDIDATE = re.compile(r'<candidate n="(\d+)" found-for="([^"]*)"')
 _PART = re.compile(r"^(P\d+) (.+?) \(about (\d+) words\):", re.M)
 _ONLY = re.compile(r"^Write ONLY these parts again: ([P\d, ]+)\.", re.M)
 _SLIDE = re.compile(r'^SLIDE (\d+): "', re.M)
+_ROLE_TASKS = frozenset({"verify_graded", "pick_sentences", "complete_set"})   # stub handlers that need to know the model asked
+_TITLE = re.compile(r'<source n="(\d+)" title="([^"]*)"')
+_SKILL_LINE = re.compile(r"^\[(\d+)\] (.+)$", re.M)
+_PAGE_LINE = re.compile(r"^\[(\d+)\] (.+)$", re.M)
 
 
 def _quotes(text: str) -> list[tuple[int, str]]:
@@ -244,6 +369,21 @@ class StubAI:
         # (role, task, system, user, answer) -> (prompt_tokens, completion_tokens): what the stub reports
         self.usage: Callable[..., tuple[int, int]] = lambda role, task, system, user, answer: (
             len((system + user).encode("utf-8")) // 4 + 8, len(answer.encode("utf-8")) // 4 + 1)
+        # Source discovery (ADR 0018): what a test decides. Web search finds these addresses for a query; the grade
+        # a model gives a page (role, title, text); and whether a model finds an accepted set complete.
+        self.search_urls: Callable[[str], list[str]] = lambda query: []
+        self.grades: Callable[[str, str, str], str] = lambda role, title, text: "teaches"
+        self.set_answer: Callable[[str], str] = lambda role: "yes"
+
+    def web_search(self, query: str, domains: tuple[str, ...] = (), max_searches: int = 1) -> dict:
+        self.calls.append(("author", "web_search"))
+        found = {"urls": list(self.search_urls(query)), "queries": [query]}
+        meter = self.meter
+        if meter is None:
+            return found
+        ticket = meter.open_call("author/web_search", meter.chat_cost("author", WEB_PRE_INPUT, WEB_MAX_OUT) + WEB_SEARCH_FEE * max_searches)
+        meter.settle(ticket, 0.0)
+        return found
 
     def route(self, role: str) -> str:
         return "stub"
@@ -269,7 +409,8 @@ class StubAI:
         self.calls.append((role, task))
         if task == "ping":
             return "ok"
-        return json.dumps(getattr(self, "_" + task)(user))
+        handler = getattr(self, "_" + task)
+        return json.dumps(handler(user, role) if task in _ROLE_TASKS else handler(user))
 
     def _lesson(self, user: str) -> dict:
         q = _quotes(user)
@@ -485,3 +626,52 @@ class StubAI:
             first.setdefault(n, sentence)
         return {"sources": [{"n": int(n), "teaches": int(n) in first, "quote": first.get(int(n), ""), "reason": "stub"}
                             for n in re.findall(r'<source n="(\d+)"', user)]}
+
+    # ---- source discovery (ADR 0018)
+
+    def _plan_queries(self, user: str) -> dict:
+        """Two search phrases for each skill: its words without the verb, and with "how to"."""
+        block = user.split("<skills>")[-1].split("</skills>")[0]
+        out = []
+        for k, text in _SKILL_LINE.findall(block):
+            words = text.split()
+            base = " ".join(words[1:]) if len(words) >= 4 else text
+            out.append({"skill": int(k), "queries": [base, f"{base} how to"]})
+        return {"skills": out}
+
+    def _verify_graded(self, user: str, role: str) -> dict:
+        """A source gets the grade a test decides (`grades`) when it has a sentence to quote, else `no`."""
+        first: dict[int, str] = {}
+        for n, sentence in _quotes(user):
+            first.setdefault(n, sentence)
+        titles = {int(n): t for n, t in _TITLE.findall(user)}
+        out = []
+        for n in sorted(titles):
+            grade = self.grades(role, titles[n], first.get(n, "")) if n in first else "no"
+            out.append({"n": n, "grade": grade, "quote": first.get(n, "") if grade != "no" else "", "reason": "stub",
+                        "kind": "other-task"})
+        return {"sources": out}
+
+    def _pick_sentences(self, user: str, role: str) -> dict:
+        """The first numbered sentence of every source."""
+        return {"sources": [{"n": int(n), "sentence": 1} for n in re.findall(r'<source n="(\d+)"', user)]}
+
+    def _complete_set(self, user: str, role: str) -> dict:
+        """One obligation for each source, supported by that source's first sentence; the answer a test decides."""
+        first: dict[int, str] = {}
+        for n, sentence in _quotes(user):
+            first.setdefault(n, sentence)
+        return {"obligations": [{"text": f"Part {n}", "source": n, "quote": q} for n, q in sorted(first.items())],
+                "answer": self.set_answer(role), "reason": "stub"}
+
+    def _scan_titles(self, user: str) -> dict:
+        """For each skill, up to two pages whose title shares a word of five letters or more with it."""
+        skills_block = user.split("<skills>")[-1].split("</skills>")[0]
+        pages_block = user.split("<pages>")[-1].split("</pages>")[0]
+        pages = [(int(n), line) for n, line in _PAGE_LINE.findall(pages_block)]
+        matches = []
+        for k, text in _SKILL_LINE.findall(skills_block):
+            words = {w for w in re.findall(r"[a-z]{5,}", text.lower())}
+            hit = [n for n, line in pages if words & set(re.findall(r"[a-z]{5,}", line.lower()))][:2]
+            matches.append({"skill": int(k), "pages": hit})
+        return {"matches": matches}
