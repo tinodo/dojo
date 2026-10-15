@@ -37,6 +37,8 @@ from .ai import AIError
 from .core import Abandoned, Learner, UserError, iso, sha256, utcnow
 from .exam import blocker as exam_blocker
 from .pagefinder import MAX_SOURCES, PageFinder, github_hits, groundable, label, learn_hits, learn_search  # noqa: F401
+from .sourcing.ladder import Sourcer
+from .sourcing.state import skill_key  # noqa: F401 - the key of a skill in the build document and in the search's books
 from .sources import normalize
 from .studyguide import (LEARN, after, cert_slug, exam_url, guide_url, issuer, normalize_code, parse_cert_page,
                          parse_guide, practice_for, resolve)
@@ -50,11 +52,6 @@ COUNT_NOTE = ("Microsoft Learn does not publish how many questions {code} has. I
 GUIDE_LINKS = 12       # documentation links from the study guide offered to every group
 ERROR_SHARE = 0.1      # more skills than this whose check could not run stop the build, to be resumed
 BUILD = "exam-build"
-REPAIR = "source-repair"
-
-
-def skill_key(domain: str, group: str, text: str) -> str:
-    return sha256(f"{normalize(domain)}|{normalize(group)}|{normalize(text)}")[:16]
 
 
 def skill_id(i: int, j: int, k: int, text: str) -> str:
@@ -94,6 +91,7 @@ class NewExams:
         self.preparer = preparer
         self.owner = owner
         self.finder = PageFinder(dojo)
+        self.sourcer = Sourcer(dojo, self)
         self._lookups: dict[str, tuple[float, dict]] = {}
         self._lock = threading.RLock()   # build documents are read, changed and written one at a time
 
@@ -337,6 +335,7 @@ class NewExams:
         progress("Putting the course together")
         pkg = self._assemble(found, matches)
         self.packages.add(pkg)
+        self.sourcer.adopt(pid, pkg)
         sourced = sum(1 for d in pkg["domains"] for g in d["groups"] for s in g["skills"] if s["sources"])
         doc = self._change(pid, lambda doc: doc.update(state="added", finished=iso(), error=None,
                                                        **self._counts(guide, matches)))
@@ -372,7 +371,7 @@ class NewExams:
 
     def _match_group(self, found: dict, domain: dict, group: dict, pending: list[tuple[str, str]],
                      offered: list[dict]) -> dict[str, dict]:
-        return self.finder.match_group(found, domain, group, pending, offered)
+        return self.sourcer.match_group(found, domain, group, pending, offered)
 
     def _pick_prompt(self, found: dict, domain: dict, group: dict, pending: list[tuple[str, str]], cands: list[dict]) -> str:
         return self.finder.pick_prompt(found, domain, group, pending, cands)
@@ -396,7 +395,6 @@ class NewExams:
             domains.append({"id": f"d{i}", "title": d["title"], "weight_min": d["weight_min"],
                             "weight_max": d["weight_max"], "groups": groups})
         skills = [s for d in domains for g in d["groups"] for s in g["skills"]]
-        unsourced = sum(1 for s in skills if not s["sources"])
         notes = list(found["notes"])
         if found["guide"]["forthcoming"]:
             notes.append(f"The study guide lists the skills measured as of {guide['as_of']}, which is after {today}. "
@@ -404,9 +402,6 @@ class NewExams:
                          "shows what changes.")
         if not guide["as_of"]:
             notes.append(f"The study guide does not say from which date these skills are measured. Dojo read it on {today}.")
-        if unsourced:
-            notes.append(f"For {unsourced} of {len(skills)} skills no official page passed the check, so Dojo does not "
-                         "teach them or ask about them. They count as not shown.")
         timed = bool(cert and cert["duration_minutes"])
         return {
             "id": code.lower(), "exam": code, "title": guide["title"], "issuer": issuer(code), "kind": "certification",
@@ -429,68 +424,6 @@ class NewExams:
             "added": iso(),
             "domains": domains,
         }
-
-    def start_repair(self, learner: Learner, pid: str) -> dict:
-        """Search again for unsourced skills of an already-added exam, keeping existing lessons and media."""
-        if not self.packages.is_added(pid):
-            raise HTTPException(404, "No such added exam.")
-        job = self.jobs.start(learner, REPAIR, self._repair, pid, ref=pid,
-                              busy_message="Dojo is already looking for more official pages for this exam.")
-        return {"package": pid, "job": job}
-
-    def _repair(self, progress: Callable[[str], None], pid: str) -> dict:
-        raw = self.store.read("packages", pid)
-        if not isinstance(raw, dict):
-            raise UserError("The added exam package could not be read.")
-        code = raw["exam"]
-        found = self._found(code, fresh=True)
-        if found["state"] != "found":
-            raise UserError(found["message"])
-        skills = [(d, g, s) for d in raw["domains"] for g in d["groups"] for s in g["skills"] if not s.get("sources")]
-        if not skills:
-            return {"package": pid, "searched": 0, "sourced": 0, "unsourced": 0}
-        by_key = {skill_key(d["title"], g["title"], s["text"]): s for d, g, s in skills}
-        searched = sourced = 0
-        for n, d in enumerate(raw["domains"], 1):
-            for g in d["groups"]:
-                pending = [(skill_key(d["title"], g["title"], s["text"]), s["text"]) for s in g["skills"]
-                           if not s.get("sources")]
-                if not pending:
-                    continue
-                progress(f"Checking official pages again: {searched} of {len(skills)} unsourced skills")
-                matches = self._match_group(found, d, g, pending, [])
-                for key, match in matches.items():
-                    searched += 1
-                    refs = (match.get("sources") or [])[:MAX_SOURCES]
-                    if refs:
-                        by_key[key]["sources"] = refs
-                        sourced += 1
-                self.store.write("packages", pid, value=raw)
-        total = sum(len(g["skills"]) for d in raw["domains"] for g in d["groups"])
-        unsourced = sum(1 for d in raw["domains"] for g in d["groups"] for s in g["skills"] if not s.get("sources"))
-        raw["notes"] = [n for n in raw.get("notes", []) if "no official page passed the check" not in n]
-        if unsourced:
-            raw.setdefault("notes", []).append(f"For {unsourced} of {total} skills no official page passed the check, so Dojo "
-                                               "does not teach them or ask about them. They count as not shown.")
-        self.packages.add(raw)
-        self.store.write("packages", pid, value=raw)
-        self._change(pid, lambda d: d.update(skills=total, checked=total, sourced=total - unsourced, repaired=iso(),
-                                             last_repair={"at": iso(), "searched": searched, "sourced": sourced,
-                                                          "unsourced": unsourced}))
-        self.preparer.wake()
-        return {"package": pid, "searched": searched, "sourced": sourced, "unsourced": unsourced}
-
-    def _repairing(self, pid: str) -> dict | None:
-        job = self.jobs.existing(self.owner, REPAIR, pid)
-        return {"step": job.get("step"), "since": job.get("created")} if job else None
-
-    def _repair_offer(self, unsourced: int) -> dict:
-        """What another search for the skills without a page can cost at list prices: the search itself, whether
-        or not it finds anything, and a lesson written and narrated for each skill that gets a page, at most all of them."""
-        searching, lesson = self.costs.deeper_estimate(unsourced, 0), self.costs.deeper_estimate(0, 1)
-        return {"skills": unsourced, "search": searching["total"], "lesson": lesson["total"],
-                "most": round(searching["total"] + unsourced * lesson["total"], 2),
-                "complete": searching["complete"] and lesson["complete"], "stale": searching["stale"]}
 
     # ------------------------------------------------------------ progress, filming and cost
 
@@ -645,9 +578,23 @@ class NewExams:
             duration_minutes=(meta.get("exam_format") or {}).get("duration_minutes"), notes=meta.get("notes") or [],
             added_at=meta.get("added"), version=meta["version"], no_exam=exam_blocker(pkg),
             lessons={k: v for k, v in lessons.items() if k != "unfilmed"}, film=self._film_view(doc, lessons),
-            repair=self._repair_offer(lessons["unsourced"]) if lessons["unsourced"] else None,
-            repairing=self._repairing(pid), last_repair=doc.get("last_repair"))
+            sourcing=self.sourcer.summary(pid))
         return out
+
+    def sourcing(self, pid: str) -> dict:
+        """Studio: how far the search for the pages of every skill has come (app/sourcing/ladder.py)."""
+        if not self.packages.is_added(pid):
+            raise HTTPException(404, "No such added exam.")
+        return self.sourcer.status(pid)
+
+    def sourcing_overview(self) -> dict:
+        """Studio: the search for the pages of every added exam, and whether web search works."""
+        exams = []
+        for pid in self.packages.ids():
+            if self.packages.is_added(pid):
+                meta = self.packages.get(pid)["meta"]
+                exams.append({"exam": meta["exam"], "title": meta["title"], **self.sourcer.status(pid)})
+        return {"exams": exams, "web_search": self.sourcer.web_state(), "search": self.sourcer.diag()}
 
     def approve_film(self, learner: Learner, pid: str, token: str) -> dict:
         """The owner's explicit approval of the spend shown on the page: exactly those lessons."""
@@ -737,6 +684,7 @@ class NewExams:
                     if added:
                         self.packages.remove(pid)
                     removed = self._forget_content(pid)
+                    self.sourcer.forget(pid)
                     for who in everyone:
                         self._unenroll(who, pid)
                     self.store.delete("package-builds", pid)
@@ -825,5 +773,6 @@ class NewExams:
                         "skills": doc.get("skills"), "checked": doc.get("checked"), "sourced": doc.get("sourced"),
                         "errors": doc.get("errors"), "job": job["state"] if job else None, "error": doc.get("error"),
                         "lessons": self._ready(name) if added else None,
+                        "sourcing": self.sourcer.summary(name) if added else None,
                         "film_approved": len(film.get("approved") or []), "film_failed": len(film.get("failed") or {})})
         return out

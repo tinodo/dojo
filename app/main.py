@@ -505,6 +505,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     play = PlayRoom(dojo)
     newexams = NewExams(dojo, room, pool, podcast, checker, costs, preparer, owner)
     preparer.films = newexams  # files the filming the owner approved for an added exam
+    preparer.sourcing = newexams.sourcer   # finds the official pages of an added exam's skills, by itself (ADR 0018)
     deeper = DeeperLessons(dojo, owner, costs)
     deeper.busy = preparer._learner_busy   # searches only while the learner has nothing running
     preparer.deeper = deeper   # writes lessons again on the deeper template, within their own allowance
@@ -1742,6 +1743,12 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         """More official pages per skill and lessons written again on the deeper template (ADR 0008)."""
         return deeper.view()
 
+    @app.get("/api/studio/sourcing")
+    def studio_sourcing(learner: Learner = Admin) -> dict:
+        """How far the search for the official pages of every skill of the added exams has come (ADR 0018)."""
+        _no_help_during_exam(learner, "The search for pages is closed")
+        return newexams.sourcing_overview()
+
     @app.post("/api/studio/decks/ahead")
     def studio_decks_ahead(body: DeckAheadRequest, learner: Learner = Admin) -> dict:
         """The owner turns drawing visual decks ahead of time on or off (ADR 0014). It is off until then: a deck is
@@ -1774,7 +1781,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         return {"selftest": selftest.result, "build": settings.build, "models": dojo.models("author", "gate", "grader"),
                 "preparation": preparer.status(), "video_storage": dojo.avatar.usage(), "question_pool": pool.status(),
                 "delivery_check": checker.status(), "drift_check": drift.status(), "exam_builds": newexams.diag(),
-                "deeper_lessons": deeper.diag(),
+                "source_search": newexams.sourcer.diag(), "deeper_lessons": deeper.diag(),
                 "labs": {"on": True, "mode": "local demo" if lab_demo else "private Azure SQL",
                          "probe": "Use POST /api/diag/lab to connect; never run at startup.",
                          "repair": "POST /api/diag/lab/repair {confirm: true} cleans dbo and escaped history tables."}
@@ -1848,10 +1855,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     def exam_progress(pid: str, learner: Learner = Admin) -> dict:
         return newexams.status(learner, _check_id(pid, PKG))
 
-    @app.post("/api/exam-packages/{pid}/repair-sources")
-    def exam_repair_sources(pid: str, learner: Learner = Admin) -> dict:
-        """Search again only for skills still missing verified official pages."""
-        return newexams.start_repair(learner, _check_id(pid, PKG))
+    @app.get("/api/exam-packages/{pid}/sourcing")
+    def exam_sourcing(pid: str, learner: Learner = Admin) -> dict:
+        """Studio: how far the search for the official pages of every skill has come (ADR 0018)."""
+        return newexams.sourcing(_check_id(pid, PKG))
 
     @app.post("/api/exam-packages/{pid}/film")
     def exam_film(pid: str, body: FilmRequest, learner: Learner = Admin) -> dict:
