@@ -97,7 +97,21 @@ Two presenters talk over the slides. Harry is the coach who explains. Meg is a c
 
 ### Present
 
-The slides with narration, one slide at a time.
+A narrated slide deck that plays scene by scene, like a trainer presenting the lesson. It starts with the title and what you will be able to do, then takes the lesson in named parts. The points and diagram parts of a slide come in as the narration reaches them. After the slides come the example, the traps from **Watch out**, a recap and up to three **Check yourself** questions. They are for you alone: nothing you choose there is recorded.
+
+Every lesson's deck is first built from the checked lesson alone, so it can play at once. Dojo then draws a visual deck for the lesson: diagrams such as steps, cycles, layers, tables, two sides compared and marked-up code, exam tips and traps that quote a source page, named parts and a recap. One model writes it and a second model checks every part against the official pages. A part that does not hold is left out, and Dojo uses the deck only if at least three quarters of it held. If you open Present on a lesson that has none yet, Dojo starts drawing it, and it takes over when it is ready, without cutting off the scene you are on. In team mode that uses one visual deck from your daily allowance. Dojo draws no decks ahead of time until the owner turns that on in Studio, where the price for every lesson is shown first. Then it draws up to 20 a day, the active exam first. The note under the deck says which kind you are watching.
+
+The controls:
+
+- **Play** or **Pause**, or press the Space bar. The arrow keys, Page Up and Page Down go a scene back or on; Home and End go to the first or the last.
+- **Continue automatically** goes on to the next scene when one ends. Turn it off to stay on each scene until you go on.
+- **Captions** (C) show the line being said. If the lesson has no audio yet, the deck keeps time on its own, at about 14 characters a second.
+- **1×** switches to 1.25× and back.
+- **Overview** (O) shows every scene by part, so you can jump to any of them. **Full screen** (F) shows the deck at 16:9.
+
+Scenes without narration stay long enough to read. On a phone the slide is laid out in one column, and a long diagram scrolls. If your device is set to reduce motion, scenes change without animation and **Continue automatically** starts off.
+
+In Present the lesson counts as opened for your record when you press play, not when you open the tab.
 
 ### Sources and quotes
 
@@ -452,6 +466,7 @@ Default allowances per day:
 - transcriptions: 60
 - first lessons for a skill without one: 3
 - lesson audio: 5
+- visual decks for Present: 3
 - lab runs: 150
 - practice-exam question batches: 6
 
@@ -512,7 +527,7 @@ Everything in this part is for the owner only. Members do not see these pages or
 
 Studio shows how each course is built: the steps of the pipeline, a voice check, costs (estimates from list prices, never per member) and source changes. For members the same menu entry is called **Studio log**.
 
-Everyone, the owner included, has a **Studio log**. It lists what the checker removed from shared lessons, and from what Dojo wrote for you alone. Nobody sees another person's own entries, not even the owner.
+Everyone, the owner included, has a **Studio log**. It lists what the checker removed from shared lessons and their visual decks, and from what Dojo wrote for you alone. Nobody sees another person's own entries, not even the owner.
 
 From Studio and the lesson pages the owner can also:
 

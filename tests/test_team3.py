@@ -528,6 +528,8 @@ class WorstCaseTests(unittest.TestCase):
                          {task_of(learning.LESSON_SYSTEM), task_of(learning.GATE_ELEMENTS_SYSTEM)})
         self.assertEqual({t for _, t, _ in budget_mod.ACTION_CALLS["ask"]},
                          {task_of(learning.ANSWER_SYSTEM), task_of(learning.GATE_ELEMENTS_SYSTEM)})
+        self.assertEqual({t for _, t, _ in budget_mod.ACTION_CALLS["deck"]},
+                         {task_of(learning.DECK_SYSTEM), task_of(learning.GATE_ELEMENTS_SYSTEM)})
         writers = {task_of(learning.MCQ_SYSTEM), task_of(learning.GATE_MCQ_SYSTEM), task_of(itemwriter.GATE_ITEMS_SYSTEM)}
         writers |= {task_of(s) for s in itemwriter.SYSTEMS.values()}
         self.assertEqual({t for pair in budget_mod.WRITER_TASKS.values() for t in pair}, writers)
@@ -571,6 +573,7 @@ class RouteTests(Team2Case):
         routes = [
             ("/api/lessons", {"package": "gh-300", "skill": other}),
             (f"/api/lessons/{lesson['id']}/audio", None),
+            (f"/api/lessons/{lesson['id']}/deck", None),
             ("/api/items", {"package": "gh-300", "skill": self.sid, "mode": "practice"}),
             (f"/api/items/{item}/hint", None),
             (f"/api/items/{item}/answer", {"text": "Another answer.", "podcast_heard": False}),
@@ -598,7 +601,7 @@ class RouteTests(Team2Case):
                                 headers={**self.a, **POST, "Content-Type": "audio/webm"})
                 self.assertEqual(r.status_code, 429, r.text)
                 heard.assert_not_called()
-        self.assertEqual(asked, ["lesson", "audio", "item", "hint", "answer", "answer", "answer", "rehearsal", "ask", "check",
+        self.assertEqual(asked, ["lesson", "audio", "deck", "item", "hint", "answer", "answer", "answer", "rehearsal", "ask", "check",
                                  "check", "exam", "transcribe"])
         self.wait_all(self.ka)
         self.assertEqual(len(self.stub.calls), calls)

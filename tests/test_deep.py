@@ -536,6 +536,11 @@ class DeepPreparerTests(unittest.TestCase):
     def setUp(self):
         self.app = new_app("dojo-deep-prep-")
         self.dojo, self.prep = self.app.state.dojo, self.app.state.preparer
+        # Deeper Listen alone: the visual decks the Preparer draws after it have tests of their own
+        # (tests/test_deck_make.py).
+        no_decks = mock.patch.object(prepare, "DECK_PER_DAY", 0)
+        no_decks.start()
+        self.addCleanup(no_decks.stop)
 
     def narrated(self, k: int, pid: str = "gh-300") -> str:
         lesson = lesson_for(self.app, self.prep._skills(pid)[k]["id"], pid)

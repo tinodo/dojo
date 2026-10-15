@@ -358,6 +358,18 @@ class CleanSpecTests(unittest.TestCase):
         self.assertIsNone(spec["slides"]["0"]["tip"])
         self.assertEqual(spec["slides"]["6"]["tip"]["kind"], "tip")
 
+    def test_a_tip_does_not_repeat_the_label_the_slide_shows(self):
+        raw = copy.deepcopy(RAW)
+        raw["slides"][0]["tip"]["text"] = "Exam trap: a run that fails is not retried at once."
+        raw["slides"][4]["tip"]["text"] = "tip - keep the relay close to the agents."
+        raw["slides"][6]["tip"]["text"] = "Trap:"
+        spec, blocked, _ = spec_of(raw)
+        self.assertEqual(spec["slides"]["0"]["tip"]["text"], "A run that fails is not retried at once.")
+        self.assertEqual(spec["slides"]["4"]["tip"]["text"], "Keep the relay close to the agents.")
+        self.assertIsNone(spec["slides"]["6"]["tip"])
+        self.assertEqual([b["part"] for b in blocked], ["slide 7 tip"])
+        self.assertEqual(deck._unlabelled("Tipping points come first."), "Tipping points come first.")
+
     def test_a_quote_on_a_slide_is_short(self):
         long = "every device keeps its last good settings " * 6
         raw = raw_visual(4)
@@ -552,8 +564,12 @@ class ApplyVerdictsTests(unittest.TestCase):
         out, _ = deck.apply_verdicts(spec, ok)
         self.assertEqual(out["slides"]["2"]["visual"]["right"]["points"], ["Pull mode keeps working"])
         ok["v2.l0"] = (False, "no")
-        out, _ = deck.apply_verdicts(spec, ok)
+        blocked = []
+        out, _ = deck.apply_verdicts(spec, ok, blocked)
         self.assertNotIn("2", out["slides"])
+        v = spec["slides"]["2"]["visual"]
+        self.assertEqual([(b["part"], b["text"]) for b in blocked],   # both sides are in the log
+                         [("slide 3 diagram point", v["left"]["points"][0]), ("slide 3 diagram point", v["right"]["points"][1])])
 
     def test_a_failed_tip_goes_alone(self):
         out, held, _ = self.apply(failing={"t4"})
@@ -893,6 +909,16 @@ def largest() -> list[dict]:
     ]
 
 
+def long_words() -> list[dict]:
+    """Diagrams with long words: a word is drawn whole at a smaller size, not broken inside."""
+    part = lambda label, note="": {"label": label, "note": note, "icon": None, "cue": None}
+    return [
+        {"type": "hub", "center": "Hub replication", "icon": None, "spokes": [part("Relay"), part("Agent"), part("Verifier")]},
+        {"type": "flow", "steps": [part("Authentication", "Each agent proves who it is"), part("Configuration", "Settings arrive"),
+                                   part("Verification", "The agent checks its copy"), part("Acknowledgement", "The hub records it")]},
+    ]
+
+
 def boxes(v: dict) -> list[tuple]:
     """Where a diagram can be drawn: beside the bullets only when it is narrow enough (deckRail)."""
     railed = v["type"] in ("stack", "keynum") or (v["type"] == "flow" and len(v["steps"]) <= 3) or \
@@ -912,7 +938,8 @@ class DrawingTests(unittest.TestCase):
         spec = spec_of()[0]
         cls.fixture = [e["visual"] for e in spec["slides"].values() if e.get("visual")] + [visual(RAW["alternates"]["2"])[0]]
         cls.largest = largest()
-        cls.cases = [(v, b) for v in cls.fixture + cls.largest for b in boxes(v)]
+        cls.long_words = long_words()
+        cls.cases = [(v, b) for v in cls.fixture + cls.largest + cls.long_words for b in boxes(v)]
         cls.decks = [deck.compose(LESSON), deck.compose(LESSON, spec)]
         cls.plans = [(d, s, dur) for d in cls.decks for s in d["scenes"] for dur in (0, 61000)]
         texts = [ln["text"] for ln in LESSON["slides"][0]["narration"]]
@@ -920,8 +947,10 @@ class DrawingTests(unittest.TestCase):
         cls.line_at = [(texts, 20000, t) for t in (-1, 0, 4000, 19999, 20000, 20749, 20751, 99999)]
         cls.wraps = [(words(400, k), width, size) for k in range(3) for width in (90, 200, 376, 1128) for size in (16, 24)]
         cls.wraps.append(("Supercalifragilisticexpialidocious-configuration-file-name and more", 120, 20))
-        # the medium text takes four lines at 24 and 22 and three at 20: the fit is 20
-        cls.fits = [("Short", 300, [24, 20], 1), (words(120), 450, [24, 22, 20, 18], 3), (words(400), 100, [24, 20], 2)]
+        # the medium text takes four lines at 24 and 22 and three at 20: the fit is 20; the last one fits in
+        # two lines at 24, but only by breaking "replication", which is whole from 20 down
+        cls.fits = [("Short", 300, [24, 20], 1), (words(120), 450, [24, 22, 20, 18], 3), (words(400), 100, [24, 20], 2),
+                    ("Hub replication", 129, [24, 22, 20, 18], 3)]
         cls.wraps += [(cls.fits[1][0], cls.fits[1][1], size) for size in cls.fits[1][2]]
         cls.out = node({
             "draw": [{"v": v, "W": b[0], "H": b[1], "tall": b[2]} for v, b in cls.cases],
@@ -939,8 +968,8 @@ class DrawingTests(unittest.TestCase):
         self.assertEqual(sorted({v["type"] for v in self.largest}), sorted(deck.VISUALS))
 
     def each(self):
-        return [(v, b, got, f"{v['type']} {'largest' if v in self.largest else 'fixture'} {b[0]}x{b[1]}")
-                for (v, b), got in zip(self.cases, self.out["draw"])]
+        kind = lambda v: "largest" if v in self.largest else "long words" if v in self.long_words else "fixture"
+        return [(v, b, got, f"{v['type']} {kind(v)} {b[0]}x{b[1]}") for (v, b), got in zip(self.cases, self.out["draw"])]
 
     def test_every_shape_stays_inside_its_box(self):
         for v, b, got, name in self.each():
@@ -1082,7 +1111,7 @@ class DrawingTests(unittest.TestCase):
                         self.assertLessEqual(len(ln) * size * 0.56, width + 1e-6)
 
     def test_fitting_takes_the_largest_size_that_fits(self):
-        short, medium, long = self.out["fit"]
+        short, medium, long, whole = self.out["fit"]
         self.assertEqual((short["size"], short["ok"], short["lines"]), (24, True, ["Short"]))
         text, width, sizes, most = self.fits[1]
         counts = {size: len(lines) for (t, w, size), lines in zip(self.wraps, self.out["wrap"]) if (t, w) == (text, width)}
@@ -1091,6 +1120,7 @@ class DrawingTests(unittest.TestCase):
         self.assertTrue(medium["ok"])
         self.assertEqual((long["size"], long["ok"]), (20, False))
         self.assertEqual(" ".join(long["lines"]).split(), self.fits[2][0].split())
+        self.assertEqual((whole["size"], whole["ok"], whole["lines"]), (20, True, ["Hub", "replication"]))
 
     def test_the_progress_bar_parts_cover_every_scene_once(self):
         for d, groups in zip(self.decks, self.out["groups"]):

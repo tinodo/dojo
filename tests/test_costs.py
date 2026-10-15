@@ -350,7 +350,7 @@ class CostViewTests(unittest.TestCase):
     def test_the_studio_api_shape(self):
         body = TestClient(self.app).get("/api/studio/costs").json()
         self.assertEqual(set(body), {"label", "region", "currency", "fetched", "stale", "source", "lines", "total",
-                                     "complete", "usage", "models", "notes", "deep", "exam_items"})
+                                     "complete", "usage", "models", "notes", "deep", "deck", "exam_items"})
         self.assertEqual((body["label"], body["region"], body["currency"], body["source"]),
                          (costs.LABEL, "swedencentral", "USD", costs.PRICES_URL))
         for line in body["lines"]:

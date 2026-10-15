@@ -392,6 +392,8 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(prep.status()["needs_narration"], 0)
         self.assertTrue(prep.step(), "then the lesson's Deeper Listen (ADR 0007)")
         self.assertTrue(dojo.deep_ready(lesson))
+        self.assertTrue(prep.step(), "then its visual deck for Present (ADR 0014)")
+        self.assertEqual(dojo.lesson_view(lesson)["deck"]["level"], "visual")
         self.assertFalse(prep.step(), "nothing left to do")
 
 

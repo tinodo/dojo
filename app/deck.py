@@ -42,6 +42,7 @@ RECAP_MAX = 5
 CHECK_MAX = 3
 _NUMBER = re.compile(r"^(?:[0-9][0-9,.]*%?|[0-9]+(?:\.[0-9]+)?\s?[kKmMbB])$")
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]*")
+_TIP_LABEL = re.compile(r"^(?:exam\s+)?(?:tip|trap)\s*[:\-\u2013\u2014]\s*", re.IGNORECASE)
 _SMALL = frozenset("a an and are as at be by can do does for from has have how if in into is it its not of on "
                    "or so than that the their them then there these they this to was what when where which who "
                    "why will with you your".split())
@@ -64,6 +65,12 @@ def _opt(value: Any, cap: int) -> str | None:
     if value is None or value == "":
         return ""
     return _text(value, cap)
+
+
+def _unlabelled(text: str | None) -> str | None:
+    """A tip without a label of its own ("Tip:", "Exam trap -"): the slide shows what kind it is."""
+    t = _TIP_LABEL.sub("", text, count=1) if text else text
+    return t[:1].upper() + t[1:] if t else None
 
 
 def _icon(value: Any) -> str | None:
@@ -291,7 +298,7 @@ def clean_spec(raw: Any, lesson: dict, quote_ok: QuoteOk, code_ok: CodeOk, norma
         if tip is not None:
             proposed += 1
             t = tip if isinstance(tip, dict) else {}
-            text, quote, n = _text(t.get("text"), TIP), _text(t.get("quote"), QUOTE), _int(t.get("source"))
+            text, quote, n = _unlabelled(_text(t.get("text"), TIP)), _text(t.get("quote"), QUOTE), _int(t.get("source"))
             if text and quote and quote_ok(quote, n):
                 out["tip"] = {"kind": "trap" if t.get("kind") == "trap" else "tip", "text": text,
                               "quote": quote, "source": n, "cue": _cue(t.get("cue"))}
@@ -464,13 +471,12 @@ def _apply_visual(v: dict, eid: str, ok: Callable[[str, str, str], bool], part: 
         rows = [r for k, r in enumerate(v["rows"]) if ok(f"{eid}.{k}", f"{part} row", r["label"])]
         return {**v, "rows": rows} if len(rows) >= 2 else None
     if kind == "contrast":
-        sides = {}
-        for side in ("left", "right"):
-            pts = [p for k, p in enumerate(v[side]["points"]) if ok(f"{eid}.{side[0]}{k}", f"{part} point", p)]
-            if not pts:
-                return None
-            sides[side] = {**v[side], "points": pts}
-        return {**v, **sides}
+        # both sides are looked at, so every point that did not hold is in the log; one empty side drops it
+        sides = {side: [p for k, p in enumerate(v[side]["points"]) if ok(f"{eid}.{side[0]}{k}", f"{part} point", p)]
+                 for side in ("left", "right")}
+        if not all(sides.values()):
+            return None
+        return {**v, **{side: {**v[side], "points": pts} for side, pts in sides.items()}}
     if kind == "matrix":
         return v if all([ok(f"{eid}.{c['y']}{c['x']}", f"{part} cell", c["label"]) for c in v["cells"]]) else None
     marks = [m for m in v["marks"] if ok(f"{eid}.{m['line']}", f"{part} note", m["note"])]

@@ -1,10 +1,11 @@
 # ADR 0014 - Present: a real slide deck with checked visuals, synced to the narration
 
-- Status: proposed
-- Date: 2026-10-05
+- Status: accepted
+- Date: 2026-10-05; accepted 2026-10-06
 - Decision owner: the Dojo lead, for the owner (the only user)
-- Decision: proposed by the builder of the Present deck under the owner's standing instruction to decide
-  and build autonomously. The lead can reject or change it in review. Review triggers are below.
+- Decision: accepted by the builder of the Present deck under the owner's standing instruction to decide
+  and build autonomously, with the changes listed under "As built". The lead can reject or change it in
+  review. Review triggers are below.
 - Guardrails: EG-14 (a generated answer is not a verified Claim), EG-19 (delivery is gated, not exempt),
   EG-20 (each modality carries a learning intention), EG-16 and EG-21 (exposure and telemetry are not
   evidence), EG-30 (accessibility), EG-35 (prompts are engineered assets), EG-37 (retrieved content is
@@ -149,31 +150,38 @@ playback starts, never on open, and the server keeps one per 30 minutes.
 - `content/decks/<lesson>.json` holds the spec as checked, with `state` (writing, ready, failed,
   invalidated), attempts, rounds started and what was blocked. It is saved before the model call, so a
   crash reads as a failed attempt, as for Deeper Listen.
-- **Made in the background** by the Preparer, like Deeper Listen: at most `DECK_PER_DAY` (20) a day,
-  a failed deck tried again after 7 days and at most twice, after the lesson's own upgrade (ADR 0008),
-  and not while a source change holds the lesson back (ADR 0006).
-- **Or on first open**: when the deck is missing, Present starts the same job (`POST
-  /api/lessons/{id}/deck`) and keeps playing the derived deck meanwhile. In team mode the route reserves
-  the worst case first (`budget.action(learner, "deck", package)`), with a daily allowance for members;
-  the owner and the background are not held.
+- **Drawn ahead of time only when the owner turns it on** (Studio, "Present: visual decks", with the price for
+  every lesson shown first; off until then, set 15 October): the Preparer then draws them like Deeper Listen,
+  at most `DECK_PER_DAY` (20) a day, the active exam first, a failed deck tried again after 7 days and at most
+  twice, after the lesson's own upgrade (ADR 0008), and not while a source change holds the lesson back
+  (ADR 0006). It was first built to draw on its own; that spent money nobody had asked for, so the switch
+  is the owner's (`content/deck-state.json`, `ahead`; `POST /api/studio/decks/ahead`).
+- **On first open**, on or off: when the deck is missing, Present starts the same job (`POST
+  /api/lessons/{id}/deck`) and keeps playing the derived deck meanwhile. It costs what one deck costs, once,
+  for a lesson the learner chose to open. In team mode the route reserves the worst case first
+  (`budget.action(learner, "deck", package)`), with a daily allowance for members; the owner and the
+  background are not held.
 - A new lesson for the skill (rewrite, Deeper lessons, drift) invalidates the deck with the lesson, like
   Deeper Listen. While a source change holds the lesson back (ADR 0006), the visual deck is not shown:
   Present shows the derived deck under the lesson's own drift note, because the derived deck is the
   lesson itself.
 - The author prompt treats the lesson and the page excerpts as data, never as instructions (EG-37), and is
   kept with the other prompts in `app/learning.py` (EG-35).
-- **Cost, list prices** (the same assumptions style as `costs.py`): the author reads about 12,000 tokens
-  (the lesson, three page excerpts, the prompt) and writes about 8,000 (the spec and its reasoning); the
-  gate reads about 20,000 (two chunks that each see the excerpts) and writes about 4,000. At gpt-5.5
-  ($5 / $30 per million) and grok-4-1-fast-reasoning ($0.20 / $0.50 per million) that is about $0.31 a
-  lesson, about $0.37 with retries, and about $35-42 for the 114 lessons (worst case $71 if every lesson
-  needed two attempts). Deeper Listen measured $0.33 a round for a similar amount of writing. There is no
-  speech cost. Studio's cost view shows "so far" and "for every lesson" lines, as for Deeper Listen, and
-  `/api/diag` the short line.
+- **Cost, list prices** (the same assumptions style as `costs.py`). The estimate before building: the
+  author reads about 12,000 tokens (the lesson, three page excerpts, the prompt) and writes about 8,000
+  (the spec and its reasoning), the gate reads about 20,000 and writes about 4,000: about $0.31 a lesson,
+  $0.37 with retries. Measured on 6 October with three real lessons in a scratch Dojo: the author read
+  5,100-8,000 tokens and wrote 3,400-5,700 (its reasoning included), the gate wrote up to 7,800 (its
+  reasoning included), and a deck cost $0.13-0.21, 97% of it the author. `DECK_CALLS` in `costs.py` is set a
+  little above that: the author 10,000 in and 6,000 out, the gate 10,000 in and 8,000 out. At gpt-5.5
+  ($5 / $30 per million) and grok-4-1-fast-reasoning ($0.20 / $0.50 per million) that is about $0.24 an
+  attempt, $0.28 a lesson with retries, and about $32 for the 114 lessons (worst case about $54 if every
+  lesson needed two attempts). There is no speech cost. Studio's cost view shows "so far" and "for every
+  lesson" lines, as for Deeper Listen, and `/api/diag` the short line.
 
 ### AI images: no, for now
 
-Checked read-only on 5 October: `dojo-tinodo-ai` (Sweden Central) can deploy gpt-image-1, -1-mini, -1.5,
+Checked read-only on 5 October: Dojo's own AI resource can deploy gpt-image-1, -1-mini, -1.5,
 -2 and -2.5, FLUX 1.1 pro, FLUX.1 Kontext pro, FLUX.2 pro and flex, and MAI-Image 2.5 and 2.6 (preview),
 as Global Standard. List prices: gpt-image-1 $40 and gpt-image-2 $30 per million output image tokens
 (a medium 1024x1024 image is about 1,000 tokens, so $0.03-0.04; high quality $0.12-0.17), FLUX 1.1 pro
@@ -190,12 +198,60 @@ $12-57 for all lessons. Not chosen, because:
 If the owner wants hero art later: decorative only, never text or a technical claim, made in the
 background with its own cap, behind a review, and the deck stays complete without it.
 
+## As built
+
+Built on 5 and 6 October as decided above, with these changes.
+
+The player
+- **Readable text comes first.** A diagram that does not fit its box is laid out again with smaller text
+  (up to six steps down) or scaled down and laid out that much wider, never below 75% on the 16:9 stage and
+  80% on a phone; of the ways it fits, the one whose smallest text comes out largest is drawn. A label
+  takes a size only when every word fits whole, so a word is never broken inside. Even at the most a spec
+  may hold, the smallest text stays at least 12 canvas pixels on the stage and 11 on a phone; on the stage
+  every diagram fits, and on a phone a long one scrolls in its box.
+- **The stage takes the full width.** The narration text and the sources sit under it, side by side, and
+  stack on a phone; there is no right-hand panel to move.
+- **The visual deck comes in at the next scene.** When it is ready while a scene plays, is paused part
+  way or the self-check is open, the player finishes that scene first; otherwise it swaps at once. Either
+  way it goes to the same slide, trap or part in the new deck.
+- **Exposure only when a scene plays.** `markViewed(L.id, "present")` is sent when a scene starts to play,
+  not when Play moves from the self-check to the closing scene, which does not play (review of #63).
+- The player listens to keys, the window size and the phone width only while it is on the page, and lets
+  go of them, its frame loops and its sound when the learner leaves (review of #63).
+
+The visual deck
+- **Why there is no visual deck, said.** The document keeps the four states above. What Present receives
+  also says why a lesson has none now: "missing" (one may be drawn), "writing" (being drawn, for this
+  learner or another), "held" (a changed source page holds the lesson back), "upgrading" (the lesson will
+  be written again on the deeper template, and the new lesson gets the deck) or "older" (a newer lesson of
+  the skill gets it). A failed attempt cut off by an error, a crash or a restart is marked "stopped".
+- **The first-open route** also checks, like the other lesson routes, that the learner takes the exam and
+  that no exam is running. When nothing starts, because the deck is being drawn already or is not due, it
+  answers `{"started": false, "state": ...}`. The job registry can tell whether a job for the lesson
+  runs for anyone (`Jobs.running`), so two learners' first opens start one drawing. A first-open job whose
+  lesson got a deck meanwhile stops before the model call.
+- **The Preparer** draws a deck ahead of time only when the owner has turned that on, and only when it has no
+  lesson, upgrade, narration or Deeper Listen to write.
+- **Invalidation is exactly Deeper Listen's**: the deck goes with its lesson when a changed source page
+  (ADR 0006) or the deeper template (ADR 0008) replaces the lesson. After a plain rewrite the older lesson
+  keeps its deck, and the new lesson gets its own.
+- **"Too few" in numbers**: outcomes are kept when at least 2 hold, recap lines when at least 3 hold.
+- **Tips without a label.** In the real runs 8 of 14 tips began with "Tip:" or "Trap:" under the slide's
+  own label. Such a label is now removed, and the prompt asks for none.
+- The quality log names the format "visual deck", as in "visual deck · slide 7 diagram point".
+
+Measured with the real models on three lessons (6 October): kept shares 0.95, 0.88 and 1.0 at the first
+attempt, six or seven diagrams a deck, and nothing dropped that the sources supported: the gate refused
+two contrast points the source does not name, a flow whose steps the author had split with its own
+qualifiers, a table row and a recap line, and `_gives_away` blocked a tip that quoted a self-check answer.
+
 ## Consequences
 
 - Present becomes the "structured" format: Read is for reading at your own pace, Watch is the filmed
   presenters, Listen is audio only, Present is a narrated deck with diagrams.
 - Every lesson gets the derived deck the moment this ships, at no cost.
-- The visual deck adds one author and one gate call per lesson, capped per day, visible in Studio.
+- The visual deck adds one author and one gate call per lesson: when the learner first opens it, or ahead
+  of time within a daily cap if the owner turns that on. Visible in Studio.
 - app.js grows by one section (the deck player and the SVG visuals); no library is added.
 
 ## Review triggers
@@ -207,5 +263,5 @@ background with its own cap, behind a review, and the deck stays complete withou
 
 ## How to undo it
 
-Set `DECK_PER_DAY` to 0 and remove the first-open job: Present then shows the derived deck, which costs
-nothing. Deleting `content/decks/` removes every visual deck; nothing else refers to it.
+Turn drawing ahead of time off in Studio, and remove the first-open job: Present then shows the derived deck,
+which costs nothing. Deleting `content/decks/` removes every visual deck; nothing else refers to it.

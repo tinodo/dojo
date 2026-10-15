@@ -42,6 +42,7 @@ ACTIONS: dict[str, tuple[str, str, int]] = {
     "transcribe": ("Transcriptions", "transcriptions", 60),
     "lesson": ("First lesson for a skill without one", "first lessons", 3),
     "audio": ("Lesson audio", "lesson audio", 5),
+    "deck": ("Visual deck for a lesson without one (Present)", "visual decks", 3),
     "lab": ("Lab runs", "lab runs", 150),
     "pool": ("Practice-exam pool batches made for them", "practice-exam questions made for you", 6),
 }
@@ -79,7 +80,7 @@ TOKENS_PER_REQUEST = 64      # and per request
 MAX_OUT_ROLE = {"author": 16000, "gate": 12000, "grader": 8000}
 MAX_OUT = {
     ("author", "lesson"): 32000, ("author", "deep_narration"): 24000, ("author", "item_case"): 24000,
-    ("author", "answer"): 8000, ("gate", "gate_elements"): 16000, ("author", "referee"): 4000,
+    ("author", "deck"): 24000, ("author", "answer"): 8000, ("gate", "gate_elements"): 16000, ("author", "referee"): 4000,
     ("author", "ping"): 2000, ("gate", "ping"): 2000, ("grader", "ping"): 2000,
 }
 # The worst case of each action, reserved together at the route before anything is recorded: every model
@@ -99,11 +100,15 @@ MAX_OUT = {
 TRIES = 2
 PRE_INPUT_TOKENS = 48000
 PRE_INPUT = {("grader", "grade"): 64000, ("gate", "gate_judgement"): 64000, ("gate", "gate_elements"): 80000,
-             ("author", "referee"): 64000}
+             ("author", "referee"): 64000, ("author", "deck"): 80000}
 # A lesson has at most 171 elements to check (the caps of learning._clean_lesson: title, summary, 6
 # sections of 1 + 6, 4 misconceptions, example title, situation and 8 steps, 5 questions, 9 slides of
 # 1 + 5 + 6), sent to the gate 40 at a time.
 LESSON_GATE_CHUNKS = 5
+# A visual deck (ADR 0014) has at most 94: 4 outcomes, 4 parts, 9 slides of a diagram of up to 8
+# statements and a tip, and 5 recap lines. Its author prompt holds the whole lesson, slides and narration
+# included, besides the excerpts, hence its larger PRE_INPUT.
+DECK_GATE_CHUNKS = 3
 # One round of make_item, and of make_lesson: the second round claims the same again from what is left.
 ITEM_ROUND = (("author", "item", TRIES), ("gate", "gate_item", TRIES))
 LESSON_ROUND = (("author", "lesson", TRIES), ("gate", "gate_elements", LESSON_GATE_CHUNKS * TRIES))
@@ -135,6 +140,8 @@ ACTION_CALLS: dict[str, tuple[tuple[str, str, int], ...]] = {
     "check": ITEM_ROUND,
     "rehearsal": writer_batch("single"),
     "lesson": LESSON_ROUND,
+    # One round only: a visual deck is never written a second time (learning.make_deck).
+    "deck": (("author", "deck", TRIES), ("gate", "gate_elements", DECK_GATE_CHUNKS * TRIES)),
     # Per batch of questions: a practice exam reserves its first round (ExamRoom.first_round), a pool batch
     # the batch of the kind it fills (PoolKeeper._pay).
     "exam": writer_batch("single"),

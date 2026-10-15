@@ -204,7 +204,7 @@ class GuideFactsTests(unittest.TestCase):
                  "item": "new practice items", "check": "spoken checks", "rehearsal": "rehearsals",
                  "exam": "practice exams started", "transcribe": "transcriptions",
                  "lesson": "first lessons for a skill without one", "audio": "lesson audio", "lab": "lab runs",
-                 "pool": "practice-exam question batches"}
+                 "pool": "practice-exam question batches", "deck": "visual decks for Present"}
         self.assertEqual(set(words), set(budget.ACTIONS))
         for action, (_, _, default) in budget.ACTIONS.items():
             self.says(f"- {words[action]}: {default}")
@@ -259,6 +259,23 @@ class GuideFactsTests(unittest.TestCase):
             self.assertRegex(self.text, rf"{name} \(({lo} to {hi}|{lo} to {hi} points a week)\)")
         self.says(f"the same {play_duel.QUESTIONS} questions for both, {play_duel.HOURS} hours to answer",
                   f"deleted {play_duel.KEEP_DAYS} days after the invitation")
+
+    def test_present(self):
+        """ADR 0014: the visual decks a day, the gate's share, the clock without audio, the speeds and when
+        Present counts as opening the lesson."""
+        from app import deck, learning, prepare
+        cps = re.search(r"const DECK_CPS = (\d+);", APP_JS).group(1)
+        self.assertEqual(learning.KEPT_SHARE, 0.75)
+        self.assertEqual(deck.CHECK_MAX, 3)
+        self.says(f"Then it draws up to {prepare.DECK_PER_DAY} a day, the active exam first",
+                  "Dojo draws no decks ahead of time until the owner turns that on in Studio",
+                  "Dojo uses the deck only if at least three quarters of it held",
+                  "up to three **Check yourself** questions",
+                  f"at about {cps} characters a second",
+                  "**1×** switches to 1.25× and back",
+                  "counts as opened for your record when you press play, not when you open the tab")
+        self.assertIn('rate = rate === 1 ? 1.25 : 1;', APP_JS)
+        self.assertIn('markViewed(L.id, "present")', APP_JS)
 
     def test_no_overstated_promises(self):
         # Each of these once said more than the code delivers (PR #49 review).
