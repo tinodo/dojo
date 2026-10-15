@@ -8084,6 +8084,16 @@ function lessonsPanel(st) {
   const L = st.lessons, P = st.preparing;
   const all = L.ready >= L.teachable;
   const mine = P.current && P.current.startsWith(`${st.package}/`);
+  const repair = async () => {
+    const token = state.nav;
+    try {
+      const started = await api(`/api/exam-packages/${st.package}/repair-sources`, { method: "POST" });
+      await withProgress("Checking official pages again", Promise.resolve(started.job));
+      if (token === state.nav) route();
+    } catch (e) {
+      if (token === state.nav) put($view(), errorPanel(e));
+    }
+  };
   const now = all ? "Every lesson is written."
     : !P.running ? "Lesson preparation does not run in this copy of Dojo. A lesson is written when you open its skill."
     : mine ? "Writing one of its lessons now."
@@ -8102,7 +8112,8 @@ function lessonsPanel(st) {
     partial ? h("p", { class: "note top" }, partial) : null,
     st.no_exam ? h("p", { class: "note top" }, st.no_exam) : null,
     h("p", { class: "small muted top" }, now),
-    h("div", { class: "actions top" }, button("Open the course", () => openExam(st.package), "sm")));
+    h("div", { class: "actions top" }, button("Open the course", () => openExam(st.package), "sm"),
+      L.unsourced ? button("Find sources for missing skills", repair, "ghost sm") : null));
 }
 
 function sourcePanel(st) {

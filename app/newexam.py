@@ -50,6 +50,7 @@ COUNT_NOTE = ("Microsoft Learn does not publish how many questions {code} has. I
 GUIDE_LINKS = 12       # documentation links from the study guide offered to every group
 ERROR_SHARE = 0.1      # more skills than this whose check could not run stop the build, to be resumed
 BUILD = "exam-build"
+REPAIR = "source-repair"
 
 
 def skill_key(domain: str, group: str, text: str) -> str:
@@ -428,6 +429,55 @@ class NewExams:
             "added": iso(),
             "domains": domains,
         }
+
+    def start_repair(self, learner: Learner, pid: str) -> dict:
+        """Search again for unsourced skills of an already-added exam, keeping existing lessons and media."""
+        if not self.packages.is_added(pid):
+            raise HTTPException(404, "No such added exam.")
+        running = self.jobs.existing(self.owner, REPAIR, pid)
+        if running:
+            return {"package": pid, "job": running}
+        return {"package": pid, "job": self.jobs.start(learner, REPAIR, self._repair, pid, ref=pid)}
+
+    def _repair(self, progress: Callable[[str], None], pid: str) -> dict:
+        raw = self.store.read("packages", pid)
+        if not isinstance(raw, dict):
+            raise UserError("The added exam package could not be read.")
+        code = raw["exam"]
+        found = self._found(code, fresh=True)
+        if found["state"] != "found":
+            raise UserError(found["message"])
+        skills = [(d, g, s) for d in raw["domains"] for g in d["groups"] for s in g["skills"] if not s.get("sources")]
+        if not skills:
+            return {"package": pid, "searched": 0, "sourced": 0, "unsourced": 0}
+        by_key = {skill_key(d["title"], g["title"], s["text"]): s for d, g, s in skills}
+        searched = sourced = 0
+        for n, d in enumerate(raw["domains"], 1):
+            for g in d["groups"]:
+                pending = [(skill_key(d["title"], g["title"], s["text"]), s["text"]) for s in g["skills"]
+                           if not s.get("sources")]
+                if not pending:
+                    continue
+                progress(f"Checking official pages again: {searched} of {len(skills)} unsourced skills")
+                matches = self._match_group(found, d, g, pending, [])
+                for key, match in matches.items():
+                    searched += 1
+                    refs = (match.get("sources") or [])[:MAX_SOURCES]
+                    if refs:
+                        by_key[key]["sources"] = refs
+                        sourced += 1
+                self.store.write("packages", pid, value=raw)
+        total = sum(len(g["skills"]) for d in raw["domains"] for g in d["groups"])
+        unsourced = sum(1 for d in raw["domains"] for g in d["groups"] for s in g["skills"] if not s.get("sources"))
+        raw["notes"] = [n for n in raw.get("notes", []) if "no official page passed the check" not in n]
+        if unsourced:
+            raw.setdefault("notes", []).append(f"For {unsourced} of {total} skills no official page passed the check, so Dojo "
+                                               "does not teach them or ask about them. They count as not shown.")
+        self.packages.add(raw)
+        self.store.write("packages", pid, value=raw)
+        self._change(pid, lambda d: d.update(skills=total, checked=total, sourced=total - unsourced, repaired=iso()))
+        self.preparer.wake()
+        return {"package": pid, "searched": searched, "sourced": sourced, "unsourced": unsourced}
 
     # ------------------------------------------------------------ progress, filming and cost
 
