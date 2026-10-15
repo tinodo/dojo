@@ -31,6 +31,7 @@ from app.core import APP_DIR, Store, UserError, iso, new_id, parse_iso, sha256, 
 from app.main import create_app  # noqa: E402
 from app.newexam import github_hits, groundable, learn_hits  # noqa: E402
 from app.packages import Packages, validate  # noqa: E402
+from app.pagefinder import _candidate_list  # noqa: E402
 from app.sources import Sources, html_to_text, normalize, own_copy, verified  # noqa: E402
 from tests.test_api import POST, settings  # noqa: E402
 from tests.test_api import web as docs_web  # noqa: E402
@@ -503,6 +504,13 @@ class AddedExamTests(unittest.TestCase):
         urls = [x["url"] for x in expanded]
         self.assertIn(LEARN + DOCS_AT + "configure-widgets-with-throttles", urls)
         self.assertFalse([u for u in urls if "/training/" in u])
+
+    def test_2_expanded_links_survive_the_candidate_limit(self):
+        many = [{"url": f"{LEARN}{DOCS_AT}filler-{i}", "title": f"Filler {i}", "summary": "filler"} for i in range(20)]
+        target = {"url": LEARN + DOCS_AT + "configure-widgets-with-throttles",
+                  "title": "Configure widgets with throttles", "summary": "linked"}
+        searched = _candidate_list(many, [target])
+        self.assertIn(target["url"], [h["url"] for h in searched])
 
     def test_2_the_pages_are_data_never_instructions(self):
         picks, checks = self.ai.of("pick_sources"), self.ai.of("verify_sources")

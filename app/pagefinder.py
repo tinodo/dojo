@@ -205,6 +205,11 @@ def _queries(found: dict, domain: dict, group: dict, text: str) -> list[str]:
     return out
 
 
+def _candidate_list(hits: list[dict], expanded: list[dict]) -> list[dict]:
+    """Candidate pages after link expansion. Expanded task pages take priority over broad overview hits."""
+    return list({h["url"]: h for h in expanded + hits}.values())[:SEARCH_LIMIT]
+
+
 class PageFinder:
     """Search, pick and verify official pages for the skills of one group of a study guide.
 
@@ -251,7 +256,7 @@ class PageFinder:
             except (httpx.HTTPError, UserError, ValueError):
                 continue
             for link in page_links(page, final):
-                words = set(re.findall(r"[a-z0-9]{4,}", normalize(f"{link['title']} {link['summary']} {link['url']}")))
+                words = set(re.findall(r"[a-z0-9]{4,}", normalize(f"{link['title']} {link['url']}")))
                 if len(words & wanted) >= 2:
                     out.append(link)
                     if len(out) >= LINK_LIMIT:
@@ -277,7 +282,7 @@ class PageFinder:
             searched = list(pool.map(lambda kt: self.search(found, domain, group, kt[1]), pending))
         expanded = [self.expand(hits, f"{domain['title']} {group['title']} {text}") if hits else []
                     for (_, text), (hits, _) in zip(pending, searched)]
-        searched = [(list({h["url"]: h for h in hits + more}.values())[:SEARCH_LIMIT], problem)
+        searched = [(_candidate_list(hits, more), problem)
                     for (hits, problem), more in zip(searched, expanded)]
         # A page a skill already cites is no candidate for that skill.
         searched = [([h for h in hits if not _known(h["url"], known.get(key) or [])], problem)
