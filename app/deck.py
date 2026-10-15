@@ -83,8 +83,8 @@ def _int(value: Any, default: int = -1) -> int:
         return default
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
-        return int(value.strip())
+    if isinstance(value, str) and re.fullmatch(r"\s*-?[0-9]{1,9}\s*", value):
+        return int(value)
     return default
 
 

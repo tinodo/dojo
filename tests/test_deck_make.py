@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from concurrent import futures
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest import mock
@@ -267,6 +268,43 @@ class DrawTests(DeckCase):
         self.assertIsNone(self.dojo.deck(lesson))
         self.assertEqual(self.dojo.store.names("content", "decks"), [])
         self.assertEqual(quality(self.dojo, "visual deck"), [])
+
+    def test_a_deck_withdrawn_or_deleted_before_its_attempt_is_saved_starts_nothing(self):
+        lesson = lesson_for(self.app, self.sid)
+        with Hand(self.dojo) as hand:
+            self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "ready")
+            real = self.dojo.grounding
+
+            def withdrawn(pid, sid):
+                self.dojo.invalidate_deck(lesson, "Withdrawn by a test.")
+                return real(pid, sid)
+            with mock.patch.object(self.dojo, "grounding", withdrawn):
+                self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "invalidated")
+            d = self.dojo.deck(lesson)
+            self.assertEqual((d["state"], d["attempts"], d["spent_rounds"]), ("invalidated", 1, 1), "no second attempt was started")
+
+            def deleted(pid, sid):
+                self.dojo.drop_deck(lesson)
+                return real(pid, sid)
+            self.dojo.make_deck(noop, lesson)   # a withdrawn deck may be drawn again
+            with mock.patch.object(self.dojo, "grounding", deleted):
+                self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "missing")
+            self.assertIsNone(self.dojo.deck(lesson))
+        self.assertEqual(len(hand.prompts), 2, "the author was asked twice, never after a withdrawal or a deletion")
+
+    def test_one_valid_outcome_is_not_a_visual_deck(self):
+        lesson = lesson_for(self.app, self.sid)
+
+        def edit(d):
+            d["outcomes"], d["sections"], d["slides"], d["recap"] = ["Explain the key idea of this skill."], [], [], []
+        with Hand(self.dojo) as hand:
+            hand.edit = edit
+            res = self.dojo.make_deck(noop, lesson)
+        d = self.dojo.deck(lesson)
+        self.assertEqual((res["state"], d["proposed"], d["held"], d["kept_share"]), ("failed", 1, 1, 1.0))
+        self.assertEqual(d["reason"], f"Nothing was left to draw once the checks were done. {DECK_KEEPS}")
+        self.assertEqual((self.view(lesson)["level"], self.view(lesson)["state"]), ("derived", "failed"))
+        self.assertFalse(self.dojo.deck_due(self.dojo.lesson(lesson)), "waits its week like any failed deck")
 
     def test_an_error_or_a_restart_leaves_a_failed_attempt_that_stays_spent(self):
         lesson = lesson_for(self.app, self.sid)
@@ -556,27 +594,48 @@ class RouteTests(Team2Case):
         self.assertEqual(len(self.stub.calls), calls)
         self.assertEqual(self.left(), 3)
 
-    def test_two_opens_at_once_start_one_job_and_the_second_keeps_nothing_reserved(self):
-        chat, go = self.stub.chat, threading.Event()
+    def test_two_opens_at_once_reserve_and_start_once(self):
+        reserve, start, reserved = self.budget.reserve, self.dojo.jobs.start, []
 
-        def slow(role, system, user, json_mode=True):
-            if "TASK: deck" in system:
-                go.wait(10)
-            return chat(role, system, user, json_mode)
-        with mock.patch.object(self.stub, "chat", side_effect=slow):
-            job = self.ok("POST", self.path(self.lesson), self.a)
-            # The second open passed the route's own checks before the first job was filed.
-            with mock.patch.object(self.dojo.jobs, "existing", return_value=None), \
-                    mock.patch.object(self.dojo.jobs, "running", return_value=False), \
-                    mock.patch.object(self.dojo, "deck_drawing", return_value=False), \
-                    mock.patch.object(self.dojo, "deck_due", return_value=True):
-                self.assertEqual(self.ok("POST", self.path(self.lesson), self.a), {"started": False, "state": "writing"})
-            go.set()
-            done = self.wait_job(job, self.a)
+        def slow_start(*a, **k):
+            time.sleep(0.5)   # the second open arrives while the first is between its checks and its start
+            return start(*a, **k)
+        with mock.patch.object(self.budget, "reserve", lambda *a, **k: reserved.append(a) or reserve(*a, **k)), \
+                mock.patch.object(self.dojo.jobs, "start", slow_start), \
+                futures.ThreadPoolExecutor(2) as pool:
+            first = pool.submit(self.call, "POST", self.path(self.lesson), self.a)
+            time.sleep(0.15)
+            second = pool.submit(self.call, "POST", self.path(self.lesson), self.a)
+            a, b = first.result(30), second.result(30)
+        self.assertEqual((a.status_code, b.status_code), (200, 200), (a.text, b.text))
+        self.assertEqual(a.json()["id"], b.json()["id"], "the same job")
+        self.assertEqual([x[:2] for x in reserved], [(self.ka, "deck")], "one reservation")
+        done = self.wait_job(a.json(), self.a)
         self.assertEqual((done["state"], done["result"]["state"]), ("done", "ready"))
         self.wait_all(self.ka)
         self.assertEqual(len([c for c in self.stub.calls if c[1] == "deck"]), 1, "one author call")
-        self.assertEqual(self.left(), 2, "one deck drawn and counted; the second open counted for nothing")
+        self.assertEqual(self.left(), 2, "one deck drawn and counted")
+
+    def test_two_learners_opening_the_same_lesson_at_once_reserve_once(self):
+        b_headers = self.admit("m-b")
+        reserve, start, reserved = self.budget.reserve, self.dojo.jobs.start, []
+
+        def slow_start(*a, **k):
+            time.sleep(0.5)
+            return start(*a, **k)
+        with mock.patch.object(self.budget, "reserve", lambda *a, **k: reserved.append(a) or reserve(*a, **k)), \
+                mock.patch.object(self.dojo.jobs, "start", slow_start), \
+                futures.ThreadPoolExecutor(2) as pool:
+            first = pool.submit(self.call, "POST", self.path(self.lesson), self.a)
+            time.sleep(0.15)
+            second = pool.submit(self.call, "POST", self.path(self.lesson), b_headers)
+            a, b = first.result(30), second.result(30)
+        self.assertEqual((a.status_code, b.status_code), (200, 200), (a.text, b.text))
+        self.assertEqual(b.json(), {"started": False, "state": "writing"}, "the second learner's open starts nothing")
+        self.assertEqual([x[:2] for x in reserved], [(self.ka, "deck")], "one reservation, the first learner's")
+        self.wait_job(a.json(), self.a)
+        self.wait_all(self.ka)
+        self.assertEqual(len([c for c in self.stub.calls if c[1] == "deck"]), 1)
 
     def test_at_the_allowance_a_member_is_refused_and_nothing_starts(self):
         self.ok("PUT", "/api/team/budget", OWNER, {"allowances": {"deck": 1}})

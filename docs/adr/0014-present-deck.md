@@ -158,9 +158,9 @@ playback starts, never on open, and the server keeps one per 30 minutes.
   is the owner's (`content/deck-state.json`, `ahead`; `POST /api/studio/decks/ahead`).
 - **On first open**, on or off: when the deck is missing, Present starts the same job (`POST
   /api/lessons/{id}/deck`) and keeps playing the derived deck meanwhile. It costs what one deck costs, once,
-  for a lesson the learner chose to open; Present's note says so ("up to about 30 cents"). Two opens at once
-  start one job (`Jobs.start` with `busy_message`, one step with the check). In team mode the route reserves
-  the worst case first
+  for a lesson the learner chose to open; Present's note says so ("up to about 30 cents"). The route's checks,
+  the reservation and the start of the job are one step under one lock, so two opens at once, of one learner
+  or two, reserve and start once. In team mode the route reserves the worst case first
   (`budget.action(learner, "deck", package)`), with a daily allowance for members; the owner and the
   background are not held.
 - A new lesson for the skill (rewrite, Deeper lessons, drift) invalidates the deck with the lesson, like
@@ -179,7 +179,9 @@ playback starts, never on open, and the server keeps one per 30 minutes.
   ($5 / $30 per million) and grok-4-1-fast-reasoning ($0.20 / $0.50 per million) that is about $0.24 an
   attempt, $0.28 a lesson with retries, and about $32 for the 114 lessons (worst case about $54 if every
   lesson needed two attempts). There is no speech cost. Studio's cost view shows "so far" and "for every
-  lesson" lines, as for Deeper Listen, and `/api/diag` the short line.
+  lesson" lines, as for Deeper Listen, and `/api/diag` the short line. The checker's second question (when it
+  skipped elements, ADR 0009) adds at most four gate calls of about 10,000 tokens, about $0.03, and only then:
+  the 1.2 attempts a lesson in the estimate cover it.
 
 ### AI images: no, for now
 
@@ -237,9 +239,12 @@ The visual deck
 - **Invalidation is exactly Deeper Listen's**: the deck goes with its lesson when a changed source page
   (ADR 0006) or the deeper template (ADR 0008) replaces the lesson. After a plain rewrite the older lesson
   keeps its deck, and the new lesson gets its own. A deck that is being drawn when this happens is withdrawn
-  (or deleted with its lesson) at once, and its late result is not saved (`Dojo._deck_finish`); what the
-  attempt cost stays in the document.
-- **"Too few" in numbers**: outcomes are kept when at least 2 hold, recap lines when at least 3 hold.
+  (or deleted with its lesson) at once: an attempt starts only while the document is still the one it was
+  admitted on, and its late result is not saved (`Dojo._deck_finish`); what the attempt cost stays in the
+  document.
+- **"Too few" in numbers**: outcomes are kept when at least 2 hold, recap lines when at least 3 hold. A deck
+  is "ready" only when what is left still composes to the visual level; otherwise it is a failed attempt
+  ("Nothing was left to draw once the checks were done"), tried again after a week like any other.
 - **A badly shaped answer is left out, not an error**: a list in the author's answer is read to its first 12
   entries, and an entry of the wrong type is dropped with its reason (a code snippet whose `lang` is not a
   string once stopped a paid attempt; it now reads as plain text).

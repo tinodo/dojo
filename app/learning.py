@@ -1560,24 +1560,28 @@ Required JSON shape:
             if first_open and d and d.get("state") != "invalidated":
                 raise UserError(DECK_DRAWN)
             self._deck_writing.add(lesson_id)
+            seen = self._decks.get(lesson_id)   # the document as it is now: the attempt starts only while it still is
         try:
-            return self._draw_deck(progress, lesson_id)
+            return self._draw_deck(progress, lesson_id, seen)
         finally:
             self._deck_writing.discard(lesson_id)
 
-    def _draw_deck(self, progress: Progress, lesson_id: str) -> dict:
+    def _draw_deck(self, progress: Progress, lesson_id: str, seen: dict | None) -> dict:
         doc = self.lesson(lesson_id)
         pid, sid = doc["package"], doc["skill"]
         pkg = self.packages.get(pid)
         s = pkg["skills"][sid]
         progress("Reading the official sources")
         g = self.grounding(pid, sid)
-        prior = self.deck(lesson_id) or {}
+        prior = seen or {}
         spent = max(0, _int(prior.get("spent_rounds"), 0))   # what earlier attempts started stays spent
         attempt = {"lesson": lesson_id, "package": pid, "skill": sid, "created": iso(),
                    "attempts": max(0, _int(prior.get("attempts"), 0)) + 1, "models": self.models("author", "gate"),
                    "rounds": 1, "spent_rounds": spent + 1}
-        self._deck_save(lesson_id, {**attempt, "state": "writing"})
+        with self._deck_lock:
+            if self._decks.get(lesson_id) is not seen:   # withdrawn or deleted while the pages were read: nothing starts
+                return self._deck_gone(lesson_id)
+            self._deck_save(lesson_id, {**attempt, "state": "writing"})
         try:
             progress("Drawing the deck (author model)")
             raw = ask_json(self.ai, "author", DECK_SYSTEM, self._deck_prompt(pkg, s, g, doc), check=_check_deck)
@@ -1598,15 +1602,16 @@ Required JSON shape:
             verdicts.update({eid: (False, why) for eid, why in away.items()})
             spec, held = decks.apply_verdicts(spec, verdicts, blocked)
             share = held / proposed if proposed else 0.0
-            ready = share >= KEPT_SHARE
+            ready = share >= KEPT_SHARE and decks.compose(doc, spec)["level"] == "visual"
             out = {**attempt, "state": "ready" if ready else "failed", "format": decks.DECK_FORMAT,
                    "kept_share": round(share, 2), "proposed": proposed, "held": held, "visuals": decks.visual_count(spec),
                    "sources": self.source_refs(g), "blocked": blocked, "spec": spec}
             if not ready:
-                out["reason"] = (f"{share:.0%} of it held, and the visual deck needs {KEPT_SHARE:.0%}. {DECK_KEEPS}" if proposed
+                out["reason"] = (f"{share:.0%} of it held, and the visual deck needs {KEPT_SHARE:.0%}. {DECK_KEEPS}" if proposed and share < KEPT_SHARE
+                                 else f"Nothing was left to draw once the checks were done. {DECK_KEEPS}" if proposed
                                  else f"The author model proposed nothing that could be drawn. {DECK_KEEPS}")
             if not self._deck_finish(lesson_id, attempt, out):
-                return {"lesson": lesson_id, "state": (self.deck(lesson_id) or {}).get("state", "missing"), "kept_share": 0.0, "visuals": 0}
+                return self._deck_gone(lesson_id)
             for b in blocked:
                 self.quality(None, "visual deck", {"package": pid, "skill": sid, "lesson": lesson_id, "quote": "", **b})
             if not ready:
@@ -1622,6 +1627,10 @@ Required JSON shape:
     def _deck_save(self, lesson_id: str, doc: dict) -> None:
         self.store.write("content", "decks", lesson_id, value=doc)
         self._decks[lesson_id] = doc
+
+    def _deck_gone(self, lesson_id: str) -> dict:
+        """What an attempt answers when its deck was withdrawn or deleted while it ran."""
+        return {"lesson": lesson_id, "state": (self.deck(lesson_id) or {}).get("state", "missing"), "kept_share": 0.0, "visuals": 0}
 
     def _deck_finish(self, lesson_id: str, attempt: dict, doc: dict) -> bool:
         """Saves the end of an attempt, unless its deck was withdrawn (`invalidate_deck`) or deleted

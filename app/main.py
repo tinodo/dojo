@@ -25,6 +25,7 @@ import logging
 import mimetypes
 import os
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
@@ -58,7 +59,7 @@ from . import helpdoc
 from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
-from .learning import DECK_BUSY, Dojo, dispute_review_refusal
+from .learning import Dojo, dispute_review_refusal
 from .labs import LABS, FakeRunner, LabRoom, LabUser, SqlRunner, is_waking, sql_error_reason
 from .mirror import Mirror
 from .newexam import NewExams
@@ -1289,30 +1290,28 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         with budget.action(learner, "audio", (lesson or {}).get("package")):
             return dojo.jobs.start(learner, "audio", dojo.lesson_audio, learner, lesson_id)
 
+    deck_gate = threading.Lock()   # the checks and the start of a first open's deck are one step for everyone
+
     @app.post("/api/lessons/{lesson_id}/deck")
     def lesson_deck(lesson_id: str, learner: Learner = Me) -> dict:
         """Present opened a lesson that has no visual deck: it is drawn now (ADR 0014), as one of the
         learner's visual decks for the day in team mode, while the deck built from the lesson plays. Asking
         again returns the same job. When the deck is being drawn already, by anyone, or is not to be drawn
-        now, nothing starts and the answer says the deck's state."""
+        now, nothing starts and the answer says the deck's state. The checks, the reservation and the start
+        are one step: two opens at once never both reserve or start a paid job."""
         _no_help_during_exam(learner, "Lessons are closed")
         lesson = dojo.lesson(_check_id(lesson_id))
         _enrolled(learner, lesson["package"])
-        running = dojo.jobs.existing(learner, "deck", lesson["id"])
-        if running:
-            return running
-        if dojo.deck_drawing(lesson["id"]) or dojo.jobs.running("deck", lesson["id"]):
-            return {"started": False, "state": "writing"}
-        if not dojo.deck_due(lesson):
-            return {"started": False, "state": dojo.deck_view(lesson)["state"]}
-        try:
-            with budget.action(learner, "deck", lesson["package"]):
-                # The check and the start are one step: two opens at once cannot both start a paid job.
-                return dojo.jobs.start(learner, "deck", dojo.make_deck, lesson["id"], True, ref=lesson["id"], busy_message=DECK_BUSY)
-        except HTTPException as e:
-            if e.status_code == 409 and e.detail == DECK_BUSY:   # an open of this learner's started it a moment ago
+        with deck_gate:
+            running = dojo.jobs.existing(learner, "deck", lesson["id"])
+            if running:
+                return running
+            if dojo.deck_drawing(lesson["id"]) or dojo.jobs.running("deck", lesson["id"]):
                 return {"started": False, "state": "writing"}
-            raise
+            if not dojo.deck_due(lesson):
+                return {"started": False, "state": dojo.deck_view(lesson)["state"]}
+            with budget.action(learner, "deck", lesson["package"]):
+                return dojo.jobs.start(learner, "deck", dojo.make_deck, lesson["id"], True, ref=lesson["id"])
 
     @app.post("/api/lessons/{lesson_id}/video")
     def lesson_video(lesson_id: str, learner: Learner = Admin) -> dict:
