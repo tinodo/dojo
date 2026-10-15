@@ -188,6 +188,17 @@ class LessonCheckerTests(unittest.TestCase):
         self.assertIn("The author wrote no usable slide", str(caught.exception))
         self.assertEqual(self.dojo.lessons_for("gh-300", self.sid), [])
 
+    def test_slides_with_nothing_on_them_do_not_make_a_lesson_whose_real_slides_all_held_too_short(self):
+        real = self.ai._lesson
+
+        def lesson(user):
+            out = real(user)
+            return {**out, "slides": out["slides"] + [{"title": "Closing", "bullets": [], "narration": []}] * 4}
+        self.ai._lesson = lesson
+        kept = self.make()
+        self.assertEqual(len(kept["slides"]), 2, "both real slides held, and the empty ones never could")
+        self.assertEqual(self.no_verdicts(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

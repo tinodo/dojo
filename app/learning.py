@@ -867,7 +867,7 @@ class Dojo:
                 raw = ask_json(self.ai, "author", LESSON_SYSTEM, self._lesson_prompt(pkg, s, g, feedback), check=_check_lesson)
                 progress("Checking every quote word for word")
                 lesson, blocked, total = self._clean_lesson(raw, g)
-                wrote = len(lesson["slides"])
+                wrote = sum(1 for sl in lesson["slides"] if sl["bullets"] or sl["narration"])   # a slide with nothing to say never survives the gate
                 progress("Independent check of every element (gate model)")
                 lesson, gated = self._gate_lesson(lesson, g, s)
                 blocked += gated
