@@ -85,8 +85,9 @@ LESSON_ROUNDS = 1.5          # a lesson is written again when too much of it fai
 # the models' reasoning, which is billed as output. Dojo does not count model tokens yet, so these are
 # assumptions, shown with the estimate.
 COURSE_CALLS = (
-    ("pick", "Picking official pages", "author", 900, 800, 1.0),    # its share of picking pages for a group of skills
-    ("verify", "Checking the picked pages", "gate", 3500, 1000, 1.0),   # reads up to three page excerpts for the skill
+    # The author reads about 28 candidate pages for each skill (title, address, summary): 3,100 tokens measured.
+    ("pick", "Picking official pages", "author", 3100, 800, 1.0),    # its share of picking pages for a group of skills
+    ("verify", "Checking the picked pages", "gate", 10000, 1000, 1.0),   # reads up to three 10,000-character page excerpts for the skill
     # A lesson on the deeper template (ADR 0008): up to three page excerpts in, about 20 points, 5 questions
     # and 8 slides out, so about twice the template-1 lesson's output, with the author's reasoning.
     ("write", "Writing the lessons", "author", 10000, 10000, LESSON_ROUNDS),

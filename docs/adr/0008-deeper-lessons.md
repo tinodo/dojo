@@ -218,8 +218,9 @@ These figures use list prices (Global Standard in swedencentral):
 
 The token counts are assumptions, because Dojo does not count model tokens yet:
 
-- **Searching, per skill.** The author's pick takes 900 input and 800 output tokens, and the checker
-  3,500 and 1,000. That is about $0.03 a skill, even when nothing new is found.
+- **Searching, per skill.** The author's pick takes 3,100 input and 800 output tokens (it reads about 28
+  candidate pages for each skill), and the checker 10,000 and 1,000 (up to three page excerpts of 10,000
+  characters). That is about $0.04 a skill, even when nothing new is found.
 - **A lesson on template 2.** Writing takes 10,000 input and 10,000 output tokens: three page excerpts
   in, and about 20 points, 5 questions and 8 slides out, with the author's reasoning, which is billed as
   output. Checking takes 31,000 and 9,000: 110 elements, in three calls that each see the pages. Both
@@ -227,12 +228,13 @@ The token counts are assumptions, because Dojo does not count model tokens yet:
   characters until three lessons are narrated, then the average so far, and the voice check transcribes
   it once, at 14 characters a second. That is about $0.61 a lesson. An attempt that fails is counted at
   its writing and checking, about $0.54.
-- **The two built-in exams, 114 skills: about $73.** Searching is $3.39, writing $59.85, checking
+- **The two built-in exams, 114 skills: about $74.** Searching is $4.79, writing $59.85, checking
   $1.83, narration $5.13 and its voice check $2.44. At 20 lessons a day this is spread over about six
   days, about $12 a day; the searches come on top, mostly on the first day.
 - **Add an exam** uses the same writing and checking figures, so a course for an added exam costs about
   $0.15 a skill more than before (20 skills: $12.31 instead of $9.38). Its estimate is otherwise
-  unchanged.
+  unchanged. Since the search is narrowed to the exam's own products and the author reads about 28
+  candidate pages a skill (not 12), the same 20 skills are $12.56.
 - **Not in this total:** Deeper Listen's whole-lesson narration (ADR 0007) and filming again. Each is
   priced and capped by its own feature. A deeper lesson leaves Deeper Listen's cost about where ADR 0007
   put it. Measured with the real prompts, a template-2 lesson of about 20 points on three pages gives

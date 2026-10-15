@@ -596,10 +596,10 @@ class CostTests(unittest.TestCase):
         app = create_app(settings(tmp), http=httpx.Client(transport=httpx.MockTransport(SiteWeb())))
         est = app.state.costs.deeper_estimate(114, 114)
         lines = {line["key"]: line for line in est["lines"]}
-        # 114 skills searched (picking 900 in and 800 out, checking 3500 and 1000) and 114 lessons written
+        # 114 skills searched (picking 3100 in and 800 out, checking 10000 and 1000) and 114 lessons written
         # again 1.5 times on average (10,000 and 10,000; their check 31,000 and 9,000), with 3000 characters
         # of narration each: gpt-5.5 at $5 and $30 per million tokens, Grok 4.1 Fast at $0.20 and $0.50.
-        expected = {"pick": (102_600, 91_200, 3.25), "verify": (399_000, 114_000, 0.14),
+        expected = {"pick": (353_400, 91_200, 4.5), "verify": (1_140_000, 114_000, 0.29),
                     "write": (1_710_000, 1_710_000, 59.85), "check": (5_301_000, 1_539_000, 1.83)}
         for key, (tokens_in, tokens_out, cost) in expected.items():
             self.assertEqual((lines[key]["input_tokens"], lines[key]["output_tokens"], lines[key]["cost"]),
@@ -608,7 +608,7 @@ class CostTests(unittest.TestCase):
         # The voice check transcribes those 342,000 characters once, at 14 a second: 407 minutes at $0.36 an hour.
         self.assertEqual((lines["narration_check"]["quantity"], lines["narration_check"]["unit"], lines["narration_check"]["cost"]),
                          (407.1, "minutes", 2.44))
-        self.assertEqual((est["total"], est["complete"], est["searches"], est["lessons"]), (72.64, True, 114, 114))
+        self.assertEqual((est["total"], est["complete"], est["searches"], est["lessons"]), (74.04, True, 114, 114))
         said = " ".join(est["assumptions"])
         for part in ("114 skills searched", "Tokens for each skill and call", "writing the lessons 10,000 input and 10,000 output",
                      "never filmed again on its own", "no such lesson is waiting now",

@@ -24,6 +24,7 @@ import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import app.drift as drift_mod  # noqa: E402
+import app.pagefinder as pagefinder  # noqa: E402
 from app import exam  # noqa: E402
 from app.ai import StubAI  # noqa: E402
 from app.checks import pick  # noqa: E402
@@ -31,7 +32,7 @@ from app.core import APP_DIR, Store, UserError, iso, new_id, parse_iso, sha256, 
 from app.main import create_app  # noqa: E402
 from app.newexam import github_hits, groundable, learn_hits  # noqa: E402
 from app.packages import Packages, validate  # noqa: E402
-from app.pagefinder import _candidate_list  # noqa: E402
+from app.pagefinder import hub_pages, learn_search, product_ids  # noqa: E402
 from app.sources import Sources, html_to_text, normalize, own_copy, verified  # noqa: E402
 from tests.test_api import POST, settings  # noqa: E402
 from tests.test_api import web as docs_web  # noqa: E402
@@ -97,6 +98,26 @@ def html(page: str) -> httpx.Response:
     return httpx.Response(200, text=page, headers={"content-type": "text/html"})
 
 
+FAMILY = "/devrel/68ec7f3a-2bc6-459f-b959-19beb729907d"    # a family of products, as Azure is on Learn
+WIDGETS = "/devrel/6ab7faaf-d791-4a26-96a2-3b11738538e7"   # the product the exam's documentation belongs to
+GADGETS = "/devrel/cbe4ca68-43ac-4375-aba5-5945a6394c20"   # a second product of the same exam
+
+
+def product_tree() -> list[dict]:
+    """Learn's product facet: a family with many products below it, and two products on their own."""
+    return [{"displayName": "Family", "value": FAMILY, "type": "ProductUri",
+             "children": [{"displayName": f"Part {n}", "value": f"/devrel/00000000-0000-4000-8000-{n:012d}"} for n in range(12)]},
+            {"displayName": "Widgets", "value": WIDGETS, "type": "ProductUri", "children": []},
+            {"displayName": "Gadgets", "value": GADGETS, "type": "ProductUri", "children": []}]
+
+
+def tagged(page: str, *ids: str) -> str:
+    """A Learn page with the cmProducts tags Learn puts in its head."""
+    tags = "".join(f'<meta name="cmProducts" content="https://authoring-docs-microsoft.poolparty.biz{i}" '
+                   'data-source="generated" />' for i in ids)
+    return page.replace("</head>", tags + "</head>", 1)
+
+
 class Web:
     """Microsoft Learn, GitHub Docs and the retail price list, as far as these tests need them."""
 
@@ -107,6 +128,10 @@ class Web:
         self.moved: set[str] = set()     # documentation pages with one of these words now redirect into training
         self.bare: set[str] = {"sizes"}  # nothing official teaches a skill with one of these words
         self.needs_context: dict[str, str] = {}  # word -> phrase that must be in the query before docs are returned
+        self.products: dict[str, list[str]] = {}  # a documentation page's path -> the Learn products it declares
+        self.tree: list[dict] | None = product_tree()   # Learn's product facet; None when the search cannot answer it
+        self.facet_answer: object | None = None   # when set, Learn's answer to the product facet, exactly as it is
+        self.filters: list[str] = []     # the filter of every search narrowed to products
         self.prices = PRICES
         self.guides = {
             "xy-110": guide("xy-110.html"),
@@ -133,6 +158,12 @@ class Web:
 
     def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
         if path == "/api/search":
+            if params.get("facet") == "products":
+                if self.facet_answer is not None:
+                    return httpx.Response(200, json=self.facet_answer)
+                if self.tree is None:
+                    return httpx.Response(503)
+                return httpx.Response(200, json={"facets": {"products": self.tree}, "results": []})
             return self.learn_search(params.get("search", ""), params.get("$filter", ""))
         if path.startswith(GUIDES_AT):
             code = path[len(GUIDES_AT):].strip("/")
@@ -153,8 +184,7 @@ class Web:
             # Served, so that a redirect Dojo wrongly followed would give it a page it could quote.
             return html(teaching("Training module", "widget training"))
         if path.rstrip("/") == DOCS_AT.rstrip("/"):
-            return html(teaching("Widget documentation", "widgets",
-                                 f'<p><a href="{DOCS_AT}configure-widgets-with-throttles">Configure widgets with throttles</a></p>'))
+            return html(tagged(teaching("Widget documentation", "widgets"), *self.products.get(path.rstrip("/"), [])))
         if path.startswith(DOCS_AT):
             topic = path[len(DOCS_AT):].strip("/").replace("-", " ")
             return html(teaching(topic.capitalize(), topic, INJECTION if "health" in topic else ""))
@@ -165,6 +195,8 @@ class Web:
             return httpx.Response(200, json={"results": []})
         with self._lock:
             self.queries.append(query)
+            if "products/any" in where:
+                self.filters.append(where)
         if any(word in query.lower() for word in self.down):
             return httpx.Response(503)
         results = [{"title": "Training: " + query, "url": f"{LEARN}/en-us/training/modules/{slug(query)}/",
@@ -493,25 +525,6 @@ class AddedExamTests(unittest.TestCase):
         self.assertTrue(any("Configure widgets" in q and "throttles" in q for q in self.web.queries),
                         "the contextual query should be tried after the bare skill text")
 
-    def test_2_search_expands_official_links_from_candidate_pages(self):
-        finder = self.app.state.newexams.finder
-        found = {"code": "XY-110", "title": "Contoso Widget Operations"}
-        domain = {"title": "Operate widgets"}
-        group = {"title": "Configure widgets"}
-        hits, problem = finder.search(found, domain, group, "Configure throttles")
-        self.assertIsNone(problem)
-        expanded = finder.expand(hits, "Operate widgets Configure widgets Configure throttles")
-        urls = [x["url"] for x in expanded]
-        self.assertIn(LEARN + DOCS_AT + "configure-widgets-with-throttles", urls)
-        self.assertFalse([u for u in urls if "/training/" in u])
-
-    def test_2_expanded_links_survive_the_candidate_limit(self):
-        many = [{"url": f"{LEARN}{DOCS_AT}filler-{i}", "title": f"Filler {i}", "summary": "filler"} for i in range(20)]
-        target = {"url": LEARN + DOCS_AT + "configure-widgets-with-throttles",
-                  "title": "Configure widgets with throttles", "summary": "linked"}
-        searched = _candidate_list(many, [target])
-        self.assertIn(target["url"], [h["url"] for h in searched])
-
     def test_2_the_pages_are_data_never_instructions(self):
         picks, checks = self.ai.of("pick_sources"), self.ai.of("verify_sources")
         self.assertTrue(picks and checks)
@@ -788,6 +801,13 @@ class RepairAddedExamTests(unittest.TestCase):
         c, pid = self.c, "xy-110"
         before = c.get(f"/api/exam-packages/{pid}").json()
         self.assertEqual(before["lessons"]["teachable"], 6)
+        offer = before["repair"]
+        self.assertEqual((offer["skills"], offer["complete"]), (1, True), "the price is known before anything is spent")
+        self.assertGreater(offer["search"], 0)
+        self.assertGreater(offer["lesson"], 0.3, "a lesson written and narrated is the larger part")
+        self.assertEqual(offer["most"], round(offer["search"] + offer["lesson"], 2))
+        self.assertIsNone(before["repairing"])
+        self.assertIsNone(before["last_repair"])
         done(c, post(c, "/api/lessons", {"package": pid, "skill": self.sourced[0]}))
         existing = self.dojo.lessons_for(pid, self.sourced[0])
         self.web.bare.clear()
@@ -795,9 +815,25 @@ class RepairAddedExamTests(unittest.TestCase):
         self.assertEqual((job["package"], job["searched"], job["sourced"], job["unsourced"]), (pid, 1, 1, 0))
         after = c.get(f"/api/exam-packages/{pid}").json()
         self.assertEqual(after["lessons"]["teachable"], 7)
+        self.assertIsNone(after["repair"], "nothing is left to search for")
+        self.assertEqual({k: after["last_repair"][k] for k in ("searched", "sourced", "unsourced")},
+                         {"searched": 1, "sourced": 1, "unsourced": 0}, "the page can say what the last search did")
         self.assertEqual(self.dojo.lessons_for(pid, self.sourced[0]), existing, "existing lessons are kept")
         raw = self.store.read("packages", pid)
         self.assertTrue(next(s for s in skills_of(raw) if s["id"] == self.unsourced)["sources"])
+
+    def test_the_page_says_a_search_is_running(self):
+        pid = "xy-110"
+        job = new_id("job")
+        self.store.write("jobs", job, value={"id": job, "kind": "source-repair", "ref": pid, "state": "running",
+                                             "step": "Checking official pages again: 18 of 70 unsourced skills",
+                                             "learner": self.app.state.preparer.owner.key, "created": iso(), "heartbeat": iso()})
+        try:
+            st = self.c.get(f"/api/exam-packages/{pid}").json()
+            self.assertEqual(st["repairing"]["step"], "Checking official pages again: 18 of 70 unsourced skills")
+        finally:
+            self.store.delete("jobs", job)
+        self.assertIsNone(self.c.get(f"/api/exam-packages/{pid}").json()["repairing"])
 
     def test_repair_does_not_start_twice(self):
         pid = "xy-110"
@@ -811,6 +847,138 @@ class RepairAddedExamTests(unittest.TestCase):
             self.assertIn("already looking", r.json()["detail"])
         finally:
             self.store.delete("jobs", job)
+
+
+class ScopedSearchTests(unittest.TestCase):
+    """A skill's own words ("Configure server and database audits") find the pages of every product. The
+    documentation an exam's study guide links to says which products the exam is about, and the search
+    looks among those first."""
+
+    HUB = DOCS_AT.rstrip("/")
+
+    def build(self, web: Web) -> dict:
+        self.web = web
+        self.app = make_app(tempfile.mkdtemp(prefix="dojo-exam-scope-"), web, Scripted())
+        self.c = TestClient(self.app)
+        return done(self.c, post(self.c, "/api/exam-packages", {"code": "xy-110"})["job"])
+
+    def test_the_search_is_narrowed_to_the_products_the_documentation_declares(self):
+        web = Web()
+        web.products[self.HUB] = [FAMILY, WIDGETS, GADGETS]
+        self.assertEqual(self.build(web)["sourced"], 6)
+        self.assertTrue(web.filters)
+        for where in web.filters:
+            self.assertIn(f"p eq '{WIDGETS}'", where)
+            self.assertIn(f"p eq '{GADGETS}'", where)
+            self.assertNotIn(FAMILY, where, "a family of products tells nothing about the service")
+
+    def test_the_documentation_is_read_once_for_the_whole_build(self):
+        web = Web()
+        web.products[self.HUB] = [WIDGETS]
+        read, calls = pagefinder.PageFinder._declared, []
+
+        def spy(finder, url):
+            calls.append(url)
+            return read(finder, url)
+
+        with mock.patch.object(pagefinder.PageFinder, "_declared", spy):
+            self.build(web)
+        self.assertEqual(calls, [LEARN + self.HUB], "one page, although the exam has several groups of skills")
+
+    def test_nothing_is_narrowed_when_the_documentation_names_no_product(self):
+        self.assertEqual(self.build(Web())["sourced"], 6)
+        self.assertEqual(self.web.filters, [])
+
+    def test_a_family_of_products_alone_narrows_nothing(self):
+        web = Web()
+        web.products[self.HUB] = [FAMILY]
+        self.assertEqual(self.build(web)["sourced"], 6)
+        self.assertEqual(web.filters, [])
+
+    def test_nothing_is_narrowed_when_the_product_tree_cannot_be_read(self):
+        web = Web()
+        web.products[self.HUB] = [WIDGETS]
+        web.tree = None
+        self.assertEqual(self.build(web)["sourced"], 6, "the build goes on as it did before")
+        self.assertEqual(web.filters, [])
+
+    def test_a_product_tree_that_is_not_what_it_should_be_narrows_nothing(self):
+        web = Web()
+        finder = make_app(tempfile.mkdtemp(prefix="dojo-exam-scope-"), web, Scripted()).state.newexams.finder
+        for answer in ({}, [], "tree", {"facets": None}, {"facets": {"products": None}}, {"facets": {"products": "x"}},
+                       {"facets": {"products": [None, 1, "x", {"value": 3, "children": []}]}}):
+            web.facet_answer = answer
+            self.assertIsNone(finder.families(), answer)
+        web = Web()
+        web.products[self.HUB] = [WIDGETS]
+        web.facet_answer = {}
+        self.assertEqual(self.build(web)["sourced"], 6, "a build goes on as it did before")
+        self.assertEqual(web.filters, [])
+
+    def test_a_documentation_page_that_now_leads_into_training_declares_nothing(self):
+        class Moved(Web):
+            def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+                if path.rstrip("/") == DOCS_AT.rstrip("/"):
+                    return httpx.Response(302, headers={"location": "/en-us/training/modules/widgets/"})
+                if path == "/en-us/training/modules/widgets/":
+                    return html(tagged(teaching("Training module", "widgets"), WIDGETS))
+                return super().learn(path, params)
+
+        newexams = make_app(tempfile.mkdtemp(prefix="dojo-exam-scope-"), Moved(), Scripted()).state.newexams
+        found = newexams._find("XY-110")
+        self.assertEqual(newexams.finder._declared(LEARN + self.HUB), [], "training is never documentation (EG-39)")
+        self.assertEqual(newexams.finder.scope(found), ())
+
+    def test_a_product_a_page_names_is_checked_before_it_reaches_a_filter(self):
+        web = Web()
+        web.products[self.HUB] = ["/devrel/x' or 1 eq 1 or p eq 'y", WIDGETS]
+        self.build(web)
+        self.assertTrue(web.filters)
+        for where in web.filters:
+            self.assertIn(f"p eq '{WIDGETS}'", where)
+            self.assertNotIn("1 eq 1", where)
+
+    def test_the_exams_own_pages_come_first_and_the_rest_follow(self):
+        class Narrowed(Web):
+            def learn_search(self, query: str, where: str) -> httpx.Response:
+                if "products/any" in where:
+                    return httpx.Response(200, json={"results": [
+                        {"title": f"Own {n}", "url": f"{LEARN}{DOCS_AT}own-{n}", "description": "In the exam's products."}
+                        for n in range(30)]})
+                return super().learn_search(query, where)
+
+        web = Narrowed()
+        web.products[self.HUB] = [WIDGETS]
+        newexams = make_app(tempfile.mkdtemp(prefix="dojo-exam-scope-"), web, Scripted()).state.newexams
+        found = newexams._find("XY-110")
+        self.assertEqual(hub_pages(found["_guide"]), [LEARN + self.HUB])
+        hits, problem = newexams.finder.search(found, {"title": "Operate widgets"}, {"title": "Widget alerts"},
+                                               "Configure widget alerts by using the portal")
+        self.assertEqual(found["_scope"], (WIDGETS,))
+        self.assertIsNone(problem)
+        own = [f"{LEARN}{DOCS_AT}own-{n}" for n in range(pagefinder.SCOPED_LIMIT)]
+        self.assertEqual([h["url"] for h in hits[:pagefinder.SCOPED_LIMIT]], own)
+        rest = hits[pagefinder.SCOPED_LIMIT:]
+        self.assertTrue(rest, "pages found without the narrowing stay, for an exam the documentation covers only in part")
+        self.assertLessEqual(len(rest), pagefinder.WIDE_WITH_SCOPE)
+        self.assertFalse([h for h in rest if "/own-" in h["url"]])
+
+
+class ProductFilterTests(unittest.TestCase):
+    PAGE = ('<html><head><title>t</title><meta name="ms.service" content="https://x.poolparty.biz' + WIDGETS + '" />'
+            '<meta content="https://x.poolparty.biz' + GADGETS + '" name="cmProducts" />'
+            '<meta name="cmProducts" content="https://x.poolparty.biz' + WIDGETS + '" /></head>'
+            '<body><p>/devrel/00000000-0000-4000-8000-000000000001</p></body></html>')
+
+    def test_a_page_names_its_products_in_its_cmproducts_tags(self):
+        self.assertEqual(product_ids(self.PAGE), [GADGETS, WIDGETS], "in order, once each, and from no other tag or text")
+        self.assertEqual(product_ids("<html><head></head></html>"), [])
+
+    def test_only_products_of_learns_own_tree_reach_a_filter(self):
+        url = unquote(learn_search("row level security", 10, products=[WIDGETS, "/devrel/x' or 1 eq 1 or p eq 'y", "not a product", GADGETS]))
+        self.assertIn(f"products/any(p: p eq '{WIDGETS}' or p eq '{GADGETS}')", url)
+        self.assertNotIn("1 eq 1", url)
+        self.assertNotIn("products/any", unquote(learn_search("row level security", 10)))
 
 
 class BuildFailureTests(unittest.TestCase):
@@ -1574,12 +1742,12 @@ class CostEstimateTests(unittest.TestCase):
         est = self.costs(PRICES).course_estimate(20)
         lines = {line["key"]: line for line in est["lines"]}
         self.assertEqual(list(lines), ["pick", "verify", "write", "check", "narration"])
-        # 20 skills: picking (900 in, 800 out) and checking the pages (3500 in, 1000 out) once per skill;
+        # 20 skills: picking (3100 in, 800 out) and checking the pages (10000 in, 1000 out) once per skill;
         # writing a lesson on the deeper template (10000, 10000) and its check (31000, 9000) 1.5 times per
         # skill (ADR 0008); 3000 characters of narration each. gpt-5.5 at $5 and $30 per million, Grok 4.1
         # Fast at $0.20 and $0.50.
-        expected = {"pick": ("author", "gpt-5.5", 18_000, 16_000, 0.57, (5.0, 30.0)),
-                    "verify": ("gate", "grok-4-1-fast-reasoning", 70_000, 20_000, 0.02, (0.2, 0.5)),
+        expected = {"pick": ("author", "gpt-5.5", 62_000, 16_000, 0.79, (5.0, 30.0)),
+                    "verify": ("gate", "grok-4-1-fast-reasoning", 200_000, 20_000, 0.05, (0.2, 0.5)),
                     "write": ("author", "gpt-5.5", 300_000, 300_000, 10.5, (5.0, 30.0)),
                     "check": ("gate", "grok-4-1-fast-reasoning", 930_000, 270_000, 0.32, (0.2, 0.5))}
         for key, (role, model, tokens_in, tokens_out, cost, per_million) in expected.items():
@@ -1590,9 +1758,9 @@ class CostEstimateTests(unittest.TestCase):
             self.assertEqual((line["cost"], line["found"], line["note"]), (cost, True, None), key)
             self.assertEqual((line["per_million"]["input"], line["per_million"]["output"]), per_million, key)
         self.assertEqual((lines["narration"]["quantity"], lines["narration"]["cost"]), (60_000, 0.9))
-        self.assertEqual((est["total"], est["complete"], est["currency"], est["left_out"]), (12.31, True, "USD", []))
+        self.assertEqual((est["total"], est["complete"], est["currency"], est["left_out"]), (12.56, True, "USD", []))
         said = " ".join(est["assumptions"])
-        for part in ("picking official pages 900 input and 800 output", "checking the lessons 31,000 input and 9,000 output",
+        for part in ("picking official pages 3,100 input and 800 output", "checking the lessons 31,000 input and 9,000 output",
                      "reasoning is billed as output", "1.5 times", "Global Standard deployments in swedencentral",
                      "short-context price", "cached is cheaper", "The author (gpt-5.5)", "the checker (grok-4-1-fast-reasoning)"):
             self.assertIn(part, said)
@@ -1601,12 +1769,12 @@ class CostEstimateTests(unittest.TestCase):
         # Live, the settings pin each model to a version ("gpt-5.5@2026-04-24"); the lookup used the whole
         # string and found no price for any model (build b0e00ea).
         est = self.costs(PRICES, models=self.LIVE).course_estimate(20)
-        self.assertEqual((est["total"], est["complete"]), (12.31, True))
+        self.assertEqual((est["total"], est["complete"]), (12.56, True))
         self.assertEqual({line["model"] for line in est["lines"][:4]}, {"gpt-5.5", "grok-4-1-fast-reasoning"})
         # An exam the size of AZ-900: 57 skills.
         az900 = self.costs(PRICES, models=self.LIVE).course_estimate(57)
         self.assertEqual([(line["input_tokens"], line["output_tokens"], line["cost"]) for line in az900["lines"][:4]],
-                         [(51_300, 45_600, 1.62), (199_500, 57_000, 0.07), (855_000, 855_000, 29.93), (2_650_500, 769_500, 0.91)])
+                         [(176_700, 45_600, 2.25), (570_000, 57_000, 0.14), (855_000, 855_000, 29.93), (2_650_500, 769_500, 0.91)])
         self.assertTrue(az900["complete"])
 
     def test_a_model_with_no_public_list_price_is_named_and_left_out(self):
@@ -1616,10 +1784,10 @@ class CostEstimateTests(unittest.TestCase):
             self.assertEqual((lines[key]["cost"], lines[key]["found"], lines[key]["per_million"], lines[key]["model"]),
                              (None, False, None, "grok-9-imaginary"))
             self.assertEqual(lines[key]["note"], "no public list price for grok-9-imaginary; not included")
-        self.assertEqual((lines["verify"]["input_tokens"], lines["check"]["output_tokens"]), (70_000, 270_000),
+        self.assertEqual((lines["verify"]["input_tokens"], lines["check"]["output_tokens"]), (200_000, 270_000),
                          "the tokens are still shown")
-        self.assertEqual([lines[k]["cost"] for k in ("pick", "write", "narration")], [0.57, 10.5, 0.9])
-        self.assertEqual((est["total"], est["complete"]), (11.97, False))
+        self.assertEqual([lines[k]["cost"] for k in ("pick", "write", "narration")], [0.79, 10.5, 0.9])
+        self.assertEqual((est["total"], est["complete"]), (12.19, False))
         self.assertEqual(est["left_out"], ["Checking the picked pages and Checking the lessons: "
                                            "no public list price for grok-9-imaginary; not included"])
 
@@ -1637,7 +1805,7 @@ class CostEstimateTests(unittest.TestCase):
         without_voice = [i for i in PRICES if i["meterName"] != "S1 Neural Text To Speech Characters"]
         est = self.costs(without_voice).course_estimate(20)
         self.assertEqual([line["found"] for line in est["lines"]], [True, True, True, True, False])
-        self.assertEqual((est["total"], est["complete"]), (11.41, False))
+        self.assertEqual((est["total"], est["complete"]), (11.66, False))
         self.assertEqual(est["left_out"], ["Narrating the lessons for Listen: price not found"])
         without_output = [i for i in PRICES if i["meterName"] != "5.5 ShortCo opt Gl 1M Tokens"]
         est = self.costs(without_output).course_estimate(20)
