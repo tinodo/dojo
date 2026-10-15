@@ -1813,6 +1813,11 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     def exam_progress(pid: str, learner: Learner = Admin) -> dict:
         return newexams.status(learner, _check_id(pid, PKG))
 
+    @app.post("/api/exam-packages/{pid}/repair-sources")
+    def exam_repair_sources(pid: str, learner: Learner = Admin) -> dict:
+        """Search again only for skills still missing verified official pages."""
+        return newexams.start_repair(learner, _check_id(pid, PKG))
+
     @app.post("/api/exam-packages/{pid}/film")
     def exam_film(pid: str, body: FilmRequest, learner: Learner = Admin) -> dict:
         """The owner approved filming at the price shown. Only that set of lessons is filmed."""

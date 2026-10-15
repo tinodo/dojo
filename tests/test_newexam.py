@@ -748,6 +748,50 @@ class AddedExamTests(unittest.TestCase):
         self.assertNotIn("resume", again)
 
 
+class RepairAddedExamTests(unittest.TestCase):
+    """Source repair updates an added exam in place: existing course artifacts are kept."""
+
+    def setUp(self):
+        self.web = Web()
+        self.ai = Scripted()
+        self.app = make_app(tempfile.mkdtemp(prefix="dojo-exam-repair-"), self.web, self.ai)
+        self.c = TestClient(self.app)
+        self.dojo = self.app.state.dojo
+        self.store = self.dojo.store
+        done(self.c, post(self.c, "/api/exam-packages", {"code": "xy-110"})["job"])
+        pkg = self.dojo.packages.get("xy-110")
+        self.sourced = [sid for sid, s in pkg["skills"].items() if s["sources"]]
+        self.unsourced = next(sid for sid, s in pkg["skills"].items() if not s["sources"])
+
+    def test_unsourced_skills_can_be_repaired_without_rebuilding_existing_lessons(self):
+        c, pid = self.c, "xy-110"
+        before = c.get(f"/api/exam-packages/{pid}").json()
+        self.assertEqual(before["lessons"]["teachable"], 6)
+        done(c, post(c, "/api/lessons", {"package": pid, "skill": self.sourced[0]}))
+        existing = self.dojo.lessons_for(pid, self.sourced[0])
+        self.web.bare.clear()
+        job = done(c, post(c, f"/api/exam-packages/{pid}/repair-sources")["job"])
+        self.assertEqual((job["package"], job["searched"], job["sourced"], job["unsourced"]), (pid, 1, 1, 0))
+        after = c.get(f"/api/exam-packages/{pid}").json()
+        self.assertEqual(after["lessons"]["teachable"], 7)
+        self.assertEqual(self.dojo.lessons_for(pid, self.sourced[0]), existing, "existing lessons are kept")
+        raw = self.store.read("packages", pid)
+        self.assertTrue(next(s for s in skills_of(raw) if s["id"] == self.unsourced)["sources"])
+
+    def test_repair_does_not_start_twice(self):
+        pid = "xy-110"
+        job = new_id("job")
+        self.store.write("jobs", job, value={"id": job, "kind": "source-repair", "ref": pid, "state": "running",
+                                             "learner": self.app.state.preparer.owner.key, "created": iso(),
+                                             "heartbeat": iso()})
+        try:
+            r = self.c.post(f"/api/exam-packages/{pid}/repair-sources", headers=POST)
+            self.assertEqual(r.status_code, 409)
+            self.assertIn("already looking", r.json()["detail"])
+        finally:
+            self.store.delete("jobs", job)
+
+
 class BuildFailureTests(unittest.TestCase):
     """A build that cannot be trusted adds nothing; a build that stops can be resumed."""
 
