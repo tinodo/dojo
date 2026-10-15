@@ -11,8 +11,7 @@ from urllib.parse import urljoin, urlsplit
 
 from ..core import iso, parse_iso, utcnow
 from ..pagefinder import label
-from ..sources import docs_url
-from .retrieve import Hit, deny_url
+from .retrieve import Hit, canon_url, deny_url
 
 _TOC_META = re.compile(r"<meta\b[^<>]*>", re.I)
 _TOC_NAME = re.compile(r"""\bname\s*=\s*["']toc_rel["']""", re.I)
@@ -48,7 +47,7 @@ class Inventory:
         added = 0
         with self._lock:
             for raw in urls or []:
-                url = docs_url(raw)
+                url = canon_url(raw)
                 if not url or urlsplit(url).hostname != "learn.microsoft.com" or deny_url(url):
                     continue
                 folder = self._folder(url)
@@ -193,7 +192,7 @@ class Inventory:
             title = label(item.get("toc_title"))
             href = item.get("href")
             if href:
-                url = docs_url(urljoin(base, str(href)))
+                url = canon_url(urljoin(base, str(href)))
                 if url and not deny_url(url):
                     out.append({"url": url, "title": title or url, "trail": " > ".join(trail)})
                     if len(out) >= cap:

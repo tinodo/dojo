@@ -3,32 +3,34 @@ from __future__ import annotations
 import json
 import threading
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .. import pagefinder
-from ..sources import docs_url, same_page
+from ..sources import docs_url
 from .net import Net, SourcingError
 
 Hit = dict[str, str]
 
 
-def _canon(url: str) -> str | None:
+def canon_url(url: str) -> str | None:
     text = str(url or "").split("#", 1)[0]
     canon = docs_url(text)
     if canon:
-        return canon
+        parts = urlsplit(canon)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
     parsed = urlsplit(text)
     parts = [part for part in parsed.path.split("/") if part]
     if parsed.scheme == "https" and parsed.hostname == "learn.microsoft.com" and parts and parts[0].lower() != "en-us":
         base = "https://learn.microsoft.com/en-us/" + "/".join(parts)
-        if parsed.query:
-            base += "?" + parsed.query
-        return docs_url(base)
+        canon = docs_url(base)
+        if canon:
+            parts = urlsplit(canon)
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
     return None
 
 
 def deny_url(url: str) -> bool:
-    text = _canon(url) or str(url or "")
+    text = canon_url(url) or str(url or "")
     lower = text.lower()
     if "/previous-versions/" in lower:
         return True
@@ -39,10 +41,11 @@ def deny_url(url: str) -> bool:
 def _dedupe(hits: list[Hit]) -> list[Hit]:
     out: list[Hit] = []
     for hit in hits:
-        if deny_url(hit["url"]):
+        url = canon_url(hit["url"])
+        if not url or deny_url(url):
             continue
-        if not any(same_page(hit["url"], seen["url"]) for seen in out):
-            out.append(hit)
+        if not any(url == seen["url"] for seen in out):
+            out.append({"url": url, "title": hit["title"], "summary": hit["summary"]})
     return out
 
 
@@ -69,10 +72,10 @@ class McpClient:
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            url = _canon(row.get("contentUrl") or row.get("url") or "")
+            url = canon_url(row.get("contentUrl") or row.get("url") or "")
             if not url or deny_url(url):
                 continue
-            old = next((hit for hit in out if same_page(hit["url"], url)), None)
+            old = next((hit for hit in out if hit["url"] == url), None)
             if old:
                 continue
             out.append(
@@ -205,11 +208,12 @@ def fuse(by_retriever: dict[str, list[Hit]], quota: dict[str, int], limit: int, 
     first = 0
     for name in order:
         for pos, hit in enumerate(by_retriever.get(name) or [], start=1):
-            if deny(hit["url"]):
+            url = canon_url(hit["url"])
+            if not url or deny(url):
                 continue
-            row = next((item for item in merged if same_page(item["url"], hit["url"])), None)
+            row = next((item for item in merged if item["url"] == url), None)
             if row is None:
-                row = dict(hit, by=[], rank=pos, _first=first)
+                row = {"url": url, "title": hit["title"], "summary": hit["summary"], "by": [], "rank": pos, "_first": first}
                 first += 1
                 merged.append(row)
             if name not in row["by"]:
@@ -223,15 +227,18 @@ def fuse(by_retriever: dict[str, list[Hit]], quota: dict[str, int], limit: int, 
             if at >= max(0, int(quota.get(name, 0))):
                 continue
             hits = by_retriever.get(name) or []
-            if at >= len(hits) or deny(hits[at]["url"]):
+            if at >= len(hits):
                 continue
-            row = next((item for item in merged if same_page(item["url"], hits[at]["url"])), None)
-            if row and not any(same_page(row["url"], url) for url in seen):
+            url = canon_url(hits[at]["url"])
+            if not url or deny(url):
+                continue
+            row = next((item for item in merged if item["url"] == url), None)
+            if row and row["url"] not in seen:
                 seen.append(row["url"])
                 picked.append(row)
                 if len(picked) >= limit:
                     return [_clean(row) for row in picked[:limit]]
-    rest = [row for row in merged if not any(same_page(row["url"], url) for url in seen)]
+    rest = [row for row in merged if row["url"] not in seen]
     rest.sort(key=lambda row: (-len(row["by"]), row["rank"], row["_first"]))
     picked.extend(rest)
     return [_clean(row) for row in picked[:limit]]

@@ -2,7 +2,7 @@ import json
 import unittest
 
 from app.sourcing.net import SourcingError
-from app.sourcing.retrieve import McpClient, deny_url, fuse, github_search, learn_api
+from app.sourcing.retrieve import McpClient, canon_url, deny_url, fuse, github_search, learn_api
 
 
 class FakeNet:
@@ -23,11 +23,23 @@ class FakeNet:
 
 
 class RetrieveTests(unittest.TestCase):
+    def test_canon_url_strips_view_and_fragment(self):
+        self.assertEqual(
+            canon_url("https://learn.microsoft.com/en-us/sql/item?view=sql-server-ver17#part"),
+            "https://learn.microsoft.com/en-us/sql/item",
+        )
+        self.assertEqual(
+            canon_url("https://learn.microsoft.com/sql/item?view=azuresql#part"),
+            "https://learn.microsoft.com/en-us/sql/item",
+        )
+        self.assertIsNone(canon_url("https://learn.microsoft.com/en-us/training/modules/item"))
+
     def test_learn_and_github_drop_noise_and_dedupe(self):
         net = FakeNet()
         net.answers["https://learn.microsoft.com/api/search?search=deploy&locale=en-us&$top=20&$filter=category%20eq%20%27Documentation%27"] = {
             "results": [
                 {"url": "https://learn.microsoft.com/en-us/sql/deploy", "title": "Deploy", "description": "How to deploy"},
+                {"url": "https://learn.microsoft.com/en-us/sql/deploy?view=azuresql", "title": "Deploy view", "description": "View dup"},
                 {"url": "https://learn.microsoft.com/en-us/sql/deploy#part", "title": "Deploy again", "description": "Dup"},
                 {"url": "https://learn.microsoft.com/en-us/previous-versions/sql/deploy", "title": "Old", "description": "Old"},
             ]
@@ -46,7 +58,7 @@ class RetrieveTests(unittest.TestCase):
 
     def test_mcp_client_handles_sse_and_plain_json(self):
         rows = [
-            {"contentUrl": "https://learn.microsoft.com/sql/deploy#one", "title": "Deploy hybrid SQL", "content": "Do the deployment."},
+            {"contentUrl": "https://learn.microsoft.com/sql/deploy?view=azuresql#one", "title": "Deploy hybrid SQL", "content": "Do the deployment."},
             {"url": "https://learn.microsoft.com/en-us/sql/deploy#two", "title": "Later chunk", "description": "More text."},
             {"url": "https://learn.microsoft.com/en-us/sql/release-notes", "title": "Notes", "content": "Skip me."},
         ]
@@ -104,12 +116,12 @@ class RetrieveTests(unittest.TestCase):
             ],
             "r2": [
                 {"url": "https://learn.microsoft.com/en-us/sql/d", "title": "D", "summary": "D"},
-                {"url": "https://learn.microsoft.com/en-us/sql/a#chunk", "title": "A2", "summary": "A2"},
+                {"url": "https://learn.microsoft.com/en-us/sql/a?view=azuresql#chunk", "title": "A2", "summary": "A2"},
                 {"url": "https://learn.microsoft.com/en-us/sql/e", "title": "E", "summary": "E"},
             ],
             "r3": [
                 {"url": "https://learn.microsoft.com/en-us/sql/f", "title": "F", "summary": "F"},
-                {"url": "https://learn.microsoft.com/en-us/sql/b#part", "title": "B2", "summary": "B2"},
+                {"url": "https://learn.microsoft.com/en-us/sql/b?view=sql-server-ver17#part", "title": "B2", "summary": "B2"},
                 {"url": "https://learn.microsoft.com/en-us/sql/previous-versions/old", "title": "Old", "summary": "Old"},
             ],
         }

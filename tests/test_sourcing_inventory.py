@@ -61,7 +61,7 @@ class InventoryTests(unittest.TestCase):
         net.jsons[toc] = {
             "items": [
                 {"toc_title": "SQL", "href": "/en-us/sql/overview", "children": [
-                    {"toc_title": "Deploy hybrid SQL Server solutions", "href": "/en-us/sql/deploy-hybrid"},
+                    {"toc_title": "Deploy hybrid SQL Server solutions", "href": "/en-us/sql/deploy-hybrid?view=azuresql#part"},
                     {"toc_title": "Older", "href": "/en-us/previous-versions/sql/old"},
                 ]},
                 {"toc_title": "Jobs", "children": [
