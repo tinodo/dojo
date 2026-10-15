@@ -1954,6 +1954,41 @@ class AddedExamDriftTests(unittest.TestCase):
         self.assertEqual([e["type"] for e in after[len(events):]], ["package.removed"])
 
 
+class RepairButtonScreenTests(unittest.TestCase):
+    """The button that looks again for official pages spends money, so it never acts on a page that may be old,
+    and a restart in the middle of a search is not read as a failed search."""
+
+    SCRIPT = (APP_DIR / "static" / "app.js").read_text("utf-8")
+
+    def part(self, start: str) -> str:
+        return self.SCRIPT.split(start, 1)[1].split("\n}\n", 1)[0]
+
+    def test_it_asks_the_server_for_the_count_and_the_price_before_it_asks_the_owner(self):
+        panel = self.part("function lessonsPanel(st) {")
+        fresh = panel.index("await api(`/api/exam-packages/${st.package}`)")
+        running = panel.index("now.repairing || !now.repair")
+        confirm = panel.index("window.confirm(repairQuestion(now.repair, now.lessons.unsourced))")
+        post = panel.index("/repair-sources")
+        self.assertLess(fresh, running)
+        self.assertLess(running, confirm, "a search already running, or nothing left to search, asks nothing")
+        self.assertLess(confirm, post)
+        self.assertNotIn("repairQuestion(R,", panel, "the price of the page as it was drawn is never shown")
+
+    def test_a_second_click_while_the_first_is_being_answered_asks_nothing_more(self):
+        panel = self.part("function lessonsPanel(st) {")
+        self.assertIn("let asking = false;", panel)
+        self.assertLess(panel.index("if (asking) return;"), panel.index("asking = true;"))
+        self.assertIn("} finally {\n      asking = false;", panel)
+
+    def test_a_job_poll_that_fails_during_a_restart_is_asked_again_for_about_a_minute(self):
+        run = self.part("async function runJob(start, onStep) {")
+        self.assertIn("const POLL_TRIES = 30;", self.SCRIPT)
+        self.assertIn("if (e.signedOut || (e.status && e.status < 500)) throw e;", run)
+        self.assertIn("if (++missed >= POLL_TRIES) {", run)
+        self.assertIn("missed = 0;", run)
+        self.assertIn("Dojo did not answer for about a minute", run)
+
+
 class EstimateScreenTests(unittest.TestCase):
     """Screen 12 says what the total leaves out, and how old its prices are, next to the total and next to
     "Build this course"."""

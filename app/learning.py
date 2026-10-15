@@ -229,6 +229,8 @@ VIEW_REPEAT_MINUTES = 30  # one play; evidence.VIEW_MINUTES counts a view as tea
 # The lesson template every new lesson is written to (ADR 0008). A lesson without a "template" field was
 # written to template 1: one page, 3-5 sections. Template 2 is deeper and uses every page of the skill.
 LESSON_TEMPLATE = 2
+MIN_SLIDES = 4              # a lesson keeps at least this many checked slides, or as many as were written when that is fewer
+NO_VERDICT = "The checker gave no verdict"
 # How much of each official page the models are shown, by how many pages the skill cites (ADR 0008).
 # A page is cut to the parts most related to the skill; a median page (about 15,000 characters) fits whole
 # when it is the only one. Practice-exam questions are written for several skills in one call, so less.
@@ -784,9 +786,12 @@ class Dojo:
         self.store.append_line(*where, value={"at": iso(), "kind": kind, **detail})
 
     def gate_elements(self, g: list[dict], context: str, elements: list[tuple[str, str]]) -> dict[str, tuple[bool, str]]:
-        """Ask the gate model about every element. A missing verdict counts as not holding."""
+        """Ask the gate model about every element. An element it gave no verdict on is asked about once more, in
+        smaller parts: an answer that skips elements (on 15 October one skipped the 40 slide elements of a lesson,
+        which was kept with one slide) must not cost a lesson its slides. What still gets no verdict counts as
+        not holding."""
         verdicts: dict[str, tuple[bool, str]] = {}
-        chunks = [elements[i:i + 40] for i in range(0, len(elements), 40)]
+        known = {eid for eid, _ in elements}
 
         def run(chunk: list[tuple[str, str]]) -> list:
             listing = "\n".join(f"[{eid}] {text}" for eid, text in chunk)
@@ -795,13 +800,22 @@ class Dojo:
                             check=lambda d: _require_list(d, "verdicts"))
             return data["verdicts"]
 
-        if chunks:
+        def ask(todo: list[tuple[str, str]], size: int) -> None:
+            chunks = [todo[i:i + size] for i in range(0, len(todo), size)]
+            if not chunks:
+                return
             with ThreadPoolExecutor(max_workers=3) as pool:
                 for batch in pool.map(carried(run), chunks):
                     for v in batch:
                         if isinstance(v, dict) and isinstance(v.get("id"), str):
-                            verdicts[v["id"]] = (v.get("holds") is True, _s(v.get("reason"), 300))
-        return {eid: verdicts.get(eid, (False, "The checker gave no verdict")) for eid, _ in elements}
+                            eid = v["id"].strip()
+                            if eid not in known and eid.startswith("[") and eid.endswith("]"):
+                                eid = eid[1:-1].strip()   # the model gave the id the way the list shows it
+                            verdicts[eid] = (v.get("holds") is True, _s(v.get("reason"), 300))
+
+        ask(elements, 40)
+        ask([e for e in elements if e[0] not in verdicts], 20)
+        return {eid: verdicts.get(eid, (False, NO_VERDICT)) for eid, _ in elements}
 
     def _skill_header(self, pkg: dict, s: dict) -> str:
         m = pkg["meta"]
@@ -840,21 +854,27 @@ class Dojo:
                 raw = ask_json(self.ai, "author", LESSON_SYSTEM, self._lesson_prompt(pkg, s, g, feedback), check=_check_lesson)
                 progress("Checking every quote word for word")
                 lesson, blocked, total = self._clean_lesson(raw, g)
+                wrote = len(lesson["slides"])
                 progress("Independent check of every element (gate model)")
                 lesson, gated = self._gate_lesson(lesson, g, s)
                 blocked += gated
                 score = _points(lesson) / max(1, total)
-                if best is None or score > best[0]:
-                    best = (score, lesson, blocked, round_no)
-                if score >= KEPT_SHARE and len(lesson["sections"]) >= 2:
+                full = len(lesson["slides"]) >= min(MIN_SLIDES, wrote)
+                if best is None or (full, score) > (best[4], best[0]):
+                    best = (score, lesson, blocked, round_no, full, wrote)
+                if score >= KEPT_SHARE and len(lesson["sections"]) >= 2 and full:
                     break
+                problems = [b for b in blocked if b["reason"] != NO_VERDICT]   # a checker that skipped an element is not the author's fault
                 feedback = ("An earlier version had elements that did not hold. Avoid these problems:\n"
-                            + "\n".join(f'- "{b["text"][:160]}": {b["reason"]}' for b in blocked[:12]))
-        score, lesson, blocked, rounds = best
+                            + "\n".join(f'- "{b["text"][:160]}": {b["reason"]}' for b in problems[:12])) if problems else ""
+        score, lesson, blocked, rounds, full, wrote = best
         for b in blocked:
             self.quality(None, "lesson", {"package": pid, "skill": sid, **b})
         if not lesson["sections"]:
             raise UserError("No part of this lesson could be verified against the sources, so none of it is shown. The quality log lists what was removed.")
+        if not full:
+            raise UserError(f"Only {len(lesson['slides'])} of the {wrote} slides written held against the sources, and the narration, "
+                            f"the films and the deck are made from the slides, so the lesson is not kept. The quality log lists what was removed.")
         if upgrade_of:
             try:
                 old = self.store.read("content", "lessons", upgrade_of) or {}

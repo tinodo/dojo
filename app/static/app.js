@@ -8110,18 +8110,27 @@ function repairQuestion(R, n) {
 }
 
 function lessonsPanel(st) {
-  const L = st.lessons, P = st.preparing, R = st.repair;
+  const L = st.lessons, P = st.preparing;
   const all = L.ready >= L.teachable;
   const mine = P.current && P.current.startsWith(`${st.package}/`);
+  let asking = false;
   const repair = async () => {
+    if (asking) return;   // a second click, while the first is being answered, asks nothing more
+    asking = true;
     const token = state.nav;
-    if (!window.confirm(repairQuestion(R, L.unsourced))) return;
     try {
+      // This page may be old: the search may have started or finished since it was drawn, and the count and the price with it.
+      const now = await api(`/api/exam-packages/${st.package}`);
+      if (token !== state.nav) return;
+      if (now.repairing || !now.repair) { route(); return; }
+      if (!window.confirm(repairQuestion(now.repair, now.lessons.unsourced))) return;
       const started = await api(`/api/exam-packages/${st.package}/repair-sources`, { method: "POST" });
       await withProgress("Checking official pages again", Promise.resolve(started.job), REPAIR_NOTE);
       if (token === state.nav) route();
     } catch (e) {
       if (token === state.nav) put($view(), errorPanel(e));
+    } finally {
+      asking = false;
     }
   };
   const now = all ? "Every lesson is written."
