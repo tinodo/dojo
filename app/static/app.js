@@ -1686,13 +1686,16 @@ function deckWrap(text, width, size, font, M) {
   });
 }
 
-// The largest size at which a text takes at most `most` lines; at the smallest size it takes the lines it needs.
+// The largest size at which a text takes at most `most` lines with every word whole; at the smallest size it
+// takes the lines it needs, and a word wider than the box is broken inside.
 function deckFit(text, width, sizes, font, M, most) {
   let f = null;
+  const words = String(text || "").split(/\s+/).filter(Boolean);
   for (const size of sizes) {
     const lines = deckWrap(text, width, size, font, M);
     const lh = Math.round(size * DECK_LH[font]);
-    f = { lines, size, lh, h: lines.length * lh, w: lines.reduce((a, l) => Math.max(a, M(l, size, font)), 0), ok: lines.length <= most };
+    const whole = words.every((w) => M(w, size, font) <= width);
+    f = { lines, size, lh, h: lines.length * lh, w: lines.reduce((a, l) => Math.max(a, M(l, size, font)), 0), ok: whole && lines.length <= most };
     if (f.ok) return f;
   }
   return f;
@@ -2425,19 +2428,22 @@ const DECK_TYPE = { flow: "steps", cycle: "a loop", stack: "layers", timeline: "
 const DECK_FONT_LOAD = ["400 16px Inter", "600 16px Inter", "700 16px Inter", "600 16px Fraunces", "italic 400 16px Fraunces", "400 16px \"JetBrains Mono\""];
 // What Present says about the deck it plays (ADR 0014): the visual deck, or why it is the derived one.
 const DECK_WAIT = {
-  missing: "This deck is built from the checked lesson alone.",
-  writing: "This deck is built from the checked lesson alone. Its diagrams are being drawn and checked now.",
+  missing: "This deck is built from the checked lesson alone. Its diagrams are drawn when a lesson is first opened here (up to about 30 cents of model use, once for the lesson), or ahead of time if the owner turns that on in Studio.",
+  writing: "This deck is built from the checked lesson alone. Its diagrams are being drawn and checked now (up to about 30 cents, once for this lesson), and they come in when they are ready.",
   failed: "This deck is built from the checked lesson alone: its diagrams did not pass the checks.",
   stopped: "This deck is built from the checked lesson alone: drawing its diagrams stopped before it was finished.",
   invalidated: "This deck is built from the checked lesson alone: its diagrams were withdrawn, because a newer lesson replaced this one.",
   held: "This deck is built from the checked lesson alone: a changed source page no longer supports this lesson, so its diagrams wait until it is checked again.",
+  upgrading: "This deck is built from the checked lesson alone: the lesson is written again first, from every official page its skill cites, and the new lesson gets the diagrams.",
+  older: "This deck is built from the checked lesson alone: a newer lesson of this skill gets the diagrams.",
 };
+const DECK_NEXT = "The diagrams are drawn and checked: they come in at the next scene.";
 function deckNote(D) {
   if (D.level === "visual") {
     const m = D.models || {};
     return `The diagrams, outcomes, tips and recap were written by ${m.author || "the author model"} from this lesson and checked by ${m.gate || "an independent model"} against the same pages; anything that did not hold was left out. The slide bullets and the narration are the checked lesson's own.`;
   }
-  return DECK_WAIT[D.state] || "This deck is built from the checked lesson alone.";
+  return DECK_WAIT[D.state === "failed" && D.stopped ? "stopped" : D.state] || "This deck is built from the checked lesson alone.";
 }
 
 function svgEl(tag, attrs) {
@@ -2957,6 +2963,7 @@ function deckPlayer(L) {
   function go(k) {
     if (!ready || k < 0 || k >= N || k === si) return;
     const dir = k > si ? 1 : -1;
+    if (next) k = swapIn(next, k);
     wantAudio = false;
     if (!audio.paused) audio.pause();
     si = k;
@@ -3165,9 +3172,13 @@ function deckPlayer(L) {
     if (!audio.paused) audio.pause();
     if (state.deckOff === detach) state.deckOff = null;
   }
-  // The new deck once it is ready (the visual deck replacing the derived one): the same place if it can.
-  function load(deck) {
-    const was = D.scenes[si];
+  // The new deck once it is ready (the visual deck replacing the derived one), at the same place if it can.
+  // A scene that is playing or paused part way, or the self-check, is not cut off: the new deck comes in at
+  // the next scene. True when it came in now.
+  let next = null;
+  function swapIn(deck, k) {
+    const old = D;
+    next = null;
     D = deck;
     L.deck = deck;
     groups = deckGroups(D);
@@ -3176,15 +3187,19 @@ function deckPlayer(L) {
     count();
     buildProg();
     buildOv();
-    let k = 0;
-    if (was && was.kind === "slide") k = Math.max(0, D.scenes.findIndex((s) => s.kind === "slide" && s.slide === was.slide));
+    if (P.onswap) P.onswap(deck);
+    return deckPlace(D, old, k);
+  }
+  function load(deck) {
+    if (playing || !whole || D.scenes[si].kind === "check") { next = deck; return false; }
+    const k = swapIn(deck, si);
     wantAudio = false;
     if (!audio.paused) audio.pause();
     si = k;
     t = 0;
-    whole = !playing;
     if (scene) { scene.remove(); scene = null; }
     if (ready) enter(0, true);
+    return true;
   }
   async function boot() {
     const nav = state.nav;
@@ -3218,17 +3233,90 @@ function deckPlayer(L) {
   setCc(true);
   paintPlay();
   boot();
-  return { el: root, hear: hearPanel, load, get played() { return playing || !whole || si > 0; } };
+  const P = { el: root, hear: hearPanel, load, onswap: null, get played() { return playing || !whole || si > 0; } };
+  return P;
+}
+
+// Where scene k of one deck is in another (the derived deck and the visual deck of the same lesson): the same
+// slide, trap or part, else the first scene of the same kind, else the start.
+function deckPlace(D, old, k) {
+  const S = D.scenes, sc = old.scenes[k];
+  if (!sc) return 0;
+  const at = (f) => Math.max(0, S.findIndex(f));
+  if (sc.kind === "slide") return at((s) => s.kind === "slide" && s.slide === sc.slide);
+  if (sc.kind === "trap") return at((s) => s.kind === "trap" && s.n === sc.n);
+  if (sc.kind === "part" && sc.role === "ideas") {
+    const first = old.scenes[k + 1];
+    const j = first && first.kind === "slide" ? S.findIndex((s) => s.kind === "slide" && s.slide === first.slide) : -1;
+    if (j > 0) return S[j - 1].kind === "part" ? j - 1 : j;
+  }
+  if (sc.kind === "part") return at((s) => s.kind === "part" && s.role === sc.role);
+  return at((s) => s.kind === sc.kind);
 }
 
 function lessonPresent(L) {
   if (!L.slides.length) return panel(h("p", { class: "sub" }, "This lesson has no slides left after the checks."));
   if (!L.deck || !Array.isArray(L.deck.scenes) || !L.deck.scenes.length) return panel(h("p", { class: "sub" }, "This lesson has no deck to show."));
   const P = deckPlayer(L);
+  const note = h("span", null, deckNote(L.deck));
+  P.onswap = (D) => { note.textContent = deckNote(D); };
+  deckUpgrade(L, P, note);
   return h("div", { class: "col grow dk-page" }, P.el,
     h("div", { class: "row stackable dk-under" }, P.hear, claimsPanel(L, claimList(L))),
     h("div", { class: "strip" }, h("span", { class: "ic" }, icon("shield", "sm")),
-      h("span", { class: "tx" }, h("b", null, "Space plays, the arrow keys move, F is full screen, O the overview, C the captions. "), deckNote(L.deck))));
+      h("span", { class: "tx" }, h("b", null, "Space plays, the arrow keys move, F is full screen, O the overview, C the captions. "), note)));
+}
+
+// The visual deck (ADR 0014) of a lesson that has none yet: a learner's first open in Present asks for it, and
+// the deck built from the lesson plays meanwhile. When the visual deck is drawn and checked, by this open, by
+// someone else's or in the background, the player takes it in; when it is not, the note says why.
+async function deckUpgrade(L, P, note) {
+  const nav = state.nav, here = () => state.nav === nav;
+  if (L.deck.level === "visual" || !["missing", "writing"].includes(L.deck.state)) return;
+  const until = Date.now() + 6 * 60000;
+  let elsewhere = false, why = "";
+  if (L.deck.state === "missing") {
+    let res;
+    try {
+      res = await api(`/api/lessons/${L.id}/deck`, { method: "POST" });
+    } catch (e) {
+      if (here()) note.textContent = `${DECK_WAIT.missing} ${e.message || ""}`.trim();
+      return;
+    }
+    if (!here()) return;
+    if (res && res.id) {
+      note.textContent = DECK_WAIT.writing;
+      // Leaving Present, or six minutes, ends the waiting here; the drawing goes on in Dojo.
+      const stop = () => {
+        if (!here()) throw new Error("left");
+        if (Date.now() > until) throw new Error("It is taking longer than six minutes. It goes on in the background.");
+      };
+      try { await runJob(Promise.resolve(res), stop); } catch (e) { why = e.message || ""; }
+    } else if (res && res.state === "writing") {
+      note.textContent = DECK_WAIT.writing;
+      elsewhere = true;  // queued for someone else: it may not have started yet
+    } else {
+      note.textContent = deckNote({ state: res && res.state });
+      return;
+    }
+  }
+  for (;;) {
+    if (!here()) return;
+    let fresh;
+    try { fresh = await api(`/api/lessons/${L.id}`); } catch (e) { return; }
+    if (!here()) return;
+    const D = fresh.deck || {};
+    if (D.level === "visual" && Array.isArray(D.scenes) && D.scenes.length) {
+      if (!P.load(D)) note.textContent = DECK_NEXT;
+      return;
+    }
+    const going = D.state === "writing" || (D.state === "missing" && elsewhere);
+    if (!going || Date.now() > until) {
+      note.textContent = D.state === "missing" && why ? `${DECK_WAIT.missing} ${why}` : deckNote(D);
+      return;
+    }
+    await sleep(5000);
+  }
 }
 
 // The right-hand panel of the slide stage: where every claim on the slides comes from.
@@ -6084,6 +6172,7 @@ function costsPanel(c) {
     h("p", { class: "small muted top" }, `List prices: Azure Retail Prices API, ${c.region}, ${c.currency}, pay as you go.`),
     c.notes.map((n) => h("p", { class: "small muted" }, n)),
     deepCosts(c.deep),
+    deckCosts(c.deck),
     examItemCosts(c.exam_items));
 }
 
@@ -6115,13 +6204,61 @@ function deepCosts(d) {
     checks > 0 ? `${plural(checks, "lesson")} did not pass the checks and ${checks === 1 ? "keeps" : "keep"} the slide narration.` : "",
     d.stopped ? `${plural(d.stopped, "lesson")} stopped before ${d.stopped === 1 ? "it was" : "they were"} finished and ${d.stopped === 1 ? "keeps" : "keep"} the slide narration.` : "",
     d.failed ? "Dojo writes each lesson at most twice, a week apart." : ""].filter(Boolean).join(" ");
-  const every = `All ${plural(all.lessons, "lesson")}`;
   return h("div", { class: "deep-costs" },
     h("h3", { class: "top" }, "Deeper Listen"),
     h("p", { class: "deep-line" }, `Deeper Listen: ${d.ready} of ${d.lessons} ready; about ${usd(so.total)} at list price so far`
       + `${so.complete ? "" : ", for the lines with a price"}; ${d.per_day} a day.`),
     so.complete ? null : h("p", { class: "small bad" }, `So far: not the full cost. ${leftOut(so)}`),
     state ? h("p", { class: "small muted" }, state) : null,
+    everyLessonCost(all, d.assumptions));
+}
+
+// Present's visual decks (ADR 0014): how many lessons play one, what they have cost so far and what every
+// lesson costs. Drawing them ahead of time is the owner's switch, off until it is turned on with the price shown.
+function deckCosts(first) {
+  if (!first) return null;
+  const host = h("div", { class: "deep-costs" });
+  const draw = (d) => {
+    const so = d.so_far, all = d.every_lesson;
+    const checks = (d.failed || 0) - (d.stopped || 0);
+    const state = [d.ahead && d.per_day ? `Today: ${d.today} of ${d.per_day} drawn ahead of time.` : "",
+      d.drawing ? `${plural(d.drawing, "deck")} being drawn now.` : "",
+      d.waiting_upgrade ? `${plural(d.waiting_upgrade, "lesson")} ${d.waiting_upgrade === 1 ? "waits" : "wait"} until ${d.waiting_upgrade === 1 ? "it is" : "they are"} written again on the deeper template, so ${d.waiting_upgrade === 1 ? "its" : "each"} deck is drawn once.` : "",
+      checks > 0 ? `${plural(checks, "lesson")} did not pass the checks and ${checks === 1 ? "plays" : "play"} the deck built from the lesson.` : "",
+      d.stopped ? `${plural(d.stopped, "lesson")} stopped before ${d.stopped === 1 ? "it was" : "they were"} finished and ${d.stopped === 1 ? "plays" : "play"} the deck built from the lesson.` : "",
+      d.failed ? "Dojo draws each deck at most twice, a week apart." : ""].filter(Boolean).join(" ");
+    const price = all.per_lesson === null || all.per_lesson === undefined ? "" : ` (about ${usd(all.per_lesson)} a lesson)`;
+    const toggle = async () => {
+      if (!d.ahead && !window.confirm(`Draw the visual decks ahead of time?\n\nUp to ${d.per_day} a day, the active exam first, until ${plural(all.lessons, "lesson")} have one: `
+        + `${all.complete ? "about" : "at least"} ${usd(all.total)} at list price in all${price}. Lessons written later get one too, at about the same price each, until you stop it. `
+        + "You can stop it here at any time.\n\n"
+        + "A lesson you open in Present gets its deck drawn right away, whether this is on or not.")) return;
+      try {
+        const r = await api("/api/studio/decks/ahead", { method: "POST", body: { on: !d.ahead } });
+        draw({ ...d, ahead: r.ahead });
+      } catch (e) {
+        host.append(h("p", { class: "small bad", role: "alert" }, e.message));
+      }
+    };
+    put(host,
+      h("h3", { class: "top" }, "Present: visual decks"),
+      h("p", { class: "deep-line" }, `Visual decks: ${d.ready} of ${d.lessons} ready; about ${usd(so.total)} at list price so far`
+        + `${so.complete ? "" : ", for the lines with a price"}. `
+        + (d.ahead ? `Drawing ahead of time: up to ${d.per_day} a day.`
+          : "Not drawn ahead of time: a lesson's deck is drawn when it is first opened in Present.")),
+      h("div", { class: "actions" }, button(d.ahead ? "Stop drawing ahead of time" : `Draw ahead of time (up to ${d.per_day} a day)`, toggle, "ghost sm")),
+      so.complete ? null : h("p", { class: "small bad" }, `So far: not the full cost. ${leftOut(so)}`),
+      state ? h("p", { class: "small muted" }, state) : null,
+      everyLessonCost(all, d.assumptions));
+  };
+  draw(first);
+  return host;
+}
+
+// What every lesson costs, and how Dojo estimates it: for Deeper Listen and the visual decks.
+function everyLessonCost(all, assumptions) {
+  const every = `All ${plural(all.lessons, "lesson")}`;
+  return [
     h("div", { class: "costrow total" },
       h("div", null, h("b", null, all.complete ? every : `${every}, for the lines with a price`),
         all.per_lesson !== null ? h("small", null, `About ${usd(all.per_lesson)} a lesson, at list price.`) : null,
@@ -6131,7 +6268,7 @@ function deepCosts(d) {
       all.lines.map((l) => h("div", { class: "costrow" },
         h("div", null, h("b", null, l.what), h("small", null, lineAmount(l)), l.found ? null : h("small", { class: "bad" }, l.note)),
         h("span", { class: l.found ? "cost" : "cost none" }, l.found ? usd(l.cost) : "not included"))),
-      h("ul", { class: "facts" }, d.assumptions.map((a) => h("li", null, a)))));
+      h("ul", { class: "facts" }, assumptions.map((a) => h("li", null, a))))];
 }
 
 // ---------------------------------------------------------------- Studio: source changes (ADR 0006)

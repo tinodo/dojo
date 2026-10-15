@@ -22,7 +22,9 @@ list prices from the same lookup, but Dojo does not count model tokens yet, so i
 
 Deeper Listen (ADR 0007) has its own line in Studio: how many lessons play it, what it has cost so far
 and what it costs for every lesson. Its writing and checking are priced from the rounds each lesson
-took and the tokens assumed per round; its speech and transcription are counted like the rest."""
+took and the tokens assumed per round; its speech and transcription are counted like the rest. So do
+Present's visual decks (ADR 0014), priced the same way from the attempts each lesson took; a deck plays
+the lesson's own narration, so it costs no speech."""
 from __future__ import annotations
 
 import logging
@@ -103,6 +105,15 @@ DEEP_CALLS = (
     ("deep_gate", "Checking every line", "gate", 23_000, 7_000),
 )
 DEEP_ROUNDS = 1.5            # parts that do not hold are written and checked again
+# Present's visual deck (ADR 0014), per attempt for one lesson: (key, what, role, input tokens, output
+# tokens). One author call reads the lesson with its slides and narration and the sources, and plans the
+# deck; the checker reads the sources with every element. Set a little above three real decks: the author
+# read 5k to 8k tokens and wrote 3.4k to 5.7k with its reasoning, the checker read 3k to 10k and wrote up to 8k.
+DECK_CALLS = (
+    ("deck_write", "Drawing the decks", "author", 10_000, 6_000),
+    ("deck_gate", "Checking every element", "gate", 10_000, 8_000),
+)
+DECK_ROUNDS = 1.2            # a deck that does not pass is drawn once more, a week later
 # Practice-exam items (ADR 0012), per item of each kind: (author input, author output, gate input, gate output,
 # questions in the item). The author's input is the skill's page excerpts and the prompt; its output the item
 # with a quote for every part of the key, and its reasoning. Assumptions, like COURSE_CALLS.
@@ -260,6 +271,7 @@ class Costs:
         self._failed_at: float | None = None
         self._usage: tuple[float, dict] | None = None
         self.deep_progress: Any = None   # set at startup: how far Deeper Listen is (Preparer.deep_status)
+        self.deck_progress: Any = None   # set at startup: how far the visual decks are (Preparer.deck_status)
 
     # ------------------------------------------------------------ prices, fetched at most once a day
 
@@ -410,7 +422,7 @@ class Costs:
                 "stale": bool(prices.get("stale")), "source": PRICES_URL, "lines": lines,
                 "total": round(total, 2), "complete": complete, "usage": usage,
                 "models": [self.model_price(prices, role) for role in ROLES], "notes": list(NOTES),
-                "deep": self.deep_view(prices, usage), "exam_items": self.items_view(prices)}
+                "deep": self.deep_view(prices, usage), "deck": self.deck_view(prices), "exam_items": self.items_view(prices)}
 
     # ------------------------------------------------------------ practice-exam items (ADR 0012)
 
@@ -521,6 +533,60 @@ class Costs:
         """Deeper Listen for /api/diag, priced from the price list already kept: diag never fetches prices."""
         cached = self.dojo.store.read("content", "prices", default=None)
         view = self.deep_view(cached if self._ours(cached) else self._nothing())
+        keep = {k: v for k, v in view.items() if k not in ("label", "so_far", "every_lesson", "assumptions")}
+        return {**keep, "so_far": view["so_far"]["total"], "rounds": view["so_far"]["rounds"],
+                "every_lesson": view["every_lesson"]["total"], "per_lesson": view["every_lesson"]["per_lesson"],
+                "complete": view["so_far"]["complete"] and view["every_lesson"]["complete"]}
+
+    # ------------------------------------------------------------ Present's visual decks (ADR 0014)
+
+    def _deck_lines(self, prices: dict, rounds: float) -> list[dict]:
+        """Drawing and checking `rounds` decks."""
+        return [self._model_line(prices, key, what, role, tokens_in, tokens_out, rounds)
+                for key, what, role, tokens_in, tokens_out in DECK_CALLS]
+
+    def deck_view(self, prices: dict | None = None) -> dict:
+        """Present's visual decks: how many lessons play one, what they have cost so far and what they cost
+        for every lesson, at list prices. So far counts every attempt started, as Dojo.make_deck records it
+        before the model is called: of attempts that did not pass, stopped on an error or were withdrawn too."""
+        prices = self.prices() if prices is None else prices
+        progress = dict(self.deck_progress()) if self.deck_progress is not None else {}
+        lessons = _count(progress.get("lessons"))
+        docs = self.dojo.deck_docs()
+        rounds = sum(_count(d.get("spent_rounds")) for d in docs)
+        so_far = self._deck_lines(prices, rounds)
+        every = self._deck_lines(prices, DECK_ROUNDS * lessons)
+        spent, spent_complete = self._summed(so_far)
+        total, complete = self._summed(every)
+        models = self.dojo.models("author", "gate")
+        per_round = ", ".join(f"{what.lower()} {tokens_in:,} input and {tokens_out:,} output"
+                              for _, what, _, tokens_in, tokens_out in DECK_CALLS)
+        return {
+            **progress, "lessons": lessons, "ready": _count(progress.get("ready")),
+            "label": LABEL, "currency": "USD", "fetched": prices.get("fetched"), "stale": bool(prices.get("stale")),
+            "so_far": {"total": spent, "complete": spent_complete, "rounds": rounds, "decks": len(docs),
+                       "lines": so_far, "left_out": left_out(so_far)},
+            "every_lesson": {"lessons": lessons, "total": total, "complete": complete,
+                             "per_lesson": round(total / lessons, 2) if lessons else None,
+                             "lines": every, "left_out": left_out(every)},
+            "assumptions": [
+                f"For each deck, the author ({model_name(models['author'])}) plans it in one call and the checker "
+                f"({model_name(models['gate'])}) checks every element. Tokens for each deck: {per_round}. These are "
+                "assumptions: Dojo does not count model tokens yet.",
+                f"So far, {rounds} attempts for {len(docs)} decks, counted when each starts: also those that did not "
+                "pass, stopped on an error or were withdrawn.",
+                f"For every lesson, {DECK_ROUNDS:g} attempts each on average, because a deck that does not pass is "
+                "drawn once more, a week later.",
+                "A deck plays the lesson's own slide narration, so it costs no speech.",
+                "Every input token is priced in full. Input the model has cached is cheaper, so the bill can be lower.",
+            ],
+        }
+
+    def deck_line(self) -> dict:
+        """Present's visual decks for /api/diag, priced from the price list already kept: diag never fetches
+        prices."""
+        cached = self.dojo.store.read("content", "prices", default=None)
+        view = self.deck_view(cached if self._ours(cached) else self._nothing())
         keep = {k: v for k, v in view.items() if k not in ("label", "so_far", "every_lesson", "assumptions")}
         return {**keep, "so_far": view["so_far"]["total"], "rounds": view["so_far"]["rounds"],
                 "every_lesson": view["every_lesson"]["total"], "per_lesson": view["every_lesson"]["per_lesson"],

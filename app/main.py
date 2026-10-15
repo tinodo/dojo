@@ -25,6 +25,7 @@ import logging
 import mimetypes
 import os
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
@@ -303,6 +304,10 @@ class RemoveExamRequest(BaseModel):
     confirm: Literal["REMOVE"]
 
 
+class DeckAheadRequest(BaseModel):
+    on: bool
+
+
 # Team Dojo (ADR 0009)
 class AccessRequest(BaseModel):
     used_before: bool = False   # "I used this Dojo before with an account that no longer works"
@@ -489,6 +494,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     checker = DeliveryCheck(dojo, owner)
     costs = Costs(dojo, checker, settings.speech_region, http=http, deployment=settings.model_sku)
     costs.deep_progress = preparer.deep_status   # Studio's Deeper Listen line (ADR 0007)
+    costs.deck_progress = preparer.deck_status   # and its visual decks line (ADR 0014)
     drift = DriftCheck(dojo, owner, costs)
     podcast = Podcast(dojo, owner)
     podcast.migrate_aired()   # the owner's podcast notes move into the owner's folder, once (ADR 0009)
@@ -1284,6 +1290,29 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         with budget.action(learner, "audio", (lesson or {}).get("package")):
             return dojo.jobs.start(learner, "audio", dojo.lesson_audio, learner, lesson_id)
 
+    deck_gate = threading.Lock()   # the checks and the start of a first open's deck are one step for everyone
+
+    @app.post("/api/lessons/{lesson_id}/deck")
+    def lesson_deck(lesson_id: str, learner: Learner = Me) -> dict:
+        """Present opened a lesson that has no visual deck: it is drawn now (ADR 0014), as one of the
+        learner's visual decks for the day in team mode, while the deck built from the lesson plays. Asking
+        again returns the same job. When the deck is being drawn already, by anyone, or is not to be drawn
+        now, nothing starts and the answer says the deck's state. The checks, the reservation and the start
+        are one step: two opens at once never both reserve or start a paid job."""
+        _no_help_during_exam(learner, "Lessons are closed")
+        lesson = dojo.lesson(_check_id(lesson_id))
+        _enrolled(learner, lesson["package"])
+        with deck_gate:
+            running = dojo.jobs.existing(learner, "deck", lesson["id"])
+            if running:
+                return running
+            if dojo.deck_drawing(lesson["id"]) or dojo.jobs.running("deck", lesson["id"]):
+                return {"started": False, "state": "writing"}
+            if not dojo.deck_due(lesson):
+                return {"started": False, "state": dojo.deck_view(lesson)["state"]}
+            with budget.action(learner, "deck", lesson["package"]):
+                return dojo.jobs.start(learner, "deck", dojo.make_deck, lesson["id"], True, ref=lesson["id"])
+
     @app.post("/api/lessons/{lesson_id}/video")
     def lesson_video(lesson_id: str, learner: Learner = Admin) -> dict:
         """Film every slide of this lesson. Asking again while it runs returns the same job."""
@@ -1713,6 +1742,12 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         """More official pages per skill and lessons written again on the deeper template (ADR 0008)."""
         return deeper.view()
 
+    @app.post("/api/studio/decks/ahead")
+    def studio_decks_ahead(body: DeckAheadRequest, learner: Learner = Admin) -> dict:
+        """The owner turns drawing visual decks ahead of time on or off (ADR 0014). It is off until then: a deck is
+        otherwise drawn only when a lesson is first opened in Present."""
+        return {"ahead": preparer.set_deck_ahead(body.on)}
+
     @app.get("/api/record/export")
     def export(learner: Learner = Exit) -> JSONResponse:
         # The export carries lessons, coach answers, item feedback and rehearsal rationales. All of
@@ -1745,7 +1780,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
                          "repair": "POST /api/diag/lab/repair {confirm: true} cleans dbo and escaped history tables."}
                 if labs is not None else {"on": False, "mode": "off: " + LABS_OFF},
                 "team_sync": team.sync_view() if settings.team else None,
-                "deeper_listen": costs.deep_line()}
+                "deeper_listen": costs.deep_line(), "present_deck": costs.deck_line()}
 
     @app.post("/api/diag/lab")
     def lab_probe(learner: Learner = Admin) -> dict:

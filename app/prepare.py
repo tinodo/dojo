@@ -28,6 +28,14 @@ DEEP_ATTEMPTS. Text already written and checked is spoken
 first, at no charge. It stops between the writing and the speaking, and between two parts, when the
 learner starts something.
 
+Then, only when the owner has turned on drawing ahead of time (Studio), it draws the visual deck that
+Present plays (ADR 0014) for the newest lesson of every skill, in Deeper Listen's order and by its rules:
+none for a lesson a changed source page holds back, or for one that will be written again on the deeper
+template; at most DECK_PER_DAY a day, counted on the data share before the work; an attempt kept before
+its model call; a failed one drawn again after a week, at most DECK_ATTEMPTS times in all. It is off until
+the owner turns it on, because it spends money nobody asked for. A learner who opens a lesson without a
+deck in Present has that one lesson's deck drawn at once, on or off (the deck route in app/main.py).
+
 When nothing else is left, it files filming jobs for an added exam, but only for lessons the owner
 approved at a price shown first (app/newexam.py). It files one at a time, through the same job and
 work slots as the Film button, and only after the owner's jobs have been quiet for a few minutes, so
@@ -45,6 +53,7 @@ from fastapi import HTTPException
 
 from .ai import AIError
 from .core import Learner, UserError, iso, parse_iso, utcnow
+from .learning import DECK_GONE
 
 log = logging.getLogger("dojo.prepare")
 
@@ -53,16 +62,19 @@ FILM_STORAGE_SHARE = 0.9    # approved filming stops at this share of the presen
 DEEP_PER_DAY = 20           # Deeper Listen narrations written a day, UTC days (ADR 0007)
 DEEP_RETRY = timedelta(days=7)  # a Deeper Listen that did not pass its check is written again after this,
 DEEP_ATTEMPTS = 2               # at most this many times in all
+DECK_PER_DAY = 20               # visual decks drawn a day for Present, UTC days (ADR 0014)
+DECK_RETRY = timedelta(days=7)  # a visual deck that did not pass its check is drawn again after this,
+DECK_ATTEMPTS = 2               # at most this many times in all
 
 
 class Preparer:
-    """Background preparation for the owner's exams: lessons, rewrites, narration, Deeper Listen and
-    approved filming, one lesson at a time and never while the learner has work running."""
+    """Background preparation for the owner's exams: lessons, rewrites, narration, Deeper Listen, visual
+    decks and approved filming, one lesson at a time and never while the learner has work running."""
     def __init__(self, dojo: Any, owner: Learner):
         self.dojo = dojo
         self.owner = owner
         self.state: dict = {"running": False, "current": None, "prepared": 0, "narrated": 0, "failed": {}, "last": None,
-                            "filmed": 0, "film_note": "", "upgraded": 0, "deepened": 0}
+                            "filmed": 0, "film_note": "", "upgraded": 0, "deepened": 0, "decked": 0}
         self.films: Any = None             # set at startup: the approved filming of added exams (app/newexam.py)
         self.deeper: Any = None            # set at startup: lessons written again on the deeper template (app/deeper.py)
         self._started = False
@@ -201,7 +213,8 @@ class Preparer:
 
     def step(self) -> bool:
         """Write one lesson, write one lesson again on the deeper template, narrate one lesson that has no
-        audio, or file one approved filming job. True when there may be more soon."""
+        audio, write one Deeper Listen, draw one visual deck, or file one approved filming job. True when
+        there may be more soon."""
         if self._learner_busy():
             return True
         skill = self.next_skill()
@@ -211,7 +224,7 @@ class Preparer:
         narration = None if skill else self.next_narration()
         if not skill and not narration:
             self.state.update(running=False, current=None)
-            return self._deepen() or self._film()
+            return self._deepen() or self._deck() or self._film()
         pid, sid = skill or narration[:2]
         # A lesson written again because a page changed counts against the day's allowance, before it
         # starts. It is not the exam's turn, so the turn does not move. When the skill's last page went
@@ -405,6 +418,115 @@ class Preparer:
                 "speaking": sum(1 for _, _, lesson in targets if self.dojo.deep_audio_missing(lesson) and lesson not in later),
                 "waiting_upgrade": sum(1 for _, _, lesson in targets if lesson in later and self._deep_due(lesson, now)),
                 "today": day["today"], "per_day": DEEP_PER_DAY, "written": day["written"]}
+
+    # ------------------------------------------------------------ Present: the visual deck (ADR 0014)
+
+    def _deck_due(self, lesson_id: str, now: Any) -> bool:
+        """The lesson's visual deck is to be drawn. A lesson that a changed source page no longer supports gets
+        none: its rewrite will. An attempt counts from its model call (Dojo.make_deck), so one that stopped on
+        an error, a crash or a restart waits its week and counts toward the attempts like one that did not
+        pass its checks. One being drawn now, for a learner who opened the lesson, is left to that."""
+        if self.dojo.deep_held(lesson_id) or self.dojo.deck_drawing(lesson_id):
+            return False
+        d = self.dojo.deck(lesson_id)
+        if not d or d.get("state") == "invalidated":
+            return True
+        if d.get("state") != "failed":
+            return False
+        return int(d.get("attempts") or 0) < DECK_ATTEMPTS and now - parse_iso(d["created"]) >= DECK_RETRY
+
+    def _deck_day(self) -> dict:
+        doc = self.dojo.store.read("content", "deck-state", default=None) or {}
+        day = iso()[:10]
+        if doc.get("day") != day:
+            doc["day"], doc["today"] = day, 0
+        doc.setdefault("written", 0)
+        return doc
+
+    def deck_left(self) -> int:
+        return max(0, DECK_PER_DAY - self._deck_day()["today"])
+
+    def deck_ahead(self) -> bool:
+        """The owner has turned on drawing visual decks ahead of time. It is off until then (ADR 0014)."""
+        return self._deck_day().get("ahead") is True
+
+    def set_deck_ahead(self, on: bool) -> bool:
+        with self.dojo.store.lock:
+            doc = self._deck_day()
+            doc["ahead"] = bool(on)
+            doc["ahead_at"] = iso()
+            self.dojo.store.write("content", "deck-state", value=doc)
+        if on:
+            self.wake()
+        return bool(on)
+
+    def _charge_deck(self) -> bool:
+        """Count a visual deck before it is drawn, so a crash or a restart gets no free one."""
+        with self.dojo.store.lock:
+            doc = self._deck_day()
+            if doc["today"] >= DECK_PER_DAY:
+                return False
+            doc["today"] += 1
+            doc["written"] += 1
+            doc["updated"] = iso()
+            self.dojo.store.write("content", "deck-state", value=doc)
+            return True
+
+    def next_deck(self) -> tuple[str, str, str] | None:
+        """The next lesson whose visual deck is drawn ahead of time, in Deeper Listen's order, while the owner
+        has it on and the day's allowance lasts. A lesson that will be written again on the deeper template is
+        left for its new lesson."""
+        if not self.deck_ahead() or self.deck_left() <= 0:
+            return None
+        now, later = utcnow(), self._upgrading()
+        return next(((pid, sid, lesson) for pid, sid, lesson in self.deep_targets()
+                     if lesson not in later and not self._waiting(f"deck:{pid}/{sid}", now) and self._deck_due(lesson, now)),
+                    None)
+
+    def _deck(self) -> bool:
+        """Draw the visual deck of one lesson. False when there is nothing to do now."""
+        work = self.next_deck()
+        if not work or not self._charge_deck():
+            return False
+        pid, sid, lesson = work
+        self.state.update(running=True, current=f"{pid}/{sid}")
+        try:
+            self.dojo.make_deck(lambda step: None, lesson)
+            if self._gone(pid):
+                self.dojo.drop_deck(lesson)   # its exam went meanwhile: what was made for it goes too
+            else:
+                self.state["decked"] += 1
+        except (UserError, AIError, HTTPException) as e:
+            if self._gone(pid):
+                self.dojo.drop_deck(lesson)
+                return True
+            if str(e) == DECK_GONE:
+                return True   # its lesson was replaced meanwhile: nothing failed, and the new lesson gets its own deck
+            if self.dojo.deck_drawing(lesson):
+                return True   # a learner's first open is drawing it at this moment
+            self.state["failed"][f"deck:{pid}/{sid}"] = iso()
+            self.dojo.quality(None, "preparation", {"package": pid, "skill": sid, "lesson": lesson, "text": "",
+                                                    "reason": f"Visual deck ahead of time failed: {getattr(e, 'detail', None) or e}"})
+        finally:
+            self.state.update(current=None, last=iso())
+        return True
+
+    def deck_status(self) -> dict:
+        """Present's visual decks for Studio and /api/diag: how many of the newest lessons play one, and today's
+        count. `failed` counts the lessons whose last attempt failed; `stopped`, those of them that stopped
+        before they were finished: on an error, a crash or a restart. `waiting_upgrade`, the lessons whose deck
+        waits until they are written again on the deeper template (ADR 0008)."""
+        targets = self.deep_targets()
+        day = self._deck_day()
+        now, later = utcnow(), self._upgrading()
+        docs = {lesson: self.dojo.deck(lesson) for _, _, lesson in targets}
+        failed = [d for d in docs.values() if d and d.get("state") == "failed"]
+        return {"ready": sum(1 for lesson, d in docs.items() if d and d.get("state") == "ready" and not self.dojo.deep_held(lesson)),
+                "lessons": len(targets), "failed": len(failed), "stopped": sum(1 for d in failed if d.get("stopped")),
+                "drawing": sum(1 for lesson in docs if self.dojo.deck_drawing(lesson)),
+                "waiting_upgrade": sum(1 for lesson in docs if lesson in later and self._deck_due(lesson, now)),
+                "ahead": self.deck_ahead(),
+                "today": day["today"], "per_day": DECK_PER_DAY, "written": day["written"]}
 
     def _quiet_for(self) -> float:
         """Seconds since any of the owner's jobs last did anything, filming jobs included."""

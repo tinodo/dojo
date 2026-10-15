@@ -390,8 +390,13 @@ class PreparationTests(unittest.TestCase):
         self.assertFalse(dojo.lesson_audio_missing(lesson))
         self.assertEqual(prep.state["narrated"], 1)
         self.assertEqual(prep.status()["needs_narration"], 0)
-        self.assertTrue(prep.step(), "then the lesson's Deeper Listen (ADR 0007)")
+        self.assertTrue(prep.step(), "then its Deeper Listen (ADR 0007)")
         self.assertTrue(dojo.deep_ready(lesson))
+        self.assertFalse(prep.step(), "no visual deck ahead of time: that is the owner's switch (ADR 0014)")
+        self.assertEqual(dojo.lesson_view(lesson)["deck"]["level"], "derived")
+        prep.set_deck_ahead(True)
+        self.assertTrue(prep.step(), "then its visual deck for Present (ADR 0014)")
+        self.assertEqual(dojo.lesson_view(lesson)["deck"]["level"], "visual")
         self.assertFalse(prep.step(), "nothing left to do")
 
 

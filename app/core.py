@@ -821,6 +821,13 @@ class Jobs:
         return any(j.get("kind") == kind and j.get("ref") == ref and j.get("state") in ("queued", "running")
                    for j in self.for_learner(learner))
 
+    def running(self, kind: str, ref: str) -> bool:
+        """Anyone's job of this kind for `ref` is queued or running: shared work that one learner's request
+        started need not be started again for another."""
+        jobs = (self.store.read("jobs", n) for n in self.store.names("jobs"))
+        return any(isinstance(j, dict) and j.get("kind") == kind and j.get("ref") == ref and j.get("state") in ("queued", "running")
+                   for j in jobs)
+
     def free(self) -> int:
         """How many of the shared slots nobody is using right now. Work that starts several jobs at
         once asks first, so it takes what is free instead of filling the queue and making everything

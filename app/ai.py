@@ -217,6 +217,7 @@ _RUBRIC = re.compile(r'^- \[(r\d+)\]', re.M)
 _CANDIDATE = re.compile(r'<candidate n="(\d+)" found-for="([^"]*)"')
 _PART = re.compile(r"^(P\d+) (.+?) \(about (\d+) words\):", re.M)
 _ONLY = re.compile(r"^Write ONLY these parts again: ([P\d, ]+)\.", re.M)
+_SLIDE = re.compile(r'^SLIDE (\d+): "', re.M)
 
 
 def _quotes(text: str) -> list[tuple[int, str]]:
@@ -322,6 +323,29 @@ class StubAI:
                 lines.append({"voice": "guide", "text": "That covers it. Now try the self-check in Dojo."})
             segments.append({"part": pid, "lines": lines})
         return {"segments": segments}
+
+    def _deck(self, user: str) -> dict:
+        """Present's visual deck: three outcomes, two parts, a flow with a tip quoting a source on the first
+        slide, a contrast on the second, and a recap."""
+        n = len(_SLIDE.findall(user))
+        q = _quotes(user)
+        src, quote = next((x for x in q if len(x[1]) <= 240), q[0])
+        half = max(1, n // 2)
+        slides = []
+        if n:
+            slides.append({"slide": 0, "visual": {"type": "flow", "steps": [
+                {"label": "Plan the change", "note": "", "icon": "plan"}, {"label": "Make the change", "note": ""},
+                {"label": "Check the result", "note": "", "icon": "check"}]},
+                "tip": {"kind": "tip", "text": "Remember how the source puts it.", "quote": quote, "source": src}})
+        if n > 1:
+            slides.append({"slide": 1, "visual": {"type": "contrast",
+                           "left": {"title": "Do", "tone": "good", "points": ["Follow the steps in order."]},
+                           "right": {"title": "Avoid", "tone": "bad", "points": ["Skipping the check."]}}})
+        return {"outcomes": ["Explain the key idea of this skill.", "Choose the setting that fits a task.", "Avoid the common trap."],
+                "sections": [{"title": "The idea", "slides": list(range(half))}, {"title": "In practice", "slides": list(range(half, n))}]
+                if n >= 2 else [],
+                "slides": slides,
+                "recap": ["The key idea, in short.", "The setting that fits.", "The trap to avoid."]}
 
     STEMS = [
         "A retail bank wants its developers to stop sharing customer spreadsheets through chat. What would you do, and why?",

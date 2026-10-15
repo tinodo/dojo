@@ -40,10 +40,12 @@ Each feature links to the decision record (ADR) that explains it.
 - **Add an exam.** Type an exam code. Dojo reads the official study guide, shows what building the course
   would cost at list price, and builds it when you agree ([ADR 0005](docs/adr/0005-add-an-exam.md)).
 - **Learn.** A lesson per skill, written from the official pages it cites. Read it, listen to it as a
-  two-voice conversation, have it presented as narrated slides, or watch it as an avatar video.
+  two-voice conversation, have it presented as a narrated deck, or watch it as an avatar video.
   - **Deeper lessons** use up to three official pages per skill ([ADR 0008](docs/adr/0008-deeper-lessons.md)).
   - **Deeper Listen** is a six-minute audio conversation that teaches the whole lesson
     ([ADR 0007](docs/adr/0007-deeper-listen.md)).
+  - **Present** plays the lesson as a narrated deck: parts, diagrams, exam tips and traps, a recap and a
+    self-check, each diagram checked against the official pages ([ADR 0014](docs/adr/0014-present-deck.md)).
 - **Practice.** New open-answer questions every time. Hints are there when you want them, and every hint
   you open is recorded as help.
 - **Spoken answers.** Say your answer out loud instead of typing it ([ADR 0001](docs/adr/0001-microphone-for-spoken-answers.md)).

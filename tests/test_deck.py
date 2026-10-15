@@ -275,6 +275,24 @@ class CleanVisualTests(unittest.TestCase):
         tabbed["lines"] = ["quiet_window:", '\tstart: "22:00"']
         self.assertEqual(visual(tabbed)[0]["lines"][1], '  start: "22:00"')
 
+    def test_a_language_that_is_not_a_name_reads_as_plain_text(self):
+        for lang in ({}, [], ["sql"], 5, None, True):
+            raw = raw_visual(7)
+            raw["lang"] = lang
+            v, why = visual(raw)
+            self.assertIsNotNone(v, why)
+            self.assertEqual(v["lang"], "text", lang)
+
+    def test_a_number_in_a_string_is_read_only_when_it_is_a_plain_small_one(self):
+        self.assertEqual([deck._int(x) for x in ("7", " 12 ", "-3", 4, "0", "\t5\n")], [7, 12, -3, 4, 0, 5])
+        for bad in ("9" * 5000, "--5", "5-", "1e3", "٣", "1 2", "", None, True, 1.5, [1],
+                    "\u001c1", "1\u001f", "\u00a01", "1\u2003", "\x0b1"):
+            self.assertEqual(deck._int(bad), -1, repr(bad)[:30])
+        raw = raw_visual(7)
+        raw["source"] = "9" * 5000
+        raw["marks"] = [{"line": "9" * 5000, "note": "x"}]
+        self.assertIsNone(visual(raw)[0], "a page number that is no number: the snippet is left out, nothing is raised")
+
 
 class CodeFoundTests(unittest.TestCase):
     PAGE = "Intro text\nalpha: 1\n# a comment\nbeta:\n  gamma: 2\nOutro"
@@ -358,6 +376,18 @@ class CleanSpecTests(unittest.TestCase):
         self.assertIsNone(spec["slides"]["0"]["tip"])
         self.assertEqual(spec["slides"]["6"]["tip"]["kind"], "tip")
 
+    def test_a_tip_does_not_repeat_the_label_the_slide_shows(self):
+        raw = copy.deepcopy(RAW)
+        raw["slides"][0]["tip"]["text"] = "Exam trap: a run that fails is not retried at once."
+        raw["slides"][4]["tip"]["text"] = "tip - keep the relay close to the agents."
+        raw["slides"][6]["tip"]["text"] = "Trap:"
+        spec, blocked, _ = spec_of(raw)
+        self.assertEqual(spec["slides"]["0"]["tip"]["text"], "A run that fails is not retried at once.")
+        self.assertEqual(spec["slides"]["4"]["tip"]["text"], "Keep the relay close to the agents.")
+        self.assertIsNone(spec["slides"]["6"]["tip"])
+        self.assertEqual([b["part"] for b in blocked], ["slide 7 tip"])
+        self.assertEqual(deck._unlabelled("Tipping points come first."), "Tipping points come first.")
+
     def test_a_quote_on_a_slide_is_short(self):
         long = "every device keeps its last good settings " * 6
         raw = raw_visual(4)
@@ -392,6 +422,23 @@ class CleanSpecTests(unittest.TestCase):
         spec, blocked, _ = spec_of(raw)
         self.assertEqual(spec["recap"], [f"Line {k}" for k in range(5)])
         self.assertEqual([b["part"] for b in blocked], ["recap 6", "recap 7"])
+
+    def test_a_list_in_the_answer_is_read_to_its_first_twelve_entries(self):
+        self.assertEqual(deck.LIST_MAX, 12)
+        raw = copy.deepcopy(RAW)
+        raw["outcomes"] = [f"Outcome {k}" for k in range(5000)]
+        raw["recap"] = [f"Line {k}" for k in range(5000)]
+        raw["sections"] = raw["sections"] + [{"title": "More", "slides": []}] * 5000
+        raw["slides"] = raw["slides"] + [{"slide": 99, "visual": {"type": "pie"}, "tip": {"text": "x"}}] * 5000
+        spec, blocked, proposed = spec_of(raw)
+        parts = [b["part"] for b in blocked]
+        self.assertEqual(sum(p.startswith("outcome") for p in parts), 12 - 4)
+        self.assertEqual(sum(p.startswith("recap") for p in parts), 12 - 5)
+        self.assertEqual(sum("diagram" in p or "tip" in p for p in parts), 2 * 4, "four entries past the nine slides, read")
+        self.assertLess(len(blocked), 60)
+        self.assertEqual(len(spec["outcomes"]), 4)
+        self.assertEqual(spec["sections"], [], "twelve parts are not two to four")
+        self.assertLess(proposed, 100)
 
 
 class StatementTests(unittest.TestCase):
@@ -466,6 +513,33 @@ class StatementTests(unittest.TestCase):
         shown = dict(deck.shown_texts(spec))
         self.assertIn("asks a self-check question", _gives_away(shown["r0"], LESSON["self_check"]))
         self.assertIn("word for word", _gives_away(shown["o0"], LESSON["self_check"]))
+
+    def test_what_a_diagram_shows_beyond_its_elements_is_checked_too(self):
+        shared = dict(deck.shared_texts(self.spec))
+        self.assertEqual(sorted(shared, key=int), ["2", "3", "7"], "a table, a matrix and a code snippet")
+        self.assertEqual(shared["2"], "Push; Pull; Mirror", "the column names")
+        self.assertIn("Hub connection; often drops; reliable", shared["3"])
+        self.assertIn("at once", shared["3"], "both axes, with their ends")
+        self.assertIn("max_attempts: 8", shared["7"], "the whole snippet, marked lines or not")
+        for key, text in shared.items():
+            self.assertEqual(_gives_away(text, LESSON["self_check"]), "", key)
+
+    def test_a_diagram_whose_own_words_say_an_answer_goes_whole_and_its_slide_keeps_its_tip(self):
+        check = [{"question": "Which mode keeps working when the hub link drops?", "answer": "Use the hub link when it drops again."}]
+        spec = copy.deepcopy(self.spec)
+        spec["slides"]["2"]["visual"]["columns"] = ["Use the hub link", "when it drops", "again"]
+        spec["slides"]["0"]["visual"]["steps"][0]["label"] = "Use the hub link when it drops again"
+        away = {key: why for key, text in deck.shared_texts(spec) if (why := _gives_away(text, check))}
+        self.assertEqual(list(away), ["2"], "a step is an element of its own, caught by shown_texts, not here")
+        blocked = []
+        out = deck.without_visuals(spec, away, blocked)
+        self.assertNotIn("2", out["slides"], "nothing else was on that slide")
+        self.assertEqual(blocked, [{"part": "slide 3 diagram", "text": "compare", "reason": away["2"]}])
+        self.assertEqual(sorted(out["slides"], key=int), ["0", "1", "3", "4", "5", "6", "7", "8"])
+        kept = deck.without_visuals(spec, {"0": "Because."}, [])
+        self.assertIsNone(kept["slides"]["0"]["visual"])
+        self.assertEqual(kept["slides"]["0"]["tip"], spec["slides"]["0"]["tip"], "the tip stays")
+        self.assertEqual(self.spec["slides"]["2"]["visual"]["columns"], ["Push", "Pull", "Mirror"], "the original is not touched")
 
 
 class ApplyVerdictsTests(unittest.TestCase):
@@ -552,8 +626,12 @@ class ApplyVerdictsTests(unittest.TestCase):
         out, _ = deck.apply_verdicts(spec, ok)
         self.assertEqual(out["slides"]["2"]["visual"]["right"]["points"], ["Pull mode keeps working"])
         ok["v2.l0"] = (False, "no")
-        out, _ = deck.apply_verdicts(spec, ok)
+        blocked = []
+        out, _ = deck.apply_verdicts(spec, ok, blocked)
         self.assertNotIn("2", out["slides"])
+        v = spec["slides"]["2"]["visual"]
+        self.assertEqual([(b["part"], b["text"]) for b in blocked],   # both sides are in the log
+                         [("slide 3 diagram point", v["left"]["points"][0]), ("slide 3 diagram point", v["right"]["points"][1])])
 
     def test_a_failed_tip_goes_alone(self):
         out, held, _ = self.apply(failing={"t4"})
@@ -893,6 +971,16 @@ def largest() -> list[dict]:
     ]
 
 
+def long_words() -> list[dict]:
+    """Diagrams with long words: a word is drawn whole at a smaller size, not broken inside."""
+    part = lambda label, note="": {"label": label, "note": note, "icon": None, "cue": None}
+    return [
+        {"type": "hub", "center": "Hub replication", "icon": None, "spokes": [part("Relay"), part("Agent"), part("Verifier")]},
+        {"type": "flow", "steps": [part("Authentication", "Each agent proves who it is"), part("Configuration", "Settings arrive"),
+                                   part("Verification", "The agent checks its copy"), part("Acknowledgement", "The hub records it")]},
+    ]
+
+
 def boxes(v: dict) -> list[tuple]:
     """Where a diagram can be drawn: beside the bullets only when it is narrow enough (deckRail)."""
     railed = v["type"] in ("stack", "keynum") or (v["type"] == "flow" and len(v["steps"]) <= 3) or \
@@ -912,7 +1000,8 @@ class DrawingTests(unittest.TestCase):
         spec = spec_of()[0]
         cls.fixture = [e["visual"] for e in spec["slides"].values() if e.get("visual")] + [visual(RAW["alternates"]["2"])[0]]
         cls.largest = largest()
-        cls.cases = [(v, b) for v in cls.fixture + cls.largest for b in boxes(v)]
+        cls.long_words = long_words()
+        cls.cases = [(v, b) for v in cls.fixture + cls.largest + cls.long_words for b in boxes(v)]
         cls.decks = [deck.compose(LESSON), deck.compose(LESSON, spec)]
         cls.plans = [(d, s, dur) for d in cls.decks for s in d["scenes"] for dur in (0, 61000)]
         texts = [ln["text"] for ln in LESSON["slides"][0]["narration"]]
@@ -920,8 +1009,10 @@ class DrawingTests(unittest.TestCase):
         cls.line_at = [(texts, 20000, t) for t in (-1, 0, 4000, 19999, 20000, 20749, 20751, 99999)]
         cls.wraps = [(words(400, k), width, size) for k in range(3) for width in (90, 200, 376, 1128) for size in (16, 24)]
         cls.wraps.append(("Supercalifragilisticexpialidocious-configuration-file-name and more", 120, 20))
-        # the medium text takes four lines at 24 and 22 and three at 20: the fit is 20
-        cls.fits = [("Short", 300, [24, 20], 1), (words(120), 450, [24, 22, 20, 18], 3), (words(400), 100, [24, 20], 2)]
+        # the medium text takes four lines at 24 and 22 and three at 20: the fit is 20; the last one fits in
+        # two lines at 24, but only by breaking "replication", which is whole from 20 down
+        cls.fits = [("Short", 300, [24, 20], 1), (words(120), 450, [24, 22, 20, 18], 3), (words(400), 100, [24, 20], 2),
+                    ("Hub replication", 129, [24, 22, 20, 18], 3)]
         cls.wraps += [(cls.fits[1][0], cls.fits[1][1], size) for size in cls.fits[1][2]]
         cls.out = node({
             "draw": [{"v": v, "W": b[0], "H": b[1], "tall": b[2]} for v, b in cls.cases],
@@ -939,8 +1030,8 @@ class DrawingTests(unittest.TestCase):
         self.assertEqual(sorted({v["type"] for v in self.largest}), sorted(deck.VISUALS))
 
     def each(self):
-        return [(v, b, got, f"{v['type']} {'largest' if v in self.largest else 'fixture'} {b[0]}x{b[1]}")
-                for (v, b), got in zip(self.cases, self.out["draw"])]
+        kind = lambda v: "largest" if v in self.largest else "long words" if v in self.long_words else "fixture"
+        return [(v, b, got, f"{v['type']} {kind(v)} {b[0]}x{b[1]}") for (v, b), got in zip(self.cases, self.out["draw"])]
 
     def test_every_shape_stays_inside_its_box(self):
         for v, b, got, name in self.each():
@@ -1082,7 +1173,7 @@ class DrawingTests(unittest.TestCase):
                         self.assertLessEqual(len(ln) * size * 0.56, width + 1e-6)
 
     def test_fitting_takes_the_largest_size_that_fits(self):
-        short, medium, long = self.out["fit"]
+        short, medium, long, whole = self.out["fit"]
         self.assertEqual((short["size"], short["ok"], short["lines"]), (24, True, ["Short"]))
         text, width, sizes, most = self.fits[1]
         counts = {size: len(lines) for (t, w, size), lines in zip(self.wraps, self.out["wrap"]) if (t, w) == (text, width)}
@@ -1091,6 +1182,7 @@ class DrawingTests(unittest.TestCase):
         self.assertTrue(medium["ok"])
         self.assertEqual((long["size"], long["ok"]), (20, False))
         self.assertEqual(" ".join(long["lines"]).split(), self.fits[2][0].split())
+        self.assertEqual((whole["size"], whole["ok"], whole["lines"]), (20, True, ["Hub", "replication"]))
 
     def test_the_progress_bar_parts_cover_every_scene_once(self):
         for d, groups in zip(self.decks, self.out["groups"]):

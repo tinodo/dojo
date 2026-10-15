@@ -94,6 +94,7 @@ Each module starts with a docstring that states what it does and the rules it ke
 | `checks.py` | The 3-minute spoken check: up to three due skills, questions read aloud, answers spoken or typed. |
 | `core.py` | Settings, the file `Store` (atomic writes, the hash-chained Record, deletion guards), sign-in helpers, work slots and background jobs. |
 | `costs.py` | Estimates what media and models cost from the public Azure retail list prices; never guesses a missing price. |
+| `deck.py` | Present's deck (ADR 0014), pure functions: the deck built from the checked lesson, the visual deck's spec cleaned and turned into statements for the gate, the verdicts applied with the drop rules, and the scenes the player shows. |
 | `deeper.py` | Deeper lessons (ADR 0008): finds up to two more official pages per built-in skill and schedules lessons to be written again from all of them. |
 | `deeplink.py` | The links Dojo hands out to be opened later, `/?go=<route>` (ADRs 0004 and 0013), and the one rule for a route, which `app.js` and `sw.js` repeat. |
 | `delivery.py` | The delivered-meaning check: transcribes Dojo's own narration and videos and compares them word by word with the approved text. |
@@ -118,7 +119,7 @@ Each module starts with a docstring that states what it does and the rules it ke
 | `play_duel.py` | Play's duels by invitation: ten shared questions, accuracy only, deleted after seven days (team mode, opt-in). |
 | `play_social.py` | Play's circles: a shared weekly goal in coarse bands, shared moments and passes (team mode, opt-in). |
 | `podcast.py` | The private podcast feed per exam (ADR 0002): episodes, the token check and the "did you listen?" notes. |
-| `prepare.py` | Background preparation: rewrites after drift, missing lessons, deeper-template upgrades, narration, Deeper Listen and approved filming. |
+| `prepare.py` | Background preparation: rewrites after drift, missing lessons, deeper-template upgrades, narration, Deeper Listen, Present's visual decks and approved filming. |
 | `push.py` | Opt-in Web Push nudges (ADR 0013): at most one a day, only when something is due. |
 | `readiness.py` | "Should you book the exam?": advice from the learner's own Record and practice exams, with every rule shown; never a prediction. |
 | `relearn.py` | Successive relearning (ADR 0011): when a skill is asked again, derived from the Record. |
@@ -168,7 +169,7 @@ member three. Job documents are kept 14 days; after a restart, unfinished jobs a
 | Service | Module | Runs | Main limits |
 |---|---|---|---|
 | Self-test | `selftest.py` | At startup with real AI | Models, Speech both ways, sign-in exchange. The avatar is probed only on request. |
-| Preparation | `prepare.py` | Real AI, in Azure or with `DOJO_PREPARE=1` | One lesson at a time; waits while the learner has work running. Drift rewrites first (10 a day), then missing lessons, deeper-template upgrades (20 a day), narration, Deeper Listen (20 a day, 2 attempts a lesson, a week apart), then approved filming (stops at 90% of the video budget). |
+| Preparation | `prepare.py` | Real AI, in Azure or with `DOJO_PREPARE=1` | One lesson at a time; waits while the learner has work running. Drift rewrites first (10 a day), then missing lessons, deeper-template upgrades (20 a day), narration, Deeper Listen (20 a day, 2 attempts a lesson, a week apart), visual decks for Present (only when the owner turns that on in Studio: 20 a day, 2 attempts a lesson, a week apart), then approved filming (stops at 90% of the video budget). |
 | Question pool | `exam.py` (`PoolKeeper`) | As preparation | Keeps about 24 checked questions per exam; at most 12 model batches a day (team mode: 6 per member, 24 for all members). |
 | Deeper lessons search | `deeper.py` | As preparation | One group of skills at a time, at least 10 minutes apart; a skill with nothing new is searched again after 30 days. |
 | Delivered-meaning check | `delivery.py` | Real AI, in Azure or with `DOJO_CHECK=1` | Per day: 10 Listen lessons, 10 Deeper Listen lessons, 1 Watch lesson. |
@@ -268,9 +269,9 @@ learners/<key>/            one folder per learner; <key> is a one-way hash of te
   social/play.json         Play settings and opt-ins
   media/                   audio of spoken check questions (team mode)
 content/                   shared study material, not personal
-  lessons/ deep/           lessons and Deeper Listen scripts
+  lessons/ deep/ decks/    lessons, Deeper Listen scripts and Present's visual decks
   package-sources/         extra official pages found for built-in skills (ADR 0008)
-  delivery/ drift-state.json deeper-state.json deep-state.json prices.json quality.jsonl
+  delivery/ drift-state.json deeper-state.json deep-state.json deck-state.json prices.json quality.jsonl
 sources/                   dated snapshots of official pages
 media/                     narration MP3 and presenter WebM files, named by content hash, with timing files
 podcast/                   joined podcast episodes
