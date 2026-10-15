@@ -20,9 +20,8 @@ import html
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
-from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -44,7 +43,6 @@ ROUND_TWO = 3          # unpicked search results the checker sees for a skill no
 FETCHERS = 4           # pages and searches read at the same time; model calls stay one at a time
 SEARCH_TOP = 4
 SEARCH_LIMIT = 12
-LINK_LIMIT = 8
 
 PICK_SYSTEM = """TASK: pick_sources
 You help build a course for one certification exam. For each skill from the exam's official study guide,
@@ -145,45 +143,6 @@ def _known(url: str, known: list[dict]) -> bool:
     return any(same_page(url, k["url"]) for k in known)
 
 
-class _Links(HTMLParser):
-    """Official documentation links in a candidate page, in page order."""
-    def __init__(self, base: str):
-        super().__init__(convert_charrefs=True)
-        self.base = base
-        self.link: dict | None = None
-        self.links: list[dict] = []
-
-    def handle_starttag(self, tag: str, attrs: list) -> None:
-        if tag == "a":
-            self.link = {"href": dict(attrs).get("href") or "", "parts": []}
-
-    def handle_data(self, data: str) -> None:
-        if self.link is not None:
-            self.link["parts"].append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag != "a" or self.link is None:
-            return
-        url = docs_url(urljoin(self.base, self.link["href"]))
-        title = label(" ".join(self.link["parts"]), 200)
-        if url and title:
-            self.links.append({"url": url, "title": title, "summary": f"Linked from {self.base}"})
-        self.link = None
-
-
-def page_links(page: str, base: str) -> list[dict]:
-    parser = _Links(base)
-    parser.feed(page)
-    parser.close()
-    out: list[dict] = []
-    seen: set[str] = set()
-    for link in parser.links:
-        if link["url"] not in seen and not same_page(link["url"], base):
-            seen.add(link["url"])
-            out.append(link)
-    return out
-
-
 def _query_text(text: str) -> str:
     words = text.split()
     return " ".join(words[1:]) if len(words) >= 4 else text   # the leading verb ("Describe") only adds noise
@@ -203,11 +162,6 @@ def _queries(found: dict, domain: dict, group: dict, text: str) -> list[str]:
             seen.add(key)
             out.append(q)
     return out
-
-
-def _candidate_list(hits: list[dict], expanded: list[dict]) -> list[dict]:
-    """Candidate pages after link expansion. Expanded task pages take priority over broad overview hits."""
-    return list({h["url"]: h for h in expanded + hits}.values())[:SEARCH_LIMIT]
 
 
 class PageFinder:
@@ -242,27 +196,6 @@ class PageFinder:
         unique = list({h["url"]: h for h in hits}.values())[:SEARCH_LIMIT]
         return unique, ("; ".join(problems) if problems and not unique else None)
 
-    def expand(self, hits: list[dict], query: str) -> list[dict]:
-        """One hop from official candidate pages to linked official docs that share words with this skill."""
-        wanted = set(re.findall(r"[a-z0-9]{4,}", normalize(query)))
-        out: list[dict] = []
-        for hit in hits[:4]:
-            try:
-                response = self.sources._request(hit["url"], docs_url)
-                final = docs_url(str(response.url))
-                if not final:
-                    continue
-                page = response.text
-            except (httpx.HTTPError, UserError, ValueError):
-                continue
-            for link in page_links(page, final):
-                words = set(re.findall(r"[a-z0-9]{4,}", normalize(f"{link['title']} {link['url']}")))
-                if len(words & wanted) >= 2:
-                    out.append(link)
-                    if len(out) >= LINK_LIMIT:
-                        return out
-        return out
-
     def read(self, url: str) -> dict | None:
         """A candidate page, or None. One that now leads to another documentation page comes back as that
         page, under its own address (`Sources.candidate`, ADR 0005)."""
@@ -280,10 +213,6 @@ class PageFinder:
         code = found["code"]
         with ThreadPoolExecutor(FETCHERS) as pool:
             searched = list(pool.map(lambda kt: self.search(found, domain, group, kt[1]), pending))
-        expanded = [self.expand(hits, f"{domain['title']} {group['title']} {text}") if hits else []
-                    for (_, text), (hits, _) in zip(pending, searched)]
-        searched = [(_candidate_list(hits, more), problem)
-                    for (hits, problem), more in zip(searched, expanded)]
         # A page a skill already cites is no candidate for that skill.
         searched = [([h for h in hits if not _known(h["url"], known.get(key) or [])], problem)
                     for (key, _), (hits, problem) in zip(pending, searched)]
