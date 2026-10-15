@@ -239,9 +239,9 @@ The visual deck
 - **Invalidation is exactly Deeper Listen's**: the deck goes with its lesson when a changed source page
   (ADR 0006) or the deeper template (ADR 0008) replaces the lesson. After a plain rewrite the older lesson
   keeps its deck, and the new lesson gets its own. A deck that is being drawn when this happens is withdrawn
-  (or deleted with its lesson) at once: an attempt starts only while the document is still the one it was
-  admitted on, and its late result is not saved (`Dojo._deck_finish`); what the attempt cost stays in the
-  document.
+  (or deleted with its lesson) at once: an attempt starts only if its deck was not withdrawn or deleted since
+  it was admitted (a counter for each lesson, `Dojo._deck_gen`, also when the lesson had no deck document
+  yet), and its late result is not saved (`Dojo._deck_finish`); what the attempt cost stays in the document.
 - **"Too few" in numbers**: outcomes are kept when at least 2 hold, recap lines when at least 3 hold. A deck
   is "ready" only when what is left still composes to the visual level; otherwise it is a failed attempt
   ("Nothing was left to draw once the checks were done"), tried again after a week like any other.

@@ -284,8 +284,9 @@ class CleanVisualTests(unittest.TestCase):
             self.assertEqual(v["lang"], "text", lang)
 
     def test_a_number_in_a_string_is_read_only_when_it_is_a_plain_small_one(self):
-        self.assertEqual([deck._int(x) for x in ("7", " 12 ", "-3", 4, "0")], [7, 12, -3, 4, 0])
-        for bad in ("9" * 5000, "--5", "5-", "1e3", "٣", "1 2", "", None, True, 1.5, [1]):
+        self.assertEqual([deck._int(x) for x in ("7", " 12 ", "-3", 4, "0", "\t5\n")], [7, 12, -3, 4, 0, 5])
+        for bad in ("9" * 5000, "--5", "5-", "1e3", "٣", "1 2", "", None, True, 1.5, [1],
+                    "\u001c1", "1\u001f", "\u00a01", "1\u2003", "\x0b1"):
             self.assertEqual(deck._int(bad), -1, repr(bad)[:30])
         raw = raw_visual(7)
         raw["source"] = "9" * 5000

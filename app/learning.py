@@ -734,6 +734,7 @@ class Dojo:
         self._deep_writing: set[str] = set()      # lessons whose Deeper Listen this Dojo is writing now
         self._decks: dict[str, dict | None] = {}  # Present deck documents read so far (ADR 0014), None when a lesson has none
         self._deck_writing: set[str] = set()      # lessons whose visual deck this Dojo is drawing now
+        self._deck_gen: dict[str, int] = {}       # per lesson: how many times its deck was withdrawn or deleted (an attempt that began before stops)
         self._deck_lock = threading.Lock()
     # ------------------------------------------------------------ shared helpers
 
@@ -1560,13 +1561,14 @@ Required JSON shape:
             if first_open and d and d.get("state") != "invalidated":
                 raise UserError(DECK_DRAWN)
             self._deck_writing.add(lesson_id)
-            seen = self._decks.get(lesson_id)   # the document as it is now: the attempt starts only while it still is
+            seen = self._decks.get(lesson_id)    # what earlier attempts started, for the count
+            gen = self._deck_gen.get(lesson_id, 0)   # the attempt starts only if the deck is not withdrawn or deleted before
         try:
-            return self._draw_deck(progress, lesson_id, seen)
+            return self._draw_deck(progress, lesson_id, seen, gen)
         finally:
             self._deck_writing.discard(lesson_id)
 
-    def _draw_deck(self, progress: Progress, lesson_id: str, seen: dict | None) -> dict:
+    def _draw_deck(self, progress: Progress, lesson_id: str, seen: dict | None, gen: int) -> dict:
         doc = self.lesson(lesson_id)
         pid, sid = doc["package"], doc["skill"]
         pkg = self.packages.get(pid)
@@ -1579,7 +1581,7 @@ Required JSON shape:
                    "attempts": max(0, _int(prior.get("attempts"), 0)) + 1, "models": self.models("author", "gate"),
                    "rounds": 1, "spent_rounds": spent + 1}
         with self._deck_lock:
-            if self._decks.get(lesson_id) is not seen:   # withdrawn or deleted while the pages were read: nothing starts
+            if self._deck_gen.get(lesson_id, 0) != gen:   # withdrawn or deleted while the pages were read: nothing starts
                 return self._deck_gone(lesson_id)
             self._deck_save(lesson_id, {**attempt, "state": "writing"})
         try:
@@ -1709,8 +1711,10 @@ Icons, decoration only, from this list: {icons}"""
 
     def invalidate_deck(self, lesson_id: str, reason: str) -> bool:
         """The lesson's visual deck no longer plays, for good. The document stays, with what it cost. One that
-        is being drawn is withdrawn too: its late result is not saved (`_deck_finish`)."""
+        is being drawn is withdrawn too: its late result is not saved (`_deck_finish`), and an attempt that
+        has not saved yet, for a lesson that has no deck document, stops (`_deck_gen`)."""
         with self._deck_lock:
+            self._deck_gen[lesson_id] = self._deck_gen.get(lesson_id, 0) + 1
             d = self.deck(lesson_id)
             if not d or d.get("state") == "invalidated":
                 return False
@@ -1721,6 +1725,7 @@ Icons, decoration only, from this list: {icons}"""
     def drop_deck(self, lesson_id: str) -> None:
         """Deletes a lesson's deck document: for a lesson that is deleted itself."""
         with self._deck_lock:
+            self._deck_gen[lesson_id] = self._deck_gen.get(lesson_id, 0) + 1
             self.store.delete("content", "decks", lesson_id)
             self._decks.pop(lesson_id, None)
 

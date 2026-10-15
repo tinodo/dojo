@@ -83,8 +83,10 @@ def _int(value: Any, default: int = -1) -> int:
         return default
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and re.fullmatch(r"\s*-?[0-9]{1,9}\s*", value):
-        return int(value)
+    if isinstance(value, str):
+        plain = value.strip(" \t\r\n")   # ASCII spaces only: int() refuses some of what a regex \s accepts
+        if re.fullmatch(r"-?[0-9]{1,9}", plain):
+            return int(plain)
     return default
 
 

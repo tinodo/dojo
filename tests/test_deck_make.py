@@ -292,6 +292,19 @@ class DrawTests(DeckCase):
             self.assertIsNone(self.dojo.deck(lesson))
         self.assertEqual(len(hand.prompts), 2, "the author was asked twice, never after a withdrawal or a deletion")
 
+    def test_a_first_attempt_whose_deck_is_withdrawn_or_deleted_meanwhile_starts_nothing(self):
+        lesson = lesson_for(self.app, self.sid)   # no deck document at all
+        real = self.dojo.grounding
+        for how in (self.dojo.drop_deck, lambda lesson_id: self.dojo.invalidate_deck(lesson_id, "Withdrawn by a test.")):
+            def gone(pid, sid, how=how):
+                how(lesson)
+                return real(pid, sid)
+            with Hand(self.dojo) as hand, mock.patch.object(self.dojo, "grounding", gone):
+                self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "missing")
+            self.assertIsNone(self.dojo.deck(lesson), "nothing was brought back")
+            self.assertEqual(hand.prompts, [], "the author was never asked")
+        self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "ready", "a later attempt is not held back")
+
     def test_one_valid_outcome_is_not_a_visual_deck(self):
         lesson = lesson_for(self.app, self.sid)
 
