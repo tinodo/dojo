@@ -1551,8 +1551,12 @@ Required JSON shape:
                 raw, doc, quote_ok=lambda q, n: self.quote_ok(g, q, n),
                 code_ok=lambda lines, n: any(x["n"] == n and decks.code_found(lines, x["excerpt"]) for x in g),
                 normalize=normalize)
-            away = {eid: why for eid, text in decks.shown_texts(spec)
-                    if (why := _gives_away(text, doc.get("self_check") or [], leaves=DECK_LEAVES))}
+            self_check = doc.get("self_check") or []
+            # A diagram whose own words (column names, axes, a code snippet) give an answer away goes whole;
+            # a line that does so is left out alone, and none of it reaches the gate.
+            shared = {key: why for key, text in decks.shared_texts(spec) if (why := _gives_away(text, self_check, leaves=DECK_LEAVES))}
+            spec = decks.without_visuals(spec, shared, blocked)
+            away = {eid: why for eid, text in decks.shown_texts(spec) if (why := _gives_away(text, self_check, leaves=DECK_LEAVES))}
             progress("Independent check of every element (gate model)")
             verdicts = self.gate_elements(
                 g, f'Slide deck for the skill: "{s["text"]}". Each element is what one slide shows, worded as statements.',
@@ -1567,22 +1571,35 @@ Required JSON shape:
             if not ready:
                 out["reason"] = (f"{share:.0%} of it held, and the visual deck needs {KEPT_SHARE:.0%}. {DECK_KEEPS}" if proposed
                                  else f"The author model proposed nothing that could be drawn. {DECK_KEEPS}")
+            if not self._deck_finish(lesson_id, attempt, out):
+                return {"lesson": lesson_id, "state": (self.deck(lesson_id) or {}).get("state", "missing"), "kept_share": 0.0, "visuals": 0}
             for b in blocked:
                 self.quality(None, "visual deck", {"package": pid, "skill": sid, "lesson": lesson_id, "quote": "", **b})
             if not ready:
                 self.quality(None, "visual deck", {"package": pid, "skill": sid, "lesson": lesson_id, "part": "whole",
                                             "text": "", "quote": "", "reason": out["reason"]})
-            self._deck_save(lesson_id, out)
         except Exception as e:
             error = str(getattr(e, "detail", None) or e).strip().rstrip(".") or type(e).__name__
-            self._deck_save(lesson_id, {**attempt, "state": "failed", "stopped": True,
-                                        "reason": f"It stopped on an error: {error}. {DECK_KEEPS}"})
+            self._deck_finish(lesson_id, attempt, {**attempt, "state": "failed", "stopped": True,
+                                                   "reason": f"It stopped on an error: {error}. {DECK_KEEPS}"})
             raise
         return {"lesson": lesson_id, "state": out["state"], "kept_share": out["kept_share"], "visuals": out["visuals"]}
 
     def _deck_save(self, lesson_id: str, doc: dict) -> None:
         self.store.write("content", "decks", lesson_id, value=doc)
         self._decks[lesson_id] = doc
+
+    def _deck_finish(self, lesson_id: str, attempt: dict, doc: dict) -> bool:
+        """Saves the end of an attempt, unless its deck was withdrawn (`invalidate_deck`) or deleted
+        (`drop_deck`) while the model was at work: a late result never brings either back. The document that
+        stays keeps what the attempt cost."""
+        with self._deck_lock:
+            d = self.deck(lesson_id)
+            if not (d and d.get("state") == "writing" and d.get("created") == attempt["created"]
+                    and d.get("attempts") == attempt["attempts"]):
+                return False
+            self._deck_save(lesson_id, doc)
+            return True
 
     def _deck_prompt(self, pkg: dict, s: dict, g: list[dict], lesson: dict) -> str:
         n = len(lesson.get("slides") or [])
@@ -1648,18 +1665,21 @@ Icons, decoration only, from this list: {icons}"""
                 and self.deck_wait(lesson) is None)
 
     def invalidate_deck(self, lesson_id: str, reason: str) -> bool:
-        """The lesson's visual deck no longer plays, for good. The document stays, with what it cost."""
-        d = self.deck(lesson_id)
-        if not d or d.get("state") == "invalidated":
-            return False
-        d = {**d, "state": "invalidated", "reason": reason, "invalidated": iso()}
-        self._deck_save(lesson_id, d)
-        return True
+        """The lesson's visual deck no longer plays, for good. The document stays, with what it cost. One that
+        is being drawn is withdrawn too: its late result is not saved (`_deck_finish`)."""
+        with self._deck_lock:
+            d = self.deck(lesson_id)
+            if not d or d.get("state") == "invalidated":
+                return False
+            d = {**d, "state": "invalidated", "reason": reason, "invalidated": iso()}
+            self._deck_save(lesson_id, d)
+            return True
 
     def drop_deck(self, lesson_id: str) -> None:
         """Deletes a lesson's deck document: for a lesson that is deleted itself."""
-        self.store.delete("content", "decks", lesson_id)
-        self._decks.pop(lesson_id, None)
+        with self._deck_lock:
+            self.store.delete("content", "decks", lesson_id)
+            self._decks.pop(lesson_id, None)
 
     # ------------------------------------------------------------ items: probe, practice, check
 

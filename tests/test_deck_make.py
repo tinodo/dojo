@@ -214,6 +214,60 @@ class DrawTests(DeckCase):
         self.assertEqual((recap["own"], recap["items"]), (False, titles), "two lines are no recap: the slide titles are")
         self.assertEqual(self.scene(lesson, "check")["items"][0]["answer"], ANSWER, "the self-check keeps its own scene")
 
+    def test_a_diagram_whose_own_words_give_an_answer_away_never_reaches_the_gate(self):
+        with Models(self.dojo) as m:
+            m.self_check = [{"question": "Which mode keeps working when the hub link drops?",
+                             "answer": "Use the hub link when it drops again."}]
+            lesson = lesson_for(self.app, self.sid)
+
+        def edit(d):
+            d["slides"][1]["visual"] = {"type": "compare", "columns": ["Use the hub link", "when it drops", "again"],
+                                        "rows": [{"label": "One", "cells": ["a", "b", "c"]}, {"label": "Two", "cells": ["d", "e", "f"]}]}
+        with Hand(self.dojo) as hand:
+            hand.edit = edit
+            res = self.dojo.make_deck(noop, lesson)
+        d = self.dojo.deck(lesson)
+        self.assertEqual(d["blocked"], [{"part": "slide 2 diagram", "text": "compare", "reason": GIVES_AWAY}])
+        self.assertFalse([eid for eid in hand.asked if eid.startswith("v1")], "none of it reached the gate")
+        self.assertEqual((res["state"], d["proposed"], d["held"], d["visuals"]), ("ready", 11, 10, 1))
+        self.assertEqual([sc["visual"]["type"] for sc in self.view(lesson)["scenes"] if sc["kind"] == "slide" and sc["visual"]], ["flow"])
+
+    def test_a_deck_withdrawn_while_it_is_drawn_stays_withdrawn_and_keeps_what_it_cost(self):
+        lesson = lesson_for(self.app, self.sid)
+        with Hand(self.dojo) as hand:
+            hand.edit = lambda d: self.assertTrue(self.dojo.invalidate_deck(lesson, "Withdrawn by a test."))
+            res = self.dojo.make_deck(noop, lesson)
+        self.assertEqual(res["state"], "invalidated")
+        d = self.dojo.deck(lesson)
+        self.assertEqual((d["state"], d["reason"], d["attempts"], d["spent_rounds"]), ("invalidated", "Withdrawn by a test.", 1, 1))
+        self.assertNotIn("spec", d, "what the late answer made is not kept")
+        self.assertEqual((self.view(lesson)["level"], self.view(lesson)["state"]), ("derived", "invalidated"))
+        self.assertEqual(quality(self.dojo, "visual deck"), [])
+        self.assertEqual(self.app.state.costs.deck_view()["so_far"]["rounds"], 1, "the attempt stays spent")
+        self.assertEqual(self.dojo.make_deck(noop, lesson, True)["state"], "ready", "a withdrawn deck may be drawn again")
+
+    def test_an_error_after_the_deck_was_withdrawn_does_not_bring_it_back(self):
+        lesson = lesson_for(self.app, self.sid)
+
+        def edit(d):
+            self.dojo.invalidate_deck(lesson, "Withdrawn by a test.")
+            raise AIError("The author model did not answer.")
+        with Hand(self.dojo) as hand:
+            hand.edit = edit
+            with self.assertRaises(AIError):
+                self.dojo.make_deck(noop, lesson)
+        self.assertEqual(self.dojo.deck(lesson)["state"], "invalidated")
+
+    def test_a_deck_deleted_while_it_is_drawn_is_not_brought_back(self):
+        lesson = lesson_for(self.app, self.sid)
+        with Hand(self.dojo) as hand:
+            hand.edit = lambda d: self.dojo.drop_deck(lesson)
+            res = self.dojo.make_deck(noop, lesson)
+        self.assertEqual(res["state"], "missing")
+        self.assertIsNone(self.dojo.deck(lesson))
+        self.assertEqual(self.dojo.store.names("content", "decks"), [])
+        self.assertEqual(quality(self.dojo, "visual deck"), [])
+
     def test_an_error_or_a_restart_leaves_a_failed_attempt_that_stays_spent(self):
         lesson = lesson_for(self.app, self.sid)
         with Hand(self.dojo) as hand:
@@ -501,6 +555,28 @@ class RouteTests(Team2Case):
         reserve.assert_not_called()
         self.assertEqual(len(self.stub.calls), calls)
         self.assertEqual(self.left(), 3)
+
+    def test_two_opens_at_once_start_one_job_and_the_second_keeps_nothing_reserved(self):
+        chat, go = self.stub.chat, threading.Event()
+
+        def slow(role, system, user, json_mode=True):
+            if "TASK: deck" in system:
+                go.wait(10)
+            return chat(role, system, user, json_mode)
+        with mock.patch.object(self.stub, "chat", side_effect=slow):
+            job = self.ok("POST", self.path(self.lesson), self.a)
+            # The second open passed the route's own checks before the first job was filed.
+            with mock.patch.object(self.dojo.jobs, "existing", return_value=None), \
+                    mock.patch.object(self.dojo.jobs, "running", return_value=False), \
+                    mock.patch.object(self.dojo, "deck_drawing", return_value=False), \
+                    mock.patch.object(self.dojo, "deck_due", return_value=True):
+                self.assertEqual(self.ok("POST", self.path(self.lesson), self.a), {"started": False, "state": "writing"})
+            go.set()
+            done = self.wait_job(job, self.a)
+        self.assertEqual((done["state"], done["result"]["state"]), ("done", "ready"))
+        self.wait_all(self.ka)
+        self.assertEqual(len([c for c in self.stub.calls if c[1] == "deck"]), 1, "one author call")
+        self.assertEqual(self.left(), 2, "one deck drawn and counted; the second open counted for nothing")
 
     def test_at_the_allowance_a_member_is_refused_and_nothing_starts(self):
         self.ok("PUT", "/api/team/budget", OWNER, {"allowances": {"deck": 1}})

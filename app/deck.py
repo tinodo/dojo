@@ -36,6 +36,7 @@ CODE_LANGS = frozenset({"yaml", "json", "text", "shell", "powershell", "sql", "p
 LABEL, NOTE, HEAD, CELL, WHEN, UNIT, VALUE = 40, 90, 28, 64, 16, 18, 8
 TITLE, OUTCOME, RECAP, TIP, POINT, KEYLABEL, QUOTE = 60, 110, 120, 170, 100, 110, 240
 CODE_LINE, CODE_LINES, MARKS = 80, 14, 4
+LIST_MAX = 12          # a list in the author's answer is read to this many entries; the rest is ignored
 PART_WORDS = {"ideas": "The ideas", "practice": "In practice", "traps": "Watch out", "wrap": "Wrap-up"}
 AGENDA_SLIDES = 6     # a derived agenda lists at most this many slide titles
 RECAP_MAX = 5
@@ -230,8 +231,15 @@ def clean_visual(raw: Any, quote_ok: QuoteOk, code_ok: CodeOk, normalize: Normal
         at, note = (_int(m.get("line")), _text(m.get("note"), NOTE)) if isinstance(m, dict) else (-1, None)
         if 0 <= at < len(lines) and lines[at].strip() and note and all(x["line"] != at for x in marks):
             marks.append({"line": at, "note": note, "cue": _cue(m.get("cue"))})
-    lang = raw.get("lang") if raw.get("lang") in CODE_LANGS else "text"
+    lang = raw.get("lang")
+    lang = lang if isinstance(lang, str) and lang in CODE_LANGS else "text"
     return {"type": kind, "lang": lang, "lines": lines, "source": n, "marks": marks}, ""
+
+
+def _list(raw: dict, key: str, cap: int) -> list:
+    """The first `cap` entries of a list in the author's answer, or [] when it is not a list."""
+    value = raw.get(key)
+    return value[:cap] if isinstance(value, list) else []
 
 
 def clean_spec(raw: Any, lesson: dict, quote_ok: QuoteOk, code_ok: CodeOk, normalize: Normalize) -> tuple[dict, list[dict], int]:
@@ -247,7 +255,7 @@ def clean_spec(raw: Any, lesson: dict, quote_ok: QuoteOk, code_ok: CodeOk, norma
         blocked.append({"part": part, "text": str(text)[:300], "reason": reason})
 
     outcomes = []
-    for k, o in enumerate(raw.get("outcomes") or [] if isinstance(raw.get("outcomes"), list) else []):
+    for k, o in enumerate(_list(raw, "outcomes", LIST_MAX)):
         proposed += 1
         t = _text(o, OUTCOME)
         if t and len(outcomes) < 4:
@@ -256,7 +264,7 @@ def clean_spec(raw: Any, lesson: dict, quote_ok: QuoteOk, code_ok: CodeOk, norma
             drop(f"outcome {k + 1}", o, "too long, empty or one too many")
 
     sections = []
-    raw_sections = raw.get("sections") if isinstance(raw.get("sections"), list) else []
+    raw_sections = _list(raw, "sections", LIST_MAX)
     if raw_sections:
         proposed += len(raw_sections)
         order: list[int] = []
@@ -275,7 +283,7 @@ def clean_spec(raw: Any, lesson: dict, quote_ok: QuoteOk, code_ok: CodeOk, norma
 
     slides: dict[int, dict] = {}
     seen: set[int] = set()
-    for entry in raw.get("slides") or [] if isinstance(raw.get("slides"), list) else []:
+    for entry in _list(raw, "slides", n_slides + 4):
         if not isinstance(entry, dict):
             continue
         i = _int(entry.get("slide"))
@@ -308,7 +316,7 @@ def clean_spec(raw: Any, lesson: dict, quote_ok: QuoteOk, code_ok: CodeOk, norma
             slides[i] = out
 
     recap = []
-    for k, r in enumerate(raw.get("recap") or [] if isinstance(raw.get("recap"), list) else []):
+    for k, r in enumerate(_list(raw, "recap", LIST_MAX)):
         proposed += 1
         t = _text(r, RECAP)
         if t and len(recap) < RECAP_MAX:
@@ -408,6 +416,36 @@ def _visual_words(v: dict) -> list[tuple[str, str]]:
     if kind == "keynum":
         return [("", _words_of(f"{v['value']} {v['unit']}".strip(), v["label"], v["quote"]))]
     return [(f".{m['line']}", _words_of(v["lines"][m["line"]].strip(), m["note"])) for m in v["marks"]]
+
+
+def shared_texts(spec: dict) -> list[tuple[str, str]]:
+    """The words a diagram shows that belong to none of its elements, by the slide's key: a table's column
+    names, a matrix's axes and the whole of a code snippet, its marked lines or not. They must not give away
+    a self-check answer either."""
+    out: list[tuple[str, str]] = []
+    for key, entry in spec["slides"].items():
+        v = entry.get("visual")
+        if not v:
+            continue
+        if v["type"] == "compare":
+            out.append((key, _words_of(*v["columns"])))
+        elif v["type"] == "matrix":
+            out.append((key, _words_of(*(v[a][k] for a in ("x", "y") for k in ("label", "low", "high")))))
+        elif v["type"] == "code":
+            out.append((key, "\n".join(x.strip() for x in v["lines"] if x.strip())))
+    return out
+
+
+def without_visuals(spec: dict, keys: dict[str, str], blocked: list[dict]) -> dict:
+    """The spec without the diagrams of the slides in `keys` (slide key -> why): such a diagram goes whole."""
+    slides = {}
+    for key, entry in spec["slides"].items():
+        if key in keys and entry.get("visual"):
+            blocked.append({"part": f"slide {int(key) + 1} diagram", "text": entry["visual"]["type"], "reason": keys[key]})
+            entry = {**entry, "visual": None}
+        if entry.get("visual") or entry.get("tip"):
+            slides[key] = entry
+    return {**spec, "slides": slides}
 
 
 def apply_verdicts(spec: dict, verdicts: dict[str, tuple[bool, str]], blocked: list[dict] | None = None) -> tuple[dict, int]:

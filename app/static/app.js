@@ -2428,8 +2428,8 @@ const DECK_TYPE = { flow: "steps", cycle: "a loop", stack: "layers", timeline: "
 const DECK_FONT_LOAD = ["400 16px Inter", "600 16px Inter", "700 16px Inter", "600 16px Fraunces", "italic 400 16px Fraunces", "400 16px \"JetBrains Mono\""];
 // What Present says about the deck it plays (ADR 0014): the visual deck, or why it is the derived one.
 const DECK_WAIT = {
-  missing: "This deck is built from the checked lesson alone. Its diagrams are drawn when a lesson is first opened here, or ahead of time if the owner turns that on in Studio.",
-  writing: "This deck is built from the checked lesson alone. Its diagrams are being drawn and checked now, and they come in when they are ready.",
+  missing: "This deck is built from the checked lesson alone. Its diagrams are drawn when a lesson is first opened here (up to about 30 cents of model use, once for the lesson), or ahead of time if the owner turns that on in Studio.",
+  writing: "This deck is built from the checked lesson alone. Its diagrams are being drawn and checked now (up to about 30 cents, once for this lesson), and they come in when they are ready.",
   failed: "This deck is built from the checked lesson alone: its diagrams did not pass the checks.",
   stopped: "This deck is built from the checked lesson alone: drawing its diagrams stopped before it was finished.",
   invalidated: "This deck is built from the checked lesson alone: its diagrams were withdrawn, because a newer lesson replaced this one.",
@@ -3273,6 +3273,7 @@ function lessonPresent(L) {
 async function deckUpgrade(L, P, note) {
   const nav = state.nav, here = () => state.nav === nav;
   if (L.deck.level === "visual" || !["missing", "writing"].includes(L.deck.state)) return;
+  const until = Date.now() + 6 * 60000;
   let elsewhere = false, why = "";
   if (L.deck.state === "missing") {
     let res;
@@ -3285,7 +3286,12 @@ async function deckUpgrade(L, P, note) {
     if (!here()) return;
     if (res && res.id) {
       note.textContent = DECK_WAIT.writing;
-      try { await runJob(Promise.resolve(res)); } catch (e) { why = e.message || ""; }
+      // Leaving Present, or six minutes, ends the waiting here; the drawing goes on in Dojo.
+      const stop = () => {
+        if (!here()) throw new Error("left");
+        if (Date.now() > until) throw new Error("It is taking longer than six minutes. It goes on in the background.");
+      };
+      try { await runJob(Promise.resolve(res), stop); } catch (e) { why = e.message || ""; }
     } else if (res && res.state === "writing") {
       note.textContent = DECK_WAIT.writing;
       elsewhere = true;  // queued for someone else: it may not have started yet
@@ -3294,7 +3300,6 @@ async function deckUpgrade(L, P, note) {
       return;
     }
   }
-  const until = Date.now() + 6 * 60000;
   for (;;) {
     if (!here()) return;
     let fresh;
@@ -6225,7 +6230,8 @@ function deckCosts(first) {
     const price = all.per_lesson === null || all.per_lesson === undefined ? "" : ` (about ${usd(all.per_lesson)} a lesson)`;
     const toggle = async () => {
       if (!d.ahead && !window.confirm(`Draw the visual decks ahead of time?\n\nUp to ${d.per_day} a day, the active exam first, until ${plural(all.lessons, "lesson")} have one: `
-        + `${all.complete ? "about" : "at least"} ${usd(all.total)} at list price in all${price}. You can stop it here at any time.\n\n`
+        + `${all.complete ? "about" : "at least"} ${usd(all.total)} at list price in all${price}. Lessons written later get one too, at about the same price each, until you stop it. `
+        + "You can stop it here at any time.\n\n"
         + "A lesson you open in Present gets its deck drawn right away, whether this is on or not.")) return;
       try {
         const r = await api("/api/studio/decks/ahead", { method: "POST", body: { on: !d.ahead } });

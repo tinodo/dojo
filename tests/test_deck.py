@@ -275,6 +275,14 @@ class CleanVisualTests(unittest.TestCase):
         tabbed["lines"] = ["quiet_window:", '\tstart: "22:00"']
         self.assertEqual(visual(tabbed)[0]["lines"][1], '  start: "22:00"')
 
+    def test_a_language_that_is_not_a_name_reads_as_plain_text(self):
+        for lang in ({}, [], ["sql"], 5, None, True):
+            raw = raw_visual(7)
+            raw["lang"] = lang
+            v, why = visual(raw)
+            self.assertIsNotNone(v, why)
+            self.assertEqual(v["lang"], "text", lang)
+
 
 class CodeFoundTests(unittest.TestCase):
     PAGE = "Intro text\nalpha: 1\n# a comment\nbeta:\n  gamma: 2\nOutro"
@@ -405,6 +413,23 @@ class CleanSpecTests(unittest.TestCase):
         self.assertEqual(spec["recap"], [f"Line {k}" for k in range(5)])
         self.assertEqual([b["part"] for b in blocked], ["recap 6", "recap 7"])
 
+    def test_a_list_in_the_answer_is_read_to_its_first_twelve_entries(self):
+        self.assertEqual(deck.LIST_MAX, 12)
+        raw = copy.deepcopy(RAW)
+        raw["outcomes"] = [f"Outcome {k}" for k in range(5000)]
+        raw["recap"] = [f"Line {k}" for k in range(5000)]
+        raw["sections"] = raw["sections"] + [{"title": "More", "slides": []}] * 5000
+        raw["slides"] = raw["slides"] + [{"slide": 99, "visual": {"type": "pie"}, "tip": {"text": "x"}}] * 5000
+        spec, blocked, proposed = spec_of(raw)
+        parts = [b["part"] for b in blocked]
+        self.assertEqual(sum(p.startswith("outcome") for p in parts), 12 - 4)
+        self.assertEqual(sum(p.startswith("recap") for p in parts), 12 - 5)
+        self.assertEqual(sum("diagram" in p or "tip" in p for p in parts), 2 * 4, "four entries past the nine slides, read")
+        self.assertLess(len(blocked), 60)
+        self.assertEqual(len(spec["outcomes"]), 4)
+        self.assertEqual(spec["sections"], [], "twelve parts are not two to four")
+        self.assertLess(proposed, 100)
+
 
 class StatementTests(unittest.TestCase):
     def setUp(self):
@@ -478,6 +503,33 @@ class StatementTests(unittest.TestCase):
         shown = dict(deck.shown_texts(spec))
         self.assertIn("asks a self-check question", _gives_away(shown["r0"], LESSON["self_check"]))
         self.assertIn("word for word", _gives_away(shown["o0"], LESSON["self_check"]))
+
+    def test_what_a_diagram_shows_beyond_its_elements_is_checked_too(self):
+        shared = dict(deck.shared_texts(self.spec))
+        self.assertEqual(sorted(shared, key=int), ["2", "3", "7"], "a table, a matrix and a code snippet")
+        self.assertEqual(shared["2"], "Push; Pull; Mirror", "the column names")
+        self.assertIn("Hub connection; often drops; reliable", shared["3"])
+        self.assertIn("at once", shared["3"], "both axes, with their ends")
+        self.assertIn("max_attempts: 8", shared["7"], "the whole snippet, marked lines or not")
+        for key, text in shared.items():
+            self.assertEqual(_gives_away(text, LESSON["self_check"]), "", key)
+
+    def test_a_diagram_whose_own_words_say_an_answer_goes_whole_and_its_slide_keeps_its_tip(self):
+        check = [{"question": "Which mode keeps working when the hub link drops?", "answer": "Use the hub link when it drops again."}]
+        spec = copy.deepcopy(self.spec)
+        spec["slides"]["2"]["visual"]["columns"] = ["Use the hub link", "when it drops", "again"]
+        spec["slides"]["0"]["visual"]["steps"][0]["label"] = "Use the hub link when it drops again"
+        away = {key: why for key, text in deck.shared_texts(spec) if (why := _gives_away(text, check))}
+        self.assertEqual(list(away), ["2"], "a step is an element of its own, caught by shown_texts, not here")
+        blocked = []
+        out = deck.without_visuals(spec, away, blocked)
+        self.assertNotIn("2", out["slides"], "nothing else was on that slide")
+        self.assertEqual(blocked, [{"part": "slide 3 diagram", "text": "compare", "reason": away["2"]}])
+        self.assertEqual(sorted(out["slides"], key=int), ["0", "1", "3", "4", "5", "6", "7", "8"])
+        kept = deck.without_visuals(spec, {"0": "Because."}, [])
+        self.assertIsNone(kept["slides"]["0"]["visual"])
+        self.assertEqual(kept["slides"]["0"]["tip"], spec["slides"]["0"]["tip"], "the tip stays")
+        self.assertEqual(self.spec["slides"]["2"]["visual"]["columns"], ["Push", "Pull", "Mirror"], "the original is not touched")
 
 
 class ApplyVerdictsTests(unittest.TestCase):

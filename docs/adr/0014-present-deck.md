@@ -158,7 +158,9 @@ playback starts, never on open, and the server keeps one per 30 minutes.
   is the owner's (`content/deck-state.json`, `ahead`; `POST /api/studio/decks/ahead`).
 - **On first open**, on or off: when the deck is missing, Present starts the same job (`POST
   /api/lessons/{id}/deck`) and keeps playing the derived deck meanwhile. It costs what one deck costs, once,
-  for a lesson the learner chose to open. In team mode the route reserves the worst case first
+  for a lesson the learner chose to open; Present's note says so ("up to about 30 cents"). Two opens at once
+  start one job (`Jobs.start` with `busy_message`, one step with the check). In team mode the route reserves
+  the worst case first
   (`budget.action(learner, "deck", package)`), with a daily allowance for members; the owner and the
   background are not held.
 - A new lesson for the skill (rewrite, Deeper lessons, drift) invalidates the deck with the lesson, like
@@ -234,8 +236,16 @@ The visual deck
   lesson, upgrade, narration or Deeper Listen to write.
 - **Invalidation is exactly Deeper Listen's**: the deck goes with its lesson when a changed source page
   (ADR 0006) or the deeper template (ADR 0008) replaces the lesson. After a plain rewrite the older lesson
-  keeps its deck, and the new lesson gets its own.
+  keeps its deck, and the new lesson gets its own. A deck that is being drawn when this happens is withdrawn
+  (or deleted with its lesson) at once, and its late result is not saved (`Dojo._deck_finish`); what the
+  attempt cost stays in the document.
 - **"Too few" in numbers**: outcomes are kept when at least 2 hold, recap lines when at least 3 hold.
+- **A badly shaped answer is left out, not an error**: a list in the author's answer is read to its first 12
+  entries, and an entry of the wrong type is dropped with its reason (a code snippet whose `lang` is not a
+  string once stopped a paid attempt; it now reads as plain text).
+- **What a diagram shows that belongs to no one element** (a table's column names, a matrix's axes, the whole
+  of a code snippet) is checked for a self-check answer too, and such a diagram goes whole
+  (`deck.shared_texts`, `deck.without_visuals`).
 - **Tips without a label.** In the real runs 8 of 14 tips began with "Tip:" or "Trap:" under the slide's
   own label. Such a label is now removed, and the prompt asks for none.
 - The quality log names the format "visual deck", as in "visual deck · slide 7 diagram point".
