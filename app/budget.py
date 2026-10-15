@@ -109,6 +109,12 @@ LESSON_GATE_CHUNKS = 5
 # statements and a tip, and 5 recap lines. Its author prompt holds the whole lesson, slides and narration
 # included, besides the excerpts, hence its larger PRE_INPUT.
 DECK_GATE_CHUNKS = 3
+# gate_elements asks once more about elements the checker gave no verdict on: at most GATE_RETRY_ELEMENTS of
+# them, GATE_RETRY_SIZE at a time. Like a second try it is not part of a route's reservation: it runs only if
+# what is left of the hold covers its own worst case (Budget.claim), and otherwise it is left out.
+GATE_RETRY_SIZE = 20
+GATE_RETRY_ELEMENTS = 80
+GATE_RETRY = (("gate", "gate_elements", GATE_RETRY_ELEMENTS // GATE_RETRY_SIZE * TRIES),)
 # One round of make_item, and of make_lesson: the second round claims the same again from what is left.
 ITEM_ROUND = (("author", "item", TRIES), ("gate", "gate_item", TRIES))
 LESSON_ROUND = (("author", "lesson", TRIES), ("gate", "gate_elements", LESSON_GATE_CHUNKS * TRIES))

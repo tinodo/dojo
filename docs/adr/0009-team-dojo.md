@@ -883,14 +883,17 @@ DP-800 learners run arbitrary SQL. SQL Server, not app code, keeps them apart. T
        for an item, 0.90 for a one-question check (2.50 for three), 0.80 per single-choice batch, 0.96 per
        case batch and 3.36 for a first lesson.
      - **Second tries are paid only from what is left, never on credit.** `make_item` writing again,
-       `make_lesson` rewriting what did not hold, a practice exam's second round, and every writer batch
-       claim their own worst case from what is left of the action's hold (`Budget.claim`), under the lock.
+       `make_lesson` rewriting what did not hold, `gate_elements` asking once more about elements the
+       checker gave no verdict on (at most 80, 20 at a time: `GATE_RETRY`), a practice exam's second round,
+       and every writer batch claim their own worst case from what is left of the action's hold
+       (`Budget.claim`), under the lock.
        A first round of a check or lesson question is kept for it (`owed`), so a second try of one
        question never takes the money of a question still to be written. If a claim does not fit, that
        try or batch is **left out**, as when it fails, and says so ("Not tried a second time: today's
        budget for this action could not cover another try"; a practice exam left shorter says "Left out:
-       today's budget for this action could not cover another batch of questions"). The action itself is
-       never stopped half-way for lack of money with ordinary inputs.
+       today's budget for this action could not cover another batch of questions"); an element the
+       checker still gave no verdict on then counts as not holding, which the Studio log says. The action
+       itself is never stopped half-way for lack of money with ordinary inputs.
      - **The one top-up that remains**, and what it does. Only a call past both bounds - a prompt longer
        than the pre-input bound (a page in a script of several bytes per character) or a transport retry
        the service charged - needs more than its share. Its hold is then topped up against the cap under
