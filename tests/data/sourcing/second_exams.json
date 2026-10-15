@@ -1,0 +1,684 @@
+{
+  "_meta": {
+    "purpose": "Small locked second-exam sourcing sets for Source discovery v2.",
+    "protocol": "Every positive and negative was read by hand, canonicalized live, and graded again with the DeepSeek third opinion using VERIFY_V2.",
+    "locked": "2026-10-15",
+    "kinds": [
+      "wrong-operation",
+      "overview-of-wrong-scope",
+      "other-task",
+      "unrelated"
+    ]
+  },
+  "exams": [
+    {
+      "exam": {
+        "code": "GH-300",
+        "title": "GitHub Copilot"
+      },
+      "skills": [
+        {
+          "domain": "Use GitHub Copilot features",
+          "group": "Use GitHub Copilot in the IDE",
+          "text": "Enable Copilot in the IDE",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/set-up-copilot/install-copilot-extension",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Shows the setup steps for enabling Copilot in supported IDEs.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Installs Copilot CLI, not Copilot in an IDE.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+              "kind": "overview-of-wrong-scope",
+              "source": "adjudicated",
+              "why": "Organization policy page is for administrators, not enabling Copilot in an IDE.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Session-data concepts do not teach how to enable Copilot in an IDE.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Use GitHub Copilot features",
+          "group": "Use GitHub Copilot in the IDE",
+          "text": "Configure content exclusions for specific files or repositories (app knowledge)",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/content-exclusion",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Explains who can configure content exclusion and what content exclusion does.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/copilot-for-common-tasks/find-matching-code",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Matching-public-code filtering is a different safeguard from content exclusion.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+              "kind": "overview-of-wrong-scope",
+              "source": "adjudicated",
+              "why": "Organization-wide policy page is broader than configuring exclusions for files or repositories.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Session data handling does not teach content exclusion configuration.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Use GitHub Copilot features",
+          "group": "Use GitHub Copilot CLI",
+          "text": "Identify the steps for installing GitHub Copilot CLI",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Installation guide with prerequisites and platform-specific install commands.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-cli",
+              "kind": "overview-of-wrong-scope",
+              "source": "adjudicated",
+              "why": "Concept page explains what Copilot CLI is, not the installation steps.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Command reference is for using an installed CLI, not installing it.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/overview",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Usage overview is post-install guidance, not setup instructions.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Use GitHub Copilot features",
+          "group": "Use GitHub Copilot CLI",
+          "text": "Describe key GitHub Copilot CLI features and commands",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Lists Copilot CLI commands and their purposes.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Installation steps do not describe the command set itself.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Programmatic execution focuses on automation patterns, not the main interactive commands and features.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "Organization policy management is unrelated to CLI commands.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Use GitHub Copilot features",
+          "group": "Use GitHub Copilot features and capabilities",
+          "text": "Use Copilot for code review and coding assistance",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-code-review",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Shows how to ask Copilot for a code review and interpret the review flow.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/prompting/prompt-engineering",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Prompt engineering concepts are not the code-review workflow.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "CLI installation is a different surface and task from using Copilot for code review.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+              "kind": "overview-of-wrong-scope",
+              "source": "adjudicated",
+              "why": "Admin policy page is broader governance, not end-user code review usage.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Use GitHub Copilot features",
+          "group": "Manage organization-wide settings and policies",
+          "text": "Configure organization-wide policy management; enable Copilot Code Review policies and manage feature availability across IDEs and github.com",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Explains how organization owners manage Copilot feature availability and policies.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/set-up-copilot/install-copilot-extension",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Extension setup is an end-user install flow, not organization policy management.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "CLI command reference is unrelated to organization-wide Copilot policies.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Session-data concepts do not teach policy configuration for an organization.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Understand GitHub Copilot data and architecture",
+          "group": "Describe data handling and flow",
+          "text": "Explain data usage, flow, and sharing",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Explains where session data is stored, how it is synced, and who can access it. Third opinion said no.",
+              "third": "no"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/content-exclusion",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Content exclusion is a governance control, not the data-flow and sharing model.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-policies",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Admin policy management is different from explaining data flow and sharing.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-code-review",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Code review workflow is unrelated to data usage and sharing architecture.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Configure privacy, content exclusions, and safeguards",
+          "group": "Apply safeguards and troubleshoot",
+          "text": "Enable suggestions matching public code filtering",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/copilot-for-common-tasks/find-matching-code",
+              "grade": "teaches",
+              "source": "cited",
+              "why": "Explains how to enable and understand filtering for suggestions matching public code. Third opinion said covers.",
+              "third": "covers"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/content-exclusion",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Content exclusion blocks repository content from context; it is not public-code match filtering.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/set-up-copilot/install-copilot-extension",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Extension setup does not teach public-code filtering.",
+              "third": "no"
+            },
+            {
+              "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Session-data storage and sharing are different from suggestion filtering.",
+              "third": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "exam": {
+        "code": "AZ-104",
+        "title": "Microsoft Azure Administrator"
+      },
+      "skills": [
+        {
+          "domain": "Manage Azure identities and governance",
+          "group": "Manage Microsoft Entra users and groups",
+          "text": "Create users and groups",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/entra/fundamentals/how-to-create-delete-users",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Shows how to create, invite, and delete users in Microsoft Entra ID. Third opinion said no.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/entra/fundamentals/how-to-manage-groups",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Shows how to create and manage groups in Microsoft Entra ID.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Built-in roles are for RBAC, not creating users or groups.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/governance/policy/assign-policy-portal",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Azure Policy assignment is governance configuration, not user/group creation.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/windows/quick-create-portal",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "Creating a VM is unrelated to Microsoft Entra user and group management.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Manage Azure identities and governance",
+          "group": "Manage access to Azure resources",
+          "text": "Manage built-in Azure roles",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "grade": "covers",
+              "source": "adjudicated",
+              "why": "Lists and explains Azure built-in roles and their permissions. Third opinion said teaches.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/entra/fundamentals/how-to-create-delete-users",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Creating Entra users is identity management, not RBAC role management.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/lock-resources",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Resource locks protect resources from deletion or modification, but they are not Azure roles.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "Storage account creation is unrelated to managing built-in Azure roles.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Manage Azure identities and governance",
+          "group": "Manage Azure subscriptions and governance",
+          "text": "Implement and manage Azure Policy",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/governance/policy/assign-policy-portal",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Quickstart with the steps for creating a policy assignment in Azure portal.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "RBAC roles are access control, not Azure Policy.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/lock-resources",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Resource locks are a different governance control from Azure Policy assignments.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "Creating a storage account does not teach Azure Policy management.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Implement and manage storage",
+          "group": "Configure and manage storage accounts",
+          "text": "Create and configure storage accounts",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Shows how to create an Azure storage account and choose its main settings.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "RBAC role documentation does not teach storage account creation.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-network/quickstart-create-virtual-network",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Virtual network creation is a networking task, not storage account setup.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/analyze-metrics",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Metrics analysis happens after deployment and does not teach storage account creation.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Implement and manage storage",
+          "group": "Configure and manage storage accounts",
+          "text": "Configure Azure Storage redundancy",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-redundancy",
+              "grade": "covers",
+              "source": "adjudicated",
+              "why": "Explains Azure Storage redundancy options, durability, and availability tradeoffs. Third opinion said no.",
+              "third": "no"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "Creating a storage account is broader setup work, not specifically configuring redundancy choices.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/windows/quick-create-portal",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "VM creation is unrelated to storage redundancy.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/analyze-metrics",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Metrics explorer does not teach redundancy options for Azure Storage.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Deploy and manage Azure compute resources",
+          "group": "Create and configure virtual machines",
+          "text": "Create a virtual machine",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/windows/quick-create-portal",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Quickstart with the portal steps for creating a Windows VM.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "RBAC role documentation does not create a VM.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-network/quickstart-create-virtual-network",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Virtual network creation is a separate networking task from VM creation.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/analyze-metrics",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Metrics analysis does not teach how to provision a VM.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Implement and manage virtual networking",
+          "group": "Configure secure access to virtual networks",
+          "text": "Create and configure network security groups (NSGs) and application security groups",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-network/tutorial-filter-network-traffic",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Tutorial for filtering network traffic with an NSG.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-network/quickstart-create-virtual-network",
+              "kind": "overview-of-wrong-scope",
+              "source": "adjudicated",
+              "why": "Virtual network quickstart does not teach NSG or ASG configuration. Third opinion said covers.",
+              "third": "covers"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "RBAC role documentation is unrelated to NSG or ASG setup.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "Storage account creation is unrelated to NSG or ASG configuration.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Implement and manage virtual networking",
+          "group": "Configure and manage virtual networks in Azure",
+          "text": "Create and configure virtual networks and subnets",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-network/quickstart-create-virtual-network",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Quickstart for creating a virtual network and subnets.",
+              "third": "teaches"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-network/tutorial-filter-network-traffic",
+              "kind": "wrong-operation",
+              "source": "adjudicated",
+              "why": "NSG filtering tutorial is a follow-on security task, not the basic VNet and subnet creation flow.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "Storage account creation does not teach virtual network or subnet setup.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "unrelated",
+              "source": "adjudicated",
+              "why": "RBAC role documentation is unrelated to virtual network creation.",
+              "third": "no"
+            }
+          ]
+        },
+        {
+          "domain": "Monitor and maintain Azure resources",
+          "group": "Monitor resources in Azure",
+          "text": "Interpret metrics in Azure Monitor",
+          "set": "adjudicated",
+          "positives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/analyze-metrics",
+              "grade": "teaches",
+              "source": "adjudicated",
+              "why": "Shows how to analyze Azure Monitor metrics with charts, time ranges, filters, and aggregations. Third opinion said no.",
+              "third": "no"
+            }
+          ],
+          "negatives": [
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/windows/quick-create-portal",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Provisioning a VM is not metrics interpretation.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/governance/policy/assign-policy-portal",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "Azure Policy assignment is governance work, not Azure Monitor metrics analysis.",
+              "third": "no"
+            },
+            {
+              "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles",
+              "kind": "other-task",
+              "source": "adjudicated",
+              "why": "RBAC role documentation is unrelated to interpreting metrics.",
+              "third": "no"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
