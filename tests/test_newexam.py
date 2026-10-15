@@ -152,7 +152,8 @@ class Web:
             # Served, so that a redirect Dojo wrongly followed would give it a page it could quote.
             return html(teaching("Training module", "widget training"))
         if path.rstrip("/") == DOCS_AT.rstrip("/"):
-            return html(teaching("Widget documentation", "widgets"))
+            return html(teaching("Widget documentation", "widgets",
+                                 f'<p><a href="{DOCS_AT}configure-widgets-with-throttles">Configure widgets with throttles</a></p>'))
         if path.startswith(DOCS_AT):
             topic = path[len(DOCS_AT):].strip("/").replace("-", " ")
             return html(teaching(topic.capitalize(), topic, INJECTION if "health" in topic else ""))
@@ -490,6 +491,18 @@ class AddedExamTests(unittest.TestCase):
         self.assertIn("throttles", self.web.queries[0])
         self.assertTrue(any("Configure widgets" in q and "throttles" in q for q in self.web.queries),
                         "the contextual query should be tried after the bare skill text")
+
+    def test_2_search_expands_official_links_from_candidate_pages(self):
+        finder = self.app.state.newexams.finder
+        found = {"code": "XY-110", "title": "Contoso Widget Operations"}
+        domain = {"title": "Operate widgets"}
+        group = {"title": "Configure widgets"}
+        hits, problem = finder.search(found, domain, group, "Configure throttles")
+        self.assertIsNone(problem)
+        expanded = finder.expand(hits, "Operate widgets Configure widgets Configure throttles")
+        urls = [x["url"] for x in expanded]
+        self.assertIn(LEARN + DOCS_AT + "configure-widgets-with-throttles", urls)
+        self.assertFalse([u for u in urls if "/training/" in u])
 
     def test_2_the_pages_are_data_never_instructions(self):
         picks, checks = self.ai.of("pick_sources"), self.ai.of("verify_sources")
