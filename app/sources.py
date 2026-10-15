@@ -540,6 +540,14 @@ class Sources:
         except ValueError as e:
             raise UserError("The search answered with something Dojo cannot read.") from e
 
+    def post(self, url: str, body: Any, headers: dict | None = None) -> httpx.Response:
+        """POST JSON within the two hosts, never following redirects."""
+        check_url(url)
+        response = self.http.post(url, json=body, headers=headers or {})
+        if len(response.content) > MAX_BYTES:
+            raise UserError("The source page is too large.")
+        return response
+
     def _request(self, url: str, docs: Callable[[str], str | None] | None = None) -> httpx.Response:
         """GET within the two hosts, following up to five redirects. With `docs`, every address,
         redirects included, must pass it before it is asked for. A redirect that is refused says where it
