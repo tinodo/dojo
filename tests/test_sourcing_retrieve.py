@@ -46,7 +46,7 @@ class RetrieveTests(unittest.TestCase):
 
     def test_mcp_client_handles_sse_and_plain_json(self):
         rows = [
-            {"contentUrl": "https://learn.microsoft.com/en-us/sql/deploy#one", "title": "Deploy hybrid SQL", "content": "Do the deployment."},
+            {"contentUrl": "https://learn.microsoft.com/sql/deploy#one", "title": "Deploy hybrid SQL", "content": "Do the deployment."},
             {"url": "https://learn.microsoft.com/en-us/sql/deploy#two", "title": "Later chunk", "description": "More text."},
             {"url": "https://learn.microsoft.com/en-us/sql/release-notes", "title": "Notes", "content": "Skip me."},
         ]

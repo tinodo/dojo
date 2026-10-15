@@ -12,8 +12,23 @@ from .net import Net, SourcingError
 Hit = dict[str, str]
 
 
+def _canon(url: str) -> str | None:
+    text = str(url or "").split("#", 1)[0]
+    canon = docs_url(text)
+    if canon:
+        return canon
+    parsed = urlsplit(text)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.scheme == "https" and parsed.hostname == "learn.microsoft.com" and parts and parts[0].lower() != "en-us":
+        base = "https://learn.microsoft.com/en-us/" + "/".join(parts)
+        if parsed.query:
+            base += "?" + parsed.query
+        return docs_url(base)
+    return None
+
+
 def deny_url(url: str) -> bool:
-    text = docs_url(url) or str(url or "")
+    text = _canon(url) or str(url or "")
     lower = text.lower()
     if "/previous-versions/" in lower:
         return True
@@ -54,7 +69,7 @@ class McpClient:
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            url = docs_url((row.get("contentUrl") or row.get("url") or "").split("#", 1)[0])
+            url = _canon(row.get("contentUrl") or row.get("url") or "")
             if not url or deny_url(url):
                 continue
             old = next((hit for hit in out if same_page(hit["url"], url)), None)
