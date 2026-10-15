@@ -53,6 +53,7 @@ from fastapi import HTTPException
 
 from .ai import AIError
 from .core import Learner, UserError, iso, parse_iso, utcnow
+from .learning import DECK_GONE
 
 log = logging.getLogger("dojo.prepare")
 
@@ -499,6 +500,8 @@ class Preparer:
             if self._gone(pid):
                 self.dojo.drop_deck(lesson)
                 return True
+            if str(e) == DECK_GONE:
+                return True   # its lesson was replaced meanwhile: nothing failed, and the new lesson gets its own deck
             if self.dojo.deck_drawing(lesson):
                 return True   # a learner's first open is drawing it at this moment
             self.state["failed"][f"deck:{pid}/{sid}"] = iso()

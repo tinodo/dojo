@@ -27,7 +27,7 @@ from app import deck as decks, prepare  # noqa: E402
 from app.ai import AIError  # noqa: E402
 from app.budget import personal_refusal  # noqa: E402
 from app.core import APP_DIR, UserError, iso, utcnow  # noqa: E402
-from app.learning import DECK_BUSY, DECK_CUT_OFF, DECK_DRAWN, DECK_KEEPS  # noqa: E402
+from app.learning import DECK_BUSY, DECK_CUT_OFF, DECK_DRAWN, DECK_GONE, DECK_KEEPS  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from tests.test_api import GITHUB_MD, settings  # noqa: E402
@@ -278,8 +278,9 @@ class DrawTests(DeckCase):
             def withdrawn(pid, sid):
                 self.dojo.invalidate_deck(lesson, "Withdrawn by a test.")
                 return real(pid, sid)
-            with mock.patch.object(self.dojo, "grounding", withdrawn):
-                self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "invalidated")
+            with mock.patch.object(self.dojo, "grounding", withdrawn), self.assertRaises(UserError) as e:
+                self.dojo.make_deck(noop, lesson)
+            self.assertEqual(str(e.exception), DECK_GONE)
             d = self.dojo.deck(lesson)
             self.assertEqual((d["state"], d["attempts"], d["spent_rounds"]), ("invalidated", 1, 1), "no second attempt was started")
 
@@ -287,8 +288,9 @@ class DrawTests(DeckCase):
                 self.dojo.drop_deck(lesson)
                 return real(pid, sid)
             self.dojo.make_deck(noop, lesson)   # a withdrawn deck may be drawn again
-            with mock.patch.object(self.dojo, "grounding", deleted):
-                self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "missing")
+            with mock.patch.object(self.dojo, "grounding", deleted), self.assertRaises(UserError) as e:
+                self.dojo.make_deck(noop, lesson)
+            self.assertEqual(str(e.exception), DECK_GONE)
             self.assertIsNone(self.dojo.deck(lesson))
         self.assertEqual(len(hand.prompts), 2, "the author was asked twice, never after a withdrawal or a deletion")
 
@@ -299,9 +301,10 @@ class DrawTests(DeckCase):
             def gone(pid, sid, how=how):
                 how(lesson)
                 return real(pid, sid)
-            with Hand(self.dojo) as hand, mock.patch.object(self.dojo, "grounding", gone):
-                self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "missing")
-            self.assertIsNone(self.dojo.deck(lesson), "nothing was brought back")
+            with Hand(self.dojo) as hand, mock.patch.object(self.dojo, "grounding", gone), self.assertRaises(UserError) as e:
+                self.dojo.make_deck(noop, lesson)
+            self.assertEqual(str(e.exception), DECK_GONE)
+            self.assertIsNone(self.dojo.deck(lesson), "nothing was brought back, not even a failed attempt")
             self.assertEqual(hand.prompts, [], "the author was never asked")
         self.assertEqual(self.dojo.make_deck(noop, lesson)["state"], "ready", "a later attempt is not held back")
 
@@ -438,6 +441,21 @@ class PreparerTests(DeckCase):
         self.assertEqual(self.prep.state["decked"], 2)
         status = self.prep.deck_status()
         self.assertEqual((status["ready"], status["lessons"], status["failed"], status["drawing"]), (3, 3, 0, 0))
+
+    def test_a_lesson_replaced_while_its_deck_is_about_to_start_is_no_failure(self):
+        lesson = self.narrated(0)
+        real = self.dojo.grounding
+
+        def replaced(pid, sid):
+            self.dojo.invalidate_deck(lesson, "A newer lesson replaced this one.")
+            return real(pid, sid)
+        calls = len(self.dojo.ai.calls)
+        with mock.patch.object(self.dojo, "grounding", replaced):
+            self.assertTrue(self.prep.step(), "it did what it could")
+        self.assertEqual(len(self.dojo.ai.calls), calls, "no model was called")
+        self.assertIsNone(self.dojo.deck(lesson))
+        self.assertEqual(self.prep.state["failed"], {}, "nothing failed: the new lesson gets its own deck, not a day's wait")
+        self.assertEqual(quality(self.dojo, "preparation"), [])
 
     def test_a_deck_that_did_not_pass_is_drawn_again_after_a_week_at_most_twice(self):
         lesson = self.narrated(0)
@@ -649,6 +667,21 @@ class RouteTests(Team2Case):
         self.wait_job(a.json(), self.a)
         self.wait_all(self.ka)
         self.assertEqual(len([c for c in self.stub.calls if c[1] == "deck"]), 1)
+
+    def test_a_first_open_whose_deck_is_withdrawn_before_it_starts_costs_the_member_nothing(self):
+        real = self.dojo.grounding
+
+        def withdrawn(pid, sid):
+            self.dojo.invalidate_deck(self.lesson, "A newer lesson replaced this one.")
+            return real(pid, sid)
+        calls = len(self.stub.calls)
+        with mock.patch.object(self.dojo, "grounding", withdrawn):
+            done = self.wait_job(self.ok("POST", self.path(self.lesson), self.a), self.a)
+        self.assertEqual((done["state"], done["error"]), ("failed", DECK_GONE))
+        self.wait_all(self.ka)
+        self.assertEqual(len(self.stub.calls), calls, "no model was called")
+        self.assertEqual(self.left(), 3, "the member's deck for the day is given back")
+        self.assertIsNone(self.dojo.deck(self.lesson))
 
     def test_at_the_allowance_a_member_is_refused_and_nothing_starts(self):
         self.ok("PUT", "/api/team/budget", OWNER, {"allowances": {"deck": 1}})

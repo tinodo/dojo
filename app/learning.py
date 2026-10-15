@@ -272,6 +272,7 @@ DECK_CUT_OFF = f"It stopped before it was finished, when Dojo restarted. {DECK_K
 DECK_LEAVES = "Present leaves the self-check to its own scene."
 DECK_BUSY = "This lesson's deck is being drawn already."
 DECK_DRAWN = "This lesson's deck was drawn meanwhile, so it was not drawn again."
+DECK_GONE = "This lesson's deck was withdrawn or deleted meanwhile, so it was not drawn."
 
 
 def _filmed(clips: list[list[dict]]) -> bool:
@@ -1582,7 +1583,7 @@ Required JSON shape:
                    "rounds": 1, "spent_rounds": spent + 1}
         with self._deck_lock:
             if self._deck_gen.get(lesson_id, 0) != gen:   # withdrawn or deleted while the pages were read: nothing starts
-                return self._deck_gone(lesson_id)
+                raise UserError(DECK_GONE)   # no model call was made: the job fails, and a member's deck for the day comes back
             self._deck_save(lesson_id, {**attempt, "state": "writing"})
         try:
             progress("Drawing the deck (author model)")
