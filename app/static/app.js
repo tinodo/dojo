@@ -245,6 +245,7 @@ async function api(path, opts = {}) {
     // Team Dojo (ADR 0009): a refusal with a code says which page to show (not_member, notice, removed, ...).
     if (d && typeof d === "object" && typeof d.code === "string") throw Object.assign(fail(String(d.message || "")), { code: d.code });
     if (d) throw fail("The request was not accepted: " + JSON.stringify(d).slice(0, 300));
+    if (r.status >= 500) throw fail("Dojo hit a temporary server error before it could answer cleanly. Try again; if you were approving work, refresh first to see whether it went through.");
     const plain = text.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     throw fail(`HTTP ${r.status}${plain ? ": " + plain.slice(0, 240) : ""}`);
   }
@@ -8134,6 +8135,13 @@ function filmPanel(st, onStatus, note) {
       } catch (err) {
         if (err.status === 409) {
           try { onStatus(await api(`/api/exam-packages/${st.package}`), err.message); return; } catch (e2) { /* say what failed */ }
+        }
+        if (err.status >= 500) {
+          try {
+            onStatus(await api(`/api/exam-packages/${st.package}`),
+              "Dojo did not get a clean answer from the server, so it refreshed this course. If the Film button is still shown, press it again.");
+            return;
+          } catch (e2) { /* show the original transient error */ }
         }
         btn.disabled = false;
         msg.className = "small bad";
