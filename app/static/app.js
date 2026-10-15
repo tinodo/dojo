@@ -7956,14 +7956,32 @@ function buildPanel(f, date, kept, token) {
     msg);
 }
 
-function addedList(list) {
+function addedList(list, token) {
   if (!list.length) return null;
   const line = (x) => (x.added ? `${x.lessons.ready} of ${x.lessons.teachable} lessons ready`
     : x.state === "matching" ? `checking official pages: ${x.checked || 0} of ${x.skills || "?"} skills`
     : `stopped after ${x.checked || 0} of ${x.skills || "?"} skills`);
-  return panel(eyebrow(null, "Exams you added"),
-    list.map((x) => h("a", { class: "rv", href: `#/add-exam/${x.package}` },
+  const busy = (rows) => rows.some((x) => x.state === "matching"
+    || (x.added && x.lessons && x.lessons.ready < x.lessons.teachable));
+  const box = h("section", { class: "panel" });
+  const draw = (rows) => put(box, eyebrow(null, "Exams you added"),
+    rows.map((x) => h("a", { class: "rv", href: `#/add-exam/${x.package}` },
       h("span", null, h("b", null, [x.exam, x.title].filter(Boolean).join(" · ")), h("small", null, line(x))), icon("right", "sm"))));
+  draw(list);
+  if (token && busy(list)) {
+    (async () => {
+      while (token === state.nav) {
+        await sleep(document.hidden ? Math.max(COURSE_POLL_MS, 30000) : EXAM_POLL_MS);
+        if (token !== state.nav) return;
+        let rows;
+        try { rows = (await api("/api/exam-packages")).exams || []; } catch (e) { if (e.signedOut) return; continue; }
+        if (token !== state.nav) return;
+        draw(rows);
+        if (!busy(rows)) return;
+      }
+    })();
+  }
+  return box;
 }
 
 function addExamPage(f, list, token) {
@@ -7999,7 +8017,7 @@ function addExamPage(f, list, token) {
     found ? h("section", { class: "panel" }, stepHead(2, "Your exam date", "optional · change it later"),
       h("div", { class: "datefield" }, h("label", { class: "field", for: "exam-date" }, "Exam date", date),
         h("p", { class: "small muted" }, "Planned or booked. Leave it empty if you do not know yet."))) : null);
-  const right = h("div", { class: "col w440" }, found ? buildPanel(f, date, kept, token) : null, addedList(list), howBuiltPanel(), rulesPanel());
+  const right = h("div", { class: "col w440" }, found ? buildPanel(f, date, kept, token) : null, addedList(list, token), howBuiltPanel(), rulesPanel());
   return [
     h("div", { class: "between top" },
       pageHead("Type an exam code. Dojo builds the course.", null, eyebrow(null, "Add an exam · Microsoft or GitHub certifications"), helpQ("add-an-exam")),
@@ -8068,9 +8086,11 @@ function lessonsPanel(st) {
   const now = all ? "Every lesson is written."
     : !P.running ? "Lesson preparation does not run in this copy of Dojo. A lesson is written when you open its skill."
     : mine ? "Writing one of its lessons now."
+    : P.failed ? `${plural(P.failed, "lesson")} did not pass preparation and will be tried again later. You can use the lessons that are ready now.`
     : "Lessons are written and narrated in the background, one at a time, taking turns with your other exams.";
+  const partial = L.unsourced ? `Only ${plural(L.teachable, "skill")} of ${plural(L.skills, "skill")} has a verified official page.` : "";
   return h("section", { class: "panel hero" },
-    h("div", { class: "panel-h" }, eyebrow("course", "The course"), chip(all ? "all lessons ready" : "preparing", all ? "sage" : "amber")),
+    h("div", { class: "panel-h" }, eyebrow("course", "The course"), chip(all ? "all teachable lessons ready" : "preparing", all ? "sage" : "amber")),
     h("p", { class: "bigline" }, all ? `All ${plural(L.teachable, "lesson")} ready` : `${L.ready} of ${L.teachable} lessons ready`),
     h("div", { class: "bar", role: "progressbar", "aria-label": "Lessons ready", "aria-valuemin": "0", "aria-valuemax": String(L.teachable), "aria-valuenow": String(L.ready) },
       wide(h("i", { class: "amber" }), `${L.teachable ? Math.round((100 * L.ready) / L.teachable) : 0}%`)),
@@ -8078,6 +8098,7 @@ function lessonsPanel(st) {
       h("li", null, L.ready ? `${L.narrated} of ${L.ready} narrated for Listen and your podcast` : "Each lesson is narrated for Listen and your podcast once it is written"),
       h("li", null, `${L.filmed} filmed with presenters`),
       L.unsourced ? h("li", null, `${plural(L.unsourced, "skill")} of ${L.skills} without a verified official page: not taught, not asked, counted as not shown`) : null),
+    partial ? h("p", { class: "note top" }, partial) : null,
     st.no_exam ? h("p", { class: "note top" }, st.no_exam) : null,
     h("p", { class: "small muted top" }, now),
     h("div", { class: "actions top" }, button("Open the course", () => openExam(st.package), "sm")));

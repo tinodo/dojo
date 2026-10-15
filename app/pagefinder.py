@@ -41,6 +41,8 @@ EXCERPT_CHARS = 4000
 QUOTE_WORDS = 6
 ROUND_TWO = 3          # unpicked search results the checker sees for a skill no pick passed for
 FETCHERS = 4           # pages and searches read at the same time; model calls stay one at a time
+SEARCH_TOP = 4
+SEARCH_LIMIT = 12
 
 PICK_SYSTEM = """TASK: pick_sources
 You help build a course for one certification exam. For each skill from the exam's official study guide,
@@ -141,6 +143,27 @@ def _known(url: str, known: list[dict]) -> bool:
     return any(same_page(url, k["url"]) for k in known)
 
 
+def _query_text(text: str) -> str:
+    words = text.split()
+    return " ".join(words[1:]) if len(words) >= 4 else text   # the leading verb ("Describe") only adds noise
+
+
+def _queries(found: dict, domain: dict, group: dict, text: str) -> list[str]:
+    """Search from narrow to contextual. Microsoft study guides often omit product words in each bullet."""
+    title = re.sub(r"\b[A-Z]{2}-\d{3}\b", " ", str(found.get("title") or ""))
+    bits = [_query_text(text), f"{group['title']} {_query_text(text)}",
+            f"{domain['title']} {_query_text(text)}", f"{title} {_query_text(text)}"]
+    out: list[str] = []
+    seen: set[str] = set()
+    for q in bits:
+        q = " ".join(str(q).split())
+        key = normalize(q)
+        if q and key not in seen:
+            seen.add(key)
+            out.append(q)
+    return out
+
+
 class PageFinder:
     """Search, pick and verify official pages for the skills of one group of a study guide.
 
@@ -151,13 +174,18 @@ class PageFinder:
         self.dojo = dojo
         self.sources = dojo.sources
 
-    def search(self, code: str, domain: dict, group: dict, text: str) -> tuple[list[dict], str | None]:
+    def search(self, found: dict, domain: dict, group: dict, text: str) -> tuple[list[dict], str | None]:
         """Official pages the two sites' own search finds for one skill."""
-        about_github = "github" in f"{domain['title']} {group['title']} {text}".lower()
-        words = text.split()
-        text = " ".join(words[1:]) if len(words) >= 4 else text   # the leading verb ("Describe") only adds noise
-        wanted = [(github_search(text, 5), github_hits), (learn_search(text, 3), learn_hits)] if code.startswith("GH-") \
-            else [(learn_search(text, 6), learn_hits)] + ([(github_search(text, 3), github_hits)] if about_github else [])
+        code = found["code"]
+        about_github = "github" in f"{found.get('title', '')} {domain['title']} {group['title']} {text}".lower()
+        queries = _queries(found, domain, group, text)
+        if code.startswith("GH-"):
+            providers = ((github_search, github_hits), (learn_search, learn_hits))
+        else:
+            providers = ((learn_search, learn_hits),)
+            if about_github:
+                providers += ((github_search, github_hits),)
+        wanted = [(make(q, SEARCH_TOP), read) for q in queries for make, read in providers]
         hits: list[dict] = []
         problems = []
         for url, read in wanted:
@@ -165,7 +193,7 @@ class PageFinder:
                 hits += read(self.sources.data(url))
             except (httpx.HTTPError, UserError) as e:
                 problems.append(f"{urlparse(url).hostname} search failed ({type(e).__name__})")
-        unique = list({h["url"]: h for h in hits}.values())
+        unique = list({h["url"]: h for h in hits}.values())[:SEARCH_LIMIT]
         return unique, ("; ".join(problems) if problems and not unique else None)
 
     def read(self, url: str) -> dict | None:
@@ -184,7 +212,7 @@ class PageFinder:
         limits = limits or {}
         code = found["code"]
         with ThreadPoolExecutor(FETCHERS) as pool:
-            searched = list(pool.map(lambda kt: self.search(code, domain, group, kt[1]), pending))
+            searched = list(pool.map(lambda kt: self.search(found, domain, group, kt[1]), pending))
         # A page a skill already cites is no candidate for that skill.
         searched = [([h for h in hits if not _known(h["url"], known.get(key) or [])], problem)
                     for (key, _), (hits, problem) in zip(pending, searched)]

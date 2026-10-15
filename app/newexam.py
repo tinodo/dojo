@@ -364,7 +364,7 @@ class NewExams:
     # Searching, picking and checking pages lives in app/pagefinder.py, shared with Deeper lessons (ADR 0008).
 
     def _search(self, code: str, domain: dict, group: dict, text: str) -> tuple[list[dict], str | None]:
-        return self.finder.search(code, domain, group, text)
+        return self.finder.search({"code": code, "title": ""}, domain, group, text)
 
     def _read(self, url: str) -> dict | None:
         return self.finder.read(url)
@@ -557,12 +557,18 @@ class NewExams:
             raise HTTPException(404, "Dojo is not building or keeping an added exam with that code.")
         doc = doc or {"package": pid}
         state, job = self._state(pid, added, doc)
+        failed = getattr(self.preparer, "state", {}).get("failed") or {}
+        failed_here = sum(1 for key in failed
+                          if key.startswith(f"{pid}/") or key.startswith(f"audio:{pid}/")
+                          or key.startswith(f"deep:{pid}/"))
         out: dict = {
             "package": pid, "exam": doc.get("code") or pid.upper(), "title": doc.get("title"), "state": state, "added": added,
             "job": job,
             "matching": {k: doc.get(k) for k in ("skills", "checked", "sourced", "errors", "started", "finished", "error")},
             "exam_date": self.dojo.profile(learner)["exam_dates"].get(pid) if added else doc.get("exam_date"),
-            "preparing": {"running": bool(getattr(self.preparer, "_started", False)), "current": self.preparer.state.get("current")},
+            "preparing": {"running": bool(getattr(self.preparer, "_started", False)),
+                          "current": self.preparer.state.get("current"), "failed": failed_here,
+                          "last": self.preparer.state.get("last")},
             "removable": added or state in ("failed", "stopped"),
         }
         if not added:

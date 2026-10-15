@@ -134,6 +134,10 @@ class Preparer:
         failed_at = self.state["failed"].get(key)
         return bool(failed_at and now - parse_iso(failed_at) < timedelta(hours=24))
 
+    def _clear_failed(self, *keys: str) -> None:
+        for key in keys:
+            self.state["failed"].pop(key, None)
+
     def _rechecking(self, pid: str) -> set[str]:
         drift = getattr(self.dojo, "drift", None)
         return drift.rechecking(pid) if drift else set()
@@ -222,9 +226,12 @@ class Preparer:
             lesson = narration[2] if narration else self.dojo.make_lesson(lambda step: None, self.owner, pid, sid)["lesson"]
             if self._gone(pid):
                 return True
+            if not narration:
+                self._clear_failed(f"{pid}/{sid}")
             self.dojo.lesson_audio(lambda step: None, self.owner, lesson)
             if self._gone(pid):
                 return True
+            self._clear_failed(f"audio:{pid}/{sid}")
             self.state["narrated" if narration else "prepared"] += 1
             if narration:
                 self._narrated.add(lesson)
@@ -264,6 +271,7 @@ class Preparer:
             try:
                 if not self._gone(pid):
                     self.dojo.lesson_audio(lambda step: None, self.owner, lesson)
+                    self._clear_failed(f"audio:{pid}/{sid}")
             except (UserError, AIError, HTTPException) as e:
                 if not self._gone(pid):
                     self.state["failed"][f"audio:{pid}/{sid}"] = iso()
@@ -369,6 +377,7 @@ class Preparer:
                 if self.dojo.deep_audio(lambda step: None, lesson,
                                         stop=lambda: self._learner_busy() or pid not in self.dojo.packages.by_id):
                     self.state["deepened"] += 1
+                    self._clear_failed(f"deep:{pid}/{sid}")
             if self._gone(pid):
                 self.dojo.drop_deep(lesson, media)   # its exam went meanwhile: what was made for it goes too
         except (UserError, AIError, HTTPException) as e:
