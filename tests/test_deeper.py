@@ -549,10 +549,13 @@ class ReplacementTests(SearchCase):
         self.assertEqual(diag["replacing"], row["replacing"])
         seen = self.search_s()
         self.assertEqual(seen["limit"], 2, "both places are free")
-        self.assertEqual(self.entry()["found"], 1, "the search world here has one more page for the skill")
-        new = next(u for u in self.sources() if u not in (own, first, second))
-        self.assertEqual(self.sources(), [own, new, second], "the page found takes the place of the page gone longest")
-        self.assertEqual(self.entry()["gone_searched"], [second])
+        self.assertEqual(self.entry()["found"], 2, "the contextual search world has two more pages for the skill")
+        pages = self.sources()
+        self.assertEqual(pages[0], own, "the package's own page stays first")
+        self.assertEqual(len(pages), MAX_SOURCES)
+        self.assertNotIn(first, pages)
+        self.assertNotIn(second, pages)
+        self.assertEqual(self.entry()["gone_searched"], [])
 
 
 class TemplateTests(SearchCase):
