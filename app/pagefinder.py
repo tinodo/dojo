@@ -179,10 +179,13 @@ class PageFinder:
         code = found["code"]
         about_github = "github" in f"{found.get('title', '')} {domain['title']} {group['title']} {text}".lower()
         queries = _queries(found, domain, group, text)
-        wanted = ([(github_search(q, SEARCH_TOP), github_hits) for q in queries]
-                  + [(learn_search(q, SEARCH_TOP), learn_hits) for q in queries]) if code.startswith("GH-") \
-            else ([(learn_search(q, SEARCH_TOP), learn_hits) for q in queries]
-                  + ([(github_search(q, SEARCH_TOP), github_hits) for q in queries] if about_github else []))
+        if code.startswith("GH-"):
+            providers = ((github_search, github_hits), (learn_search, learn_hits))
+        else:
+            providers = ((learn_search, learn_hits),)
+            if about_github:
+                providers += ((github_search, github_hits),)
+        wanted = [(make(q, SEARCH_TOP), read) for q in queries for make, read in providers]
         hits: list[dict] = []
         problems = []
         for url, read in wanted:
