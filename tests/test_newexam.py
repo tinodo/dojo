@@ -130,6 +130,7 @@ class Web:
         self.needs_context: dict[str, str] = {}  # word -> phrase that must be in the query before docs are returned
         self.products: dict[str, list[str]] = {}  # a documentation page's path -> the Learn products it declares
         self.tree: list[dict] | None = product_tree()   # Learn's product facet; None when the search cannot answer it
+        self.facet_answer: object | None = None   # when set, Learn's answer to the product facet, exactly as it is
         self.filters: list[str] = []     # the filter of every search narrowed to products
         self.prices = PRICES
         self.guides = {
@@ -158,6 +159,8 @@ class Web:
     def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
         if path == "/api/search":
             if params.get("facet") == "products":
+                if self.facet_answer is not None:
+                    return httpx.Response(200, json=self.facet_answer)
                 if self.tree is None:
                     return httpx.Response(503)
                 return httpx.Response(200, json={"facets": {"products": self.tree}, "results": []})
@@ -898,6 +901,33 @@ class ScopedSearchTests(unittest.TestCase):
         web.tree = None
         self.assertEqual(self.build(web)["sourced"], 6, "the build goes on as it did before")
         self.assertEqual(web.filters, [])
+
+    def test_a_product_tree_that_is_not_what_it_should_be_narrows_nothing(self):
+        web = Web()
+        finder = make_app(tempfile.mkdtemp(prefix="dojo-exam-scope-"), web, Scripted()).state.newexams.finder
+        for answer in ({}, [], "tree", {"facets": None}, {"facets": {"products": None}}, {"facets": {"products": "x"}},
+                       {"facets": {"products": [None, 1, "x", {"value": 3, "children": []}]}}):
+            web.facet_answer = answer
+            self.assertIsNone(finder.families(), answer)
+        web = Web()
+        web.products[self.HUB] = [WIDGETS]
+        web.facet_answer = {}
+        self.assertEqual(self.build(web)["sourced"], 6, "a build goes on as it did before")
+        self.assertEqual(web.filters, [])
+
+    def test_a_documentation_page_that_now_leads_into_training_declares_nothing(self):
+        class Moved(Web):
+            def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+                if path.rstrip("/") == DOCS_AT.rstrip("/"):
+                    return httpx.Response(302, headers={"location": "/en-us/training/modules/widgets/"})
+                if path == "/en-us/training/modules/widgets/":
+                    return html(tagged(teaching("Training module", "widgets"), WIDGETS))
+                return super().learn(path, params)
+
+        newexams = make_app(tempfile.mkdtemp(prefix="dojo-exam-scope-"), Moved(), Scripted()).state.newexams
+        found = newexams._find("XY-110")
+        self.assertEqual(newexams.finder._declared(LEARN + self.HUB), [], "training is never documentation (EG-39)")
+        self.assertEqual(newexams.finder.scope(found), ())
 
     def test_a_product_a_page_names_is_checked_before_it_reaches_a_filter(self):
         web = Web()

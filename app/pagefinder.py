@@ -237,7 +237,7 @@ class PageFinder:
                     return None
                 facets = tree.get("facets") if isinstance(tree, dict) else None
                 rows = facets.get("products") if isinstance(facets, dict) else None
-                big = frozenset(r["value"] for r in rows if isinstance(rows, list) and isinstance(r, dict)
+                big = frozenset(r["value"] for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)
                                 and isinstance(r.get("value"), str) and PRODUCT_ID.fullmatch(r["value"])
                                 and isinstance(r.get("children"), list) and len(r["children"]) >= FAMILY_CHILDREN)
                 if not big:
@@ -281,12 +281,15 @@ class PageFinder:
         return tuple(sorted(counts, key=lambda p: -counts[p])[:SCOPE_PRODUCTS])
 
     def _declared(self, url: str) -> list[str] | None:
-        """The products a documentation page declares, or None when it could not be read."""
+        """The products a documentation page declares, or None when it could not be read. A page that now
+        leads away from the documentation (into training, say) declares nothing that counts (EG-39)."""
         try:
-            _, page = self.sources.page(url)
+            final, page = self.sources.page(url)
         except (httpx.HTTPError, UserError, ValueError) as e:
             log.info("could not read %s for its products: %s", url, e)
             return None
+        if not groundable(final) or urlparse(final).hostname != "learn.microsoft.com":
+            return []
         return product_ids(page)
 
     def search(self, found: dict, domain: dict, group: dict, text: str,
