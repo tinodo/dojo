@@ -778,6 +778,19 @@ class RepairAddedExamTests(unittest.TestCase):
         raw = self.store.read("packages", pid)
         self.assertTrue(next(s for s in skills_of(raw) if s["id"] == self.unsourced)["sources"])
 
+    def test_repair_does_not_start_twice(self):
+        pid = "xy-110"
+        job = new_id("job")
+        self.store.write("jobs", job, value={"id": job, "kind": "source-repair", "ref": pid, "state": "running",
+                                             "learner": self.app.state.preparer.owner.key, "created": iso(),
+                                             "heartbeat": iso()})
+        try:
+            r = self.c.post(f"/api/exam-packages/{pid}/repair-sources", headers=POST)
+            self.assertEqual(r.status_code, 409)
+            self.assertIn("already looking", r.json()["detail"])
+        finally:
+            self.store.delete("jobs", job)
+
 
 class BuildFailureTests(unittest.TestCase):
     """A build that cannot be trusted adds nothing; a build that stops can be resumed."""

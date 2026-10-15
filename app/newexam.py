@@ -434,10 +434,9 @@ class NewExams:
         """Search again for unsourced skills of an already-added exam, keeping existing lessons and media."""
         if not self.packages.is_added(pid):
             raise HTTPException(404, "No such added exam.")
-        running = self.jobs.existing(self.owner, REPAIR, pid)
-        if running:
-            return {"package": pid, "job": running}
-        return {"package": pid, "job": self.jobs.start(learner, REPAIR, self._repair, pid, ref=pid)}
+        job = self.jobs.start(learner, REPAIR, self._repair, pid, ref=pid,
+                              busy_message="Dojo is already looking for more official pages for this exam.")
+        return {"package": pid, "job": job}
 
     def _repair(self, progress: Callable[[str], None], pid: str) -> dict:
         raw = self.store.read("packages", pid)
