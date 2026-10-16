@@ -588,6 +588,20 @@ class BackgroundTests(SourcingCase):
         with mock.patch.object(ladder, "DAY_CALLS", 1):
             self.assertEqual(self.sourcer.wait_s(), 1800.0)
 
+    def test_the_last_round_judges_every_page_that_is_left(self):
+        ai = Hooked()
+        ai.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "covers"
+        ai.set_answer = lambda role: "partly"
+        ai.search_urls = lambda q: [LEARN + DOCS_AT + f"widget-backup-{n:02d}" for n in range(14)] if "backups" in q else []
+        with mock.patch.object(ladder, "VERIFY_LIMIT", ladder.SLICE):   # one batch of five a round: most of the pool is left
+            self.build(ai=ai)
+            self.assertTrue(any(e["verdict"] == "new" for e in self.book("Implement widget backups")["pool"].values()),
+                            "the first rounds leave pages unjudged")
+            self.steps()
+        book = self.book("Implement widget backups")
+        self.assertEqual(book["round"], 4)
+        self.assertFalse([u for u, e in book["pool"].items() if e["verdict"] == "new"], "the last round of the cycle judged them all")
+
     def test_a_judging_that_keeps_failing_blocks_the_skill_instead_of_trying_for_ever(self):
         self.build()
         self.ai.fail["verify_graded"] = 10_000   # the models cannot judge a page now

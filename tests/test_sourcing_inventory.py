@@ -1,6 +1,7 @@
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 from app.core import Store
 from app.sourcing.inventory import Inventory
 from app.sourcing.net import SourcingError
+from app.sourcing.state import Lease, LeaseLost
 
 
 def at(hour: int = 0) -> datetime:
@@ -189,6 +191,36 @@ class InventoryTests(unittest.TestCase):
         inv.seed([seed])
         self.assertEqual(sum(net.json_calls.values()), 0)
         self.assertEqual(inv.size(), 0)
+
+    def seeded(self):
+        net = FakeNet()
+        seed = "https://learn.microsoft.com/en-us/sql/topic"
+        toc = "https://learn.microsoft.com/en-us/sql/toc.json"
+        net.heads[seed] = (seed, toc_meta("toc.json"))
+        net.jsons[toc] = {"items": [{"toc_title": "One", "href": "/en-us/sql/one"}]}
+        store = Store(Path(tempfile.mkdtemp(prefix="dojo-sourcing-inventory-")))
+        lease = Lease(store, "dp-300", owner="a", ttl=600, clock=lambda: 1000.0, pause=lambda s: None)
+        self.assertTrue(lease.acquire())
+        return Inventory(store, net, None, "dp-300", now=lambda: at(), lease=lease), store, lease, seed
+
+    def test_nothing_is_written_for_an_exam_that_was_removed(self):
+        inv, store, lease, seed = self.seeded()
+        lease.revoke()
+        with self.assertRaises(LeaseLost):
+            inv.seed([seed])
+        self.assertEqual(store.names("inventory"), [])
+
+    def test_a_write_that_lands_while_the_exam_is_removed_takes_itself_back(self):
+        inv, store, lease, seed = self.seeded()
+        real = store.write
+
+        def removed_meanwhile(*args, **kwargs):
+            real(*args, **kwargs)
+            lease.revoke()   # the removal ran between the check and the write
+
+        with mock.patch.object(store, "write", removed_meanwhile), self.assertRaises(LeaseLost):
+            inv.seed([seed])
+        self.assertEqual(store.names("inventory"), [], "what was just written goes, so a removed exam leaves nothing behind")
 
     def test_thread_safe_seed_reads_one_toc_once(self):
         now = [at()]

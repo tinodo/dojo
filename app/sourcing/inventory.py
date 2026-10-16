@@ -13,6 +13,7 @@ from ..core import iso, parse_iso, utcnow
 from ..pagefinder import label
 from ..sources import docs_url
 from .retrieve import Hit, canon_url, deny_url
+from .state import LeaseLost
 
 _TOC_META = re.compile(r"<meta\b[^<>]*>", re.I)
 _TOC_NAME = re.compile(r"""\bname\s*=\s*["']toc_rel["']""", re.I)
@@ -50,8 +51,9 @@ class Inventory:
                 store.delete("inventory", doc)
         store.delete("inventory", name)
 
-    def __init__(self, store, net, sources, name: str, now=utcnow):
+    def __init__(self, store, net, sources, name: str, now=utcnow, lease=None):
         self.store = store
+        self.lease = lease   # the search's lease: nothing is written once the exam was removed (it is revoked)
         self.net = net
         self.sources = sources
         self.name = name
@@ -92,6 +94,8 @@ class Inventory:
                     else:
                         self._refresh_docset(toc)
                     self._save_index()
+                except LeaseLost:
+                    raise   # the exam was removed: nothing more is read or written for it
                 except Exception:
                     continue
         return added
@@ -145,8 +149,22 @@ class Inventory:
     def _docsets(self) -> list[dict]:
         return [row for row in self._index.get("docsets") or [] if isinstance(row, dict)]
 
+    def _put(self, doc: str, value: Any) -> None:
+        """Write one document of the inventory, only while the exam still exists: checked before, and after, when a
+        removal that ran meanwhile takes back what was just written (the same fence as the search's books)."""
+        if self.lease is not None:
+            self.lease.check()
+        self.store.write("inventory", doc, value=value)
+        if self.lease is not None:
+            try:
+                self.lease.check()
+            except LeaseLost:
+                if self.lease.revoked:
+                    self.store.delete("inventory", doc)
+                raise
+
     def _save_index(self) -> None:
-        self.store.write("inventory", self.name, value=self._index)
+        self._put(self.name, self._index)
 
     def _folder(self, url: str) -> str:
         u = urlsplit(url)
@@ -188,7 +206,7 @@ class Inventory:
         else:
             rows[at] = entry
         self._index["docsets"] = rows
-        self.store.write("inventory", self._toc_key(toc), value={"toc": toc, "fetched": fetched, "ok": ok, "entries": list(pages)})
+        self._put(self._toc_key(toc), {"toc": toc, "fetched": fetched, "ok": ok, "entries": list(pages)})
         self._save_index()
         self._bm25 = None
 

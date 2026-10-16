@@ -54,7 +54,7 @@ APPEAL_LIMIT = 6
 APPEALABLE = ("other-task", "mention", "quote")
 QUOTAS = {"r1s": 4, "r1u": 4, "r2": 5, "r3": 5, "r4": 10, "r7": 10}   # Learn's own search brings the most noise, web search the least
 POOL_ADD = 40              # pages one round's searches add to a skill's pool, at most
-POOL_LIMIT = 200
+POOL_LIMIT = 200            # pages kept in a skill's pool; the last round judges every one that is still new, up to this many
 BATCH_SKILLS = 4           # skills of one group worked on together
 PARALLEL = 4
 DAY_CALLS = 4000           # model calls an exam may use in a UTC day; a day's cap pauses the work, it never ends a skill
@@ -190,7 +190,7 @@ class Run:
         self.sourcer, self.pid, self.found = sourcer, pid, found
         self.lease = sourcer.lease(pid)
         self.books = Books(sourcer.store, pid, self.lease)
-        self.inv = Inventory(sourcer.store, sourcer.net, sourcer.dojo.sources, pid)
+        self.inv = Inventory(sourcer.store, sourcer.net, sourcer.dojo.sources, pid, lease=self.lease)
         self.ai = Counted(sourcer.dojo.ai, self.count)   # every attempt to ask a model is counted against the day's calls
         self.verifier = Verifier(sourcer.dojo, count=self.count)
         self.scope: tuple[str, ...] = ()
@@ -501,7 +501,7 @@ class Sourcer:
             return
         try:
             self._retrieve(run, w, r)
-            self._verify(run, w, r)
+            self._verify(run, w, r, drain=r >= ROUNDS)
             self._appeal(run, w, r)
             self._rank(run, w)
             self._assess(run, w)
@@ -609,6 +609,8 @@ class Sourcer:
         if urls and not batch[0]["ctx"]["code"].startswith("GH-"):
             try:
                 run.inv.seed(list(dict.fromkeys(urls)), max_new=40)
+            except LeaseLost:
+                raise
             except Exception as e:  # noqa: BLE001 - the inventory is a help, never a reason to stop
                 log.info("could not grow the inventory of %s: %s", run.pid, e)
 
@@ -618,7 +620,9 @@ class Sourcer:
         m = self.dojo.models("gate", "author")
         return [m["gate"], m["author"]]
 
-    def _verify(self, run: Run, w: dict, r: int) -> None:
+    def _verify(self, run: Run, w: dict, r: int, drain: bool = False) -> None:
+        """Judge the new pages of the pool, VERIFY_LIMIT in a round; the pages left over are judged in the next round. The
+        last round of a cycle (`drain`) judges every one that is left, so no page is missed when the skill is settled."""
         doc, ctx = w["doc"], w["ctx"]
         for e in doc["pool"].values():
             if e.get("round", 0) >= r:
@@ -628,7 +632,7 @@ class Sourcer:
             elif e["verdict"] == "rejected" and e.get("why") == "quote" and not e.get("quote_tries"):
                 e["verdict"], e["quote_tries"] = "new", 1   # no valid quote is a failure of the models, not a verdict on the page: once more
         done = 0
-        while done < VERIFY_LIMIT:   # the whole round's pool: the best pages are chosen among what was accepted, not the first three
+        while done < (POOL_LIMIT if drain else VERIFY_LIMIT):   # the whole round's pool: the best pages are chosen among what was accepted, not the first three
             new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
             if not new:
                 break
