@@ -967,6 +967,7 @@ class OfferTests(DriftCase):
             r = self.c.post(path, json={"confirm": "FILM", "offer": videos["offer"]["token"]}, headers=POST)
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self.drift._doc()["films"][lesson]["state"], "approved")
+        self.assertEqual(self.drift._doc()["approvals"][-1]["usd"], videos["offer"]["usd"], "what is written down is the price the page showed")
         after = self.videos()
         self.assertEqual((after["waiting"], after["offer"]), (1, None))
         self.assertEqual(self.c.post(path, json={"confirm": "FILM", "offer": videos["offer"]["token"]}, headers=POST).status_code, 409)

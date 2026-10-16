@@ -227,12 +227,15 @@ class MakeTests(StudioCase):
 
     def test_pressing_the_button_approves_the_set_and_price_shown_and_nothing_else(self):
         self.ready()
-        body = self.press(self.videos()["offer"]["token"])
+        offer = self.videos()["offer"]
+        shown = offer["usd"]
+        body = self.press(offer["token"])
         videos = next(x for x in body["courses"] if x["package"] == self.pid)["make"]["videos"]
         self.assertEqual((videos["waiting"], videos["filming"], videos["offer"]), (2, 0, None))
         self.assertEqual(videos["eta_minutes"], round(2 * (studio_mod.FILM_MINUTES + studio_mod.GAP_ADDED_MIN)))
         self.assertTrue(body["make"]["busy"], "the page keeps looking while films wait")
         self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 2)
+        self.assertEqual(self.app.state.newexams._doc(self.pid)["film"]["approvals"][-1]["total"], shown, "what is written down is the price the page showed")
         self.assertEqual([j for j in self.dojo.jobs.for_learner(self.owner) if j["kind"] == "video"], [], "approving files nothing by itself")
         self.assertIn("nothing new to film", self.press("0" * 16, 409)["detail"])
 
@@ -275,7 +278,7 @@ class MakeTests(StudioCase):
         self.ready()
         self.press(self.videos()["offer"]["token"])
         storage = self.read()["make"]["storage"]
-        self.assertGreater(storage["queued_bytes"], 0)
+        self.assertEqual(storage["queued_bytes"], int(4 * storage["average_bytes"] * studio_mod.FILM_MARGIN), "two lessons of two films each, with the margin offers get")
         self.assertEqual(storage["free_bytes"], storage["limit_bytes"] - storage["bytes"] - storage["queued_bytes"])
 
     def test_stop_forgets_the_films_that_have_not_started_and_leaves_the_one_being_made(self):
@@ -306,6 +309,61 @@ class MakeTests(StudioCase):
         self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 2, "a course that was refused did not stop the other")
         self.assertTrue(self.app.state.preparer.deck_ahead())
         self.assertEqual(self.c.post("/api/studio/make", json={"decks": True}, headers=POST).status_code, 422)
+
+    def test_a_lesson_a_changed_page_holds_back_is_not_offered_or_filmed_for_an_added_exam(self):
+        a, b = self.ready()
+        drift, films = self.app.state.drift, self.app.state.newexams
+        with mock.patch.object(drift, "withheld", lambda lesson: lesson == a):
+            videos = self.videos()
+            self.assertEqual((videos["offer"]["lessons"], videos["later"]), (1, {"held": 1}))
+        token = self.videos()["offer"]["token"]
+        self.press(token)
+        self.assertEqual(films.next_film(), a)
+        with mock.patch.object(drift, "withheld", lambda lesson: lesson == a):
+            self.assertEqual(films.next_film(), b, "approved, then held back by a changed page: it waits to be written again")
+        with mock.patch.object(drift, "withheld", lambda lesson: True):
+            self.assertIsNone(films.next_film())
+
+    def test_a_film_is_chosen_started_and_written_down_under_the_lock_stop_takes(self):
+        self.ready()
+        self.press(self.videos()["offer"]["token"])
+        films, prep = self.app.state.newexams, self.app.state.preparer
+        seen = []
+
+        def start(*args, **kwargs):
+            seen.append(films._lock._is_owned())
+            return {"id": new_id("job"), "state": "queued"}
+
+        with mock.patch.object(prep, "_quiet_for", return_value=1e9), mock.patch.object(self.dojo.jobs, "start", side_effect=start):
+            self.assertTrue(prep._film())
+        self.assertEqual(seen, [True], "Stop waits for a film that is being filed")
+
+    def test_films_approved_on_the_checks_page_for_an_added_exam_before_are_counted_and_stopped(self):
+        first = self.ready()[0]
+        drift = self.app.state.drift
+        drift._set_film(first, state="approved", approved=iso(), title="t", package=self.pid, skill=self.skills[0]["id"], replaces=None,
+                        job=None, tries=0, error=None)
+        self.assertEqual(self.videos()["waiting"], 1)
+        stopped = self.c.post(f"/api/studio/film/{self.pid}/stop", headers=POST).json()
+        self.assertEqual(stopped["stopped"], 1)
+        self.assertEqual(drift._doc()["films"], {})
+
+    def test_the_diagrams_are_not_switched_on_at_a_price_that_could_not_be_worked_out(self):
+        self.ready()
+        unpriced = {"every_lesson": {"per_lesson": None, "complete": False, "total": 0.0, "lessons": 2}}
+        with mock.patch.object(self.app.state.costs, "deck_view", return_value=unpriced):
+            r = self.c.post("/api/studio/make", json={"confirm": "MAKE", "decks": True, "films": []}, headers=POST)
+        self.assertEqual(r.status_code, 200, r.text)
+        results = r.json()["results"]
+        self.assertEqual([(x["what"], x["ok"]) for x in results], [("diagrams", False)])
+        self.assertIn("could not be worked out", results[0]["error"])
+        self.assertFalse(self.app.state.preparer.deck_ahead())
+
+    def test_two_clicks_on_film_this_lesson_cannot_start_two_jobs(self):
+        lesson = self.ready(1)[0]
+        with mock.patch.object(self.dojo.jobs, "start", return_value={"id": "job-x"}) as start:
+            self.c.post(f"/api/lessons/{lesson}/video", headers=POST)
+        self.assertEqual(start.call_args.kwargs.get("busy_message"), "This lesson is already being filmed.")
 
     def test_the_diagrams_are_one_line_for_all_courses(self):
         self.ready()
