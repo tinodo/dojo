@@ -6129,7 +6129,8 @@ function feedRow(e) {
 function feedDays(events) {
   const days = [];
   for (const e of events) {
-    const key = new Date(e.at).toLocaleDateString("en-CA");
+    const d = new Date(e.at);
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     if (!days.length || days[days.length - 1].key !== key) days.push({ key, at: e.at, events: [] });
     days[days.length - 1].events.push(e);
   }

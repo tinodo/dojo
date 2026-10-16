@@ -15,6 +15,7 @@ Reading a page refreshes Dojo's stored copy of it, as every read of a cited page
 them too); nothing else of the course is written."""
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from collections import Counter
@@ -60,19 +61,27 @@ class PageCheck:
         return [s for s in self.dojo.packages.get(pid)["skills"].values() if s["sources"]]
 
     @staticmethod
-    def _sig(skill: dict) -> str:
-        """What a verdict was made for: the skill's words and the addresses of the pages it cites."""
-        return sha256("|".join([skill["text"], *sorted(r["url"] for r in skill["sources"])]))[:16]
+    def _context(meta: dict, skill: dict) -> dict:
+        """What the models are told about the skill, besides the pages."""
+        return {"code": meta["exam"], "title": meta["title"], "domain": skill.get("domain_title") or "", "group": skill.get("group") or "",
+                "text": skill["text"]}
 
-    def _judged(self, skills: list[dict], doc: dict) -> dict[str, dict]:
+    @classmethod
+    def _sig(cls, meta: dict, skill: dict) -> str:
+        """What a verdict was made for: everything the models were given (the exam, the skill's domain, group and words) and the
+        pages the skill cites, with their titles."""
+        pages = sorted((r["url"], r.get("title") or r["url"]) for r in skill["sources"])
+        return sha256(json.dumps([cls._context(meta, skill), pages], sort_keys=True))[:16]
+
+    def _judged(self, meta: dict, skills: list[dict], doc: dict) -> dict[str, dict]:
         """The verdicts that are still those of the skills as they are now."""
-        return {s["id"]: doc["skills"][s["id"]] for s in skills if doc["skills"].get(s["id"], {}).get("sig") == self._sig(s)}
+        return {s["id"]: doc["skills"][s["id"]] for s in skills if doc["skills"].get(s["id"], {}).get("sig") == self._sig(meta, s)}
 
     def view(self, pid: str) -> dict:
         """For Studio: how far the check is and what it found. The price is that of the pages still to check."""
-        skills = self._skills(pid)
+        skills, meta = self._skills(pid), self.dojo.packages.get(pid)["meta"]
         doc = self._doc(pid)
-        judged = self._judged(skills, doc)
+        judged = self._judged(meta, skills, doc)
         todo = [s for s in skills if s["id"] not in judged]
         counts = Counter(v.get("verdict") for v in judged.values())
         running = bool(self.dojo.jobs.existing(self.owner, KIND, pid))
@@ -112,13 +121,13 @@ class PageCheck:
         meta, skills = pkg["meta"], self._skills(pid)
         with self._lock:
             doc = self._doc(pid)
-        todo = [s for s in skills if s["id"] not in self._judged(skills, doc)]
+        todo = [s for s in skills if s["id"] not in self._judged(meta, skills, doc)]
         doc["started"] = doc.get("started") or iso()
         verifier = Verifier(self.dojo, count=_Calls(MAX_CALLS))
         unread = 0
         for k, s in enumerate(todo, 1):
             progress(f"Checking the pages of skill {k} of {len(todo)}")
-            ctx = {"code": meta["exam"], "title": meta["title"], "domain": s.get("domain_title") or "", "group": s.get("group") or "", "text": s["text"]}
+            ctx = self._context(meta, s)
             pages = [{"url": r["url"], "title": r.get("title") or r["url"]} for r in s["sources"]]
             results = verifier.grade_pages(ctx, pages, both_all=True)
             for i, (page, res) in enumerate(zip(pages, results)):
@@ -128,9 +137,9 @@ class PageCheck:
             if verdict != "supported" and any(v["state"] == "unread" for v in verdicts):
                 unread += 1   # a page that could not be read says nothing about the skill: it is judged on the next run
                 continue
-            doc["skills"][s["id"]] = {"verdict": verdict, "pages": verdicts, "at": iso(), "sig": self._sig(s)}
+            doc["skills"][s["id"]] = {"verdict": verdict, "pages": verdicts, "at": iso(), "sig": self._sig(meta, s)}
             self._save(pid, doc)
-        if len(self._judged(skills, doc)) == len(skills):
+        if len(self._judged(meta, skills, doc)) == len(skills):
             doc["finished"] = iso()
             self._save(pid, doc)
         return {"package": pid, "checked": len(todo) - unread, "unread": unread}

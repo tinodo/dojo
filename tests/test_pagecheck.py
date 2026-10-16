@@ -157,6 +157,21 @@ class VerdictTests(PageCheckCase):
         v = self.view()
         self.assertEqual((v["state"], v["invalid"], v["unchecked"]), ("done", 0, 0), "the added page teaches the skill")
 
+    def test_a_verdict_belongs_to_the_context_the_models_were_given_too(self):
+        self.run_check()
+        self.assertEqual(self.view()["unchecked"], 0)
+        self.good["sources"][0]["title"] = "The same page under a better title"      # the title the models read
+        self.dojo.packages.add(self.raw)
+        self.assertEqual(self.view()["unchecked"], 1)
+        self.run_check()
+        raw = self.dojo.store.read("packages", PID)   # a group renamed in the package
+        for d in raw["domains"]:
+            for g in d["groups"]:
+                if any(s["id"] == self.good["id"] for s in g["skills"]):
+                    g["title"] = g["title"] + " (renamed)"
+        self.dojo.packages.add(raw)
+        self.assertGreaterEqual(self.view()["unchecked"], 1, "the models are told the group of the skill")
+
     def test_a_course_whose_every_skill_has_a_verdict_is_done_even_if_the_run_stopped_before_it_said_so(self):
         self.run_check()
         doc = self.dojo.store.read("page-check", PID)

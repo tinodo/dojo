@@ -374,7 +374,10 @@ class StudioScreenTests(unittest.TestCase):
         self.assertIn("say nothing about whether the lesson text is right", SCRIPT)
 
     def test_the_activity_is_grouped_by_the_readers_own_days_and_can_be_filtered(self):
-        self.assertIn('toLocaleDateString("en-CA")', part("function feedDays(events) {"))
+        days = part("function feedDays(events) {")
+        for local in ("getFullYear()", "getMonth()", "getDate()"):
+            self.assertIn(local, days)
+        self.assertNotIn("slice(0, 10)", days, "not the UTC day of the event")
         self.assertIn("aria-pressed", part("async function studioActivity() {"))
 
     def test_every_link_to_the_studio_log_opens_the_checks(self):
