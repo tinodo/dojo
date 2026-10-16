@@ -258,8 +258,8 @@ class Studio:
         return {**plan, "films": {sp: mid for sp, mid in plan["films"].items() if not (mid + ".webm" in media and mid + ".json" in media)}}
 
     def _missing_films(self, lesson_ids: list[str], media: set[str]) -> int:
-        """How many presenter videos these lessons still need: the ones not stored yet, counted by lesson."""
-        return sum(len(self._to_film(self.checker.plan(x), media)["films"]) for x in lesson_ids)
+        """How many presenter videos these lessons still need: the ones not stored yet, each counted once however many lessons share it."""
+        return len({mid for x in lesson_ids for mid in self._to_film(self.checker.plan(x), media)["films"].values()})
 
     def _search(self, pid: str) -> dict | None:
         st = self.newexams.sourcer.status(pid)
@@ -352,7 +352,8 @@ class Studio:
         if added:
             st = self.newexams.film_state(pid)
             old = self.drift.film_queue(pid) if self.drift is not None else {"waiting": 0, "filming": 0, "ids": []}   # approved on the Checks page before ADR 0020
-            return {"offer": list(st["offer"]), "token": st["token"], "waiting": st["waiting"] + old["waiting"], "filming": st["filming"] + old["filming"],
+            offer, token = (list(st["offer"]), st["token"]) if not old["ids"] else ([], None)   # those are stopped or finished first: nothing is offered twice
+            return {"offer": offer, "token": token, "waiting": st["waiting"] + old["waiting"], "filming": st["filming"] + old["filming"],
                     "failed": st["failed"], "queued": list(st["queued"]) + list(old["ids"])}
         if self.drift is None:
             return {"offer": [], "token": None, "waiting": 0, "filming": 0, "failed": 0, "queued": []}
@@ -462,9 +463,8 @@ class Studio:
 
     def _queued(self, pid: str) -> list[str]:
         """The lessons of a course whose films were approved and are not made yet."""
-        if self.dojo.packages.is_added(pid):
-            return list(self.newexams.film_state(pid)["queued"])
-        return self.drift.film_queue(pid)["ids"] if self.drift is not None else []
+        older = self.drift.film_queue(pid)["ids"] if self.drift is not None else []
+        return (list(self.newexams.film_state(pid)["queued"]) + older) if self.dojo.packages.is_added(pid) else older
 
     def _approve_film(self, learner: Any, pid: str, token: str) -> None:
         """Approve exactly the lessons and the price the page showed for a course. Not when the lessons or the price changed since

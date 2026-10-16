@@ -3423,7 +3423,8 @@ function filmPane(L, onFilmed) {
   }
   const status = h("p", { class: "small muted" },
     "Each presenter is filmed once for the whole lesson, so it only happens on the first watch.");
-  const cost = L.film_price ? (L.film_price.complete ? `about ${usd(L.film_price.usd)}` : "price not listed") : "price not listed";
+  const priced = !!(L.film_price && L.film_price.complete);
+  const cost = priced ? `about ${usd(L.film_price.usd)}` : "price not listed yet";
   const btn = button(`Film this lesson (${cost}, about 2 minutes)`, async () => {
     btn.disabled = true;
     status.textContent = "Starting…";
@@ -3435,6 +3436,10 @@ function filmPane(L, onFilmed) {
       onFilmed();
     } catch (e) { status.textContent = e.message; btn.disabled = false; }
   }, "amber");
+  if (!priced) {   // nothing is filmed at a price Dojo cannot show: Studio reads the price list, and this page shows it from then on
+    btn.disabled = true;
+    status.textContent = "Dojo has no price for this film yet. Open Studio once, so that it reads the price list, and come back.";
+  }
   return h("div", { class: "col grow" }, h("section", { class: "panel" },
     eyebrow("video", "Watch", "amber"),
     h("h2", null, film ? "This version has not been filmed yet" : "This lesson has not been filmed yet"),
@@ -6701,6 +6706,10 @@ function refilmPanel(d, paint) {
     try { paint(await api("/api/studio/drift/refilm", { method: "POST", body: { lessons: R.lessons.map((x) => x.id) } })); }
     catch (e) { status.textContent = e.message; btn.disabled = false; }
   }, "amber") : null;
+  if (btn && est.usd === null) {   // nothing is filmed at a price Dojo cannot show
+    btn.disabled = true;
+    status.textContent = "The price list could not be read just now, so nothing can be approved.";
+  }
   const pace = est.pace === "measured" ? "at the pace of your own videos" : "at an assumed pace of 14 characters a second";
   const why = [changed ? `${plural(changed, "lesson")} after a source page changed` : null,
     deeper ? `${plural(deeper, "lesson")} on the deeper template, from more official pages` : null].filter(Boolean).join(" and ");
@@ -8667,6 +8676,10 @@ function filmPanel(st, onStatus, note) {
         msg.textContent = err.message;
       }
     }, "amber");
+    if (!e.complete) {   // nothing is filmed at a price Dojo cannot show completely
+      btn.disabled = true;
+      msg.textContent = note || "The price list could not be read just now, so nothing can be approved.";
+    }
     bits.push(h("p", { class: "small ink2" }, `${plural(F.offer.lessons, "written lesson")} not filmed yet: about ${e.lines[0].quantity} minutes of video.`),
       h("div", { class: "top" }, estimateRows(e, "About, at list price")),
       h("div", { class: "actions top" }, btn), msg,

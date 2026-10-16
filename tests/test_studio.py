@@ -352,10 +352,13 @@ class MakeTests(StudioCase):
         drift = self.app.state.drift
         drift._set_film(first, state="approved", approved=iso(), title="t", package=self.pid, skill=self.skills[0]["id"], replaces=None,
                         job=None, tries=0, error=None)
-        self.assertEqual(self.videos()["waiting"], 1)
+        videos = self.videos()
+        self.assertEqual((videos["waiting"], videos["offer"]), (1, None), "nothing is offered twice: the older approval is stopped or finished first")
+        self.assertGreater(self.read()["make"]["storage"]["queued_bytes"], 0)
         stopped = self.c.post(f"/api/studio/film/{self.pid}/stop", headers=POST).json()
         self.assertEqual(stopped["stopped"], 1)
         self.assertEqual(drift._doc()["films"], {})
+        self.assertEqual(self.videos()["offer"]["lessons"], 2)
 
     def test_the_diagrams_are_not_switched_on_at_a_price_that_could_not_be_worked_out(self):
         self.ready()
@@ -370,9 +373,21 @@ class MakeTests(StudioCase):
 
     def test_two_clicks_on_film_this_lesson_cannot_start_two_jobs(self):
         lesson = self.ready(1)[0]
-        with mock.patch.object(self.dojo.jobs, "start", return_value={"id": "job-x"}) as start:
-            self.c.post(f"/api/lessons/{lesson}/video", headers=POST)
-        self.assertEqual(start.call_args.kwargs.get("busy_message"), "This lesson is already being filmed.")
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def slow(progress, learner, lesson_id):
+            release.wait(20)
+            return {"lesson": lesson_id}
+
+        with mock.patch.object(self.dojo, "lesson_video", slow):
+            first = self.c.post(f"/api/lessons/{lesson}/video", headers=POST)
+            self.assertEqual(first.status_code, 200, first.text)
+            with mock.patch.object(self.dojo.jobs, "existing", return_value=None):   # the second click read the jobs before the first one started
+                second = self.c.post(f"/api/lessons/{lesson}/video", headers=POST)
+        self.assertEqual(second.status_code, 409)
+        self.assertIn("already being filmed", second.json()["detail"])
+        self.assertEqual(len([j for j in self.dojo.jobs.for_learner(self.owner) if j["kind"] == "video"]), 1, "one paid job")
 
     def test_the_diagrams_are_one_line_for_all_courses(self):
         self.ready()
@@ -388,6 +403,13 @@ class MakeTests(StudioCase):
         after = self.read()["make"]
         self.assertTrue(after["decks"]["ahead"])
         self.assertTrue(after["busy"], "the page keeps looking while diagrams are drawn")
+
+    def test_the_older_film_buttons_are_disabled_when_their_price_is_not_complete(self):
+        watch = SCRIPT.split("const priced = !!(L.film_price && L.film_price.complete);", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("if (!priced) {", watch)
+        self.assertIn("btn.disabled = true;", watch.split("if (!priced) {", 1)[1])
+        self.assertIn("if (btn && est.usd === null) {", part("function refilmPanel(d, paint) {"))
+        self.assertIn("if (!e.complete) {", part("function filmPanel(st, onStatus, note) {"))
 
     def test_the_routes_are_closed_while_a_timed_exam_runs(self):
         self.app.state.exams.open_attempt = lambda learner: {"id": "exam-00000000000000000000"}
