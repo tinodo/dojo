@@ -96,15 +96,15 @@ COURSE_CALLS = (
     ("check", "Checking the lessons", "gate", 31000, 9000, LESSON_ROUNDS),   # every sentence, in parts that each see the pages
 )
 # What finding the official pages of one skill takes with source discovery (ADR 0018), measured with
-# tools/source_eval.py (e2e) on 16 October 2026: the 13 DP-300 skills the earlier search had left without a page,
-# searched by the real models and the real web search: 265 model calls, 758,136 input and 83,579 output tokens for the
-# author (the web search, the phrases, its reading of every page, the comparison of the accepted pages) and 879,847
-# input and 204,368 output tokens for the checker, which is 58,300 and 6,400, and 67,700 and 15,700 a skill. The output
-# includes the models' reasoning. Used for an added exam's course; deeper lessons (ADR 0008) still search once, with
-# the first two lines of COURSE_CALLS.
+# tools/source_eval.py (e2e) on 16 October 2026 with the limits and the search wording that were merged: the 13 DP-300
+# skills the earlier search had left without a page, searched by the real models and the real web search: 317 model
+# calls, 844,096 input and 101,541 output tokens for the author (the web search, the phrases, its reading of every page,
+# the comparison of the accepted pages) and 1,152,609 input and 268,638 output tokens for the checker, which is 64,900
+# and 7,800, and 88,700 and 20,700 a skill. The output includes the models' reasoning. Used for an added exam's course;
+# deeper lessons (ADR 0008) still search once, with the first two lines of COURSE_CALLS.
 SOURCING_CALLS = (
-    ("pick", "Finding official pages", "author", 58300, 6400, 1.0),
-    ("verify", "Checking the pages with a second model", "gate", 67700, 15700, 1.0),
+    ("pick", "Finding official pages", "author", 64900, 7800, 1.0),
+    ("verify", "Checking the pages with a second model", "gate", 88700, 20700, 1.0),
 )
 NARRATION_CHARS = 3000       # characters narrated per lesson, until three lessons have been narrated
 SPEAKING_CPS = 14.0          # characters a presenter says per second, until a minute of video is filmed
