@@ -52,7 +52,7 @@ class Net:
         except UserError as e:
             raise SourcingError(str(e)) from e
         self._host(url)
-        final, text = self._retry(url, lambda: self.sources.page(url))
+        final, text = self._retry(url, lambda: self.sources.page(url, docs=True))
         return final, text[:limit]
 
     def post_json(self, url: str, body: dict, headers: dict | None = None) -> tuple[str, dict]:

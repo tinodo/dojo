@@ -98,10 +98,12 @@ class Inventory:
                 scored.append((total, index, doc))
             scored.sort(key=lambda row: (-row[0], row[1]))
             out: list[Hit] = []
+            seen: set[str] = set()
             for _, _, doc in scored:
-                hit = {"url": doc["url"], "title": doc["title"], "summary": doc["trail"]}
-                if not any(docs_url(hit["url"]) and docs_url(row["url"]) and row["url"] == hit["url"] for row in out):
-                    out.append(hit)
+                if doc["url"] in seen:
+                    continue
+                seen.add(doc["url"])
+                out.append({"url": doc["url"], "title": doc["title"], "summary": doc["trail"]})
                 if len(out) >= top:
                     break
             return out

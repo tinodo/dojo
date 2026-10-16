@@ -196,11 +196,14 @@ class Sourcer:
         self.dojo = dojo
         self.nx = newexams
         self.store = dojo.store
-        self.net = Net(dojo.sources)
+        local = bool(getattr(getattr(dojo, "settings", None), "local", False))
+        # With the stand-in models and a mock site (tests, DOJO_LOCAL) there is nobody to be polite to.
+        self.net = Net(dojo.sources, per_second=1000.0, sleep=lambda s: None) if local else Net(dojo.sources)
         self.mcp = McpClient(self.net)
         self.now = now
         self._leases: dict[str, Lease] = {}
         self._lock = threading.Lock()
+        self._package = threading.RLock()   # the package is read, changed and written here one at a time (never under the store's lock)
         self.state: dict[str, Any] = {"current": None, "last": None, "worked": 0, "note": ""}
 
     def lease(self, pid: str) -> Lease:
@@ -301,6 +304,9 @@ class Sourcer:
         if doc["state"] == "partial":
             doc["growing"] = True
         if doc["state"] != "blocked":
+            # The planner is asked again, and told which phrases were tried and which pages were refused.
+            doc["tried"] = (doc.get("tried", []) + [q for k in sorted(doc["plan"]) for q in doc["plan"][k]])[-40:]
+            doc["plan"] = {}
             doc["round"] = 0
         doc.update(state="searching", next=None, blocked=None)
 
@@ -309,7 +315,7 @@ class Sourcer:
         not shown") is stale once the search runs by itself: the exam page says how far it is, live."""
         if not any("no official page passed the check" in n for n in raw.get("notes") or []):
             return raw
-        with self.store.lock:
+        with self._package:
             fresh = self.store.read("packages", run.pid, default=None)
             if not isinstance(fresh, dict):
                 return raw
@@ -362,16 +368,19 @@ class Sourcer:
                               "sources": [], "doc": doc, "has_sources": False,
                               "ctx": {"code": code, "title": title, "domain": domain["title"], "group": group["title"], "text": text}})
             for r in (1, 2):
-                todo = [w for w in batch if w["doc"]["state"] == "searching" and w["doc"]["round"] < r]
+                todo = [w for w in batch if w["doc"]["state"] == "searching" and w["doc"]["round"] == r - 1]
                 if todo:
                     self._rounds(run, domain["title"], group["title"], todo, r, r)
             out = {}
             for w in batch:
                 doc = w["doc"]
                 error = (doc.get("blocked") or {}).get("error") if doc["state"] == "blocked" else doc.get("failure")
-                out[w["key"]] = {"sources": refs_of(doc) if doc["state"] == "covered" else [], "checked": iso(),
-                                 "error": error if doc["state"] != "covered" and error else None, "candidates": len(doc["pool"])}
+                out[w["key"]] = {"sources": refs_of(doc) if doc["accepted"] else [], "checked": iso(),
+                                 "error": error if not doc["accepted"] and error else None, "candidates": len(doc["pool"])}
             return out
+        except CapReached as e:
+            raise UserError("Dojo used today's model calls for searching the pages of this exam. The pages found so far are kept: "
+                            "press Build again tomorrow to go on.") from e
         finally:
             run.flush()
             run.lease.release()
@@ -384,8 +393,10 @@ class Sourcer:
         try:
             for s in self.skills_of(raw):
                 doc = run.books.skill(s["key"])
-                if doc["state"] == "covered" and s["sources"] and not doc.get("activated"):
-                    doc["activated"] = {"at": iso(), "sources": len(s["sources"]), "partial": False, "build": True}
+                if doc["accepted"] and s["sources"] and not doc.get("activated"):
+                    covered = doc["state"] == "covered"
+                    doc["activated"] = {"at": iso(), "sources": len(s["sources"]), "partial": not covered, "build": True}
+                    doc["growing"] = not covered   # a skill written as `partial` goes on through rounds 3 and 4
                     run.books.save_skill(doc)
         finally:
             run.lease.release()
@@ -404,11 +415,11 @@ class Sourcer:
     def _plan(self, run: Run, domain: str, group: str, batch: list[dict], r: int) -> None:
         if r not in (1, 2):
             return
-        todo = [w for w in batch if str(r) not in w["doc"]["plan"] and w["doc"]["state"] == "searching"]
+        todo = [w for w in batch if str(r) not in w["doc"]["plan"] and w["doc"]["state"] == "searching" and w["doc"]["round"] == r - 1]
         specs = []
         for w in todo:
             doc = w["doc"]
-            tried = [q for k in sorted(doc["plan"]) for q in doc["plan"][k]]
+            tried = doc.get("tried", []) + [q for k in sorted(doc["plan"]) for q in doc["plan"][k]]
             rejected = [{"title": e["title"], "why": e.get("why") or "other-task"}
                         for e in sorted(doc["pool"].values(), key=lambda e: e["order"]) if e["verdict"] == "rejected"][-8:]
             fp = fingerprint("plan", r, w["text"], tried, rejected)
@@ -431,7 +442,7 @@ class Sourcer:
     def _advance(self, run: Run, w: dict, r: int) -> None:
         """Round `r` for one skill: search, judge, assess, and write the skill when it is `covered`."""
         doc = w["doc"]
-        if doc["state"] != "searching":
+        if doc["state"] != "searching" or doc["round"] != r - 1:
             return
         try:
             self._retrieve(run, w, r)
@@ -546,8 +557,12 @@ class Sourcer:
     def _verify(self, run: Run, w: dict, r: int) -> None:
         doc, ctx = w["doc"], w["ctx"]
         for e in doc["pool"].values():
-            if e["verdict"] == "unread" and e.get("round", 0) < r and e.get("tries", 0) < 3:
+            if e.get("round", 0) >= r:
+                continue
+            if e["verdict"] == "unread" and e.get("tries", 0) < 3:
                 e["verdict"] = "new"
+            elif e["verdict"] == "rejected" and e.get("why") == "quote" and not e.get("quote_tries"):
+                e["verdict"], e["quote_tries"] = "new", 1   # no valid quote is a failure of the models, not a verdict on the page: once more
         done = 0
         while done < VERIFY_LIMIT and len(doc["accepted"]) < MAX_ACCEPTED:
             new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
@@ -704,7 +719,7 @@ class Sourcer:
         doc = w["doc"]
         pid = run.pid
         store = self.store
-        with store.lock:
+        with self._package:
             raw = store.read("packages", pid, default=None)
             if not isinstance(raw, dict):
                 return   # the exam is not added yet: `adopt` notes it afterwards
@@ -794,7 +809,7 @@ class Sourcer:
             return {}
         counts: Counter = Counter()
         skills = []
-        audit = self.store.read("sourcing", pid, "_audit", default=None) or {}
+        audit = self.store.read("sourcing", pid, "side-audit", default=None) or {}
         for s in self.skills_of(raw):
             doc = self.store.read("sourcing", pid, s["key"], default=None)
             doc = doc if isinstance(doc, dict) and doc.get("key") == s["key"] else None
@@ -830,7 +845,7 @@ class Sourcer:
 
     def web_state(self) -> dict | None:
         """The last web search self-test: {at, ok, reason}, or None when it was not made yet."""
-        doc = self.store.read("sourcing", "_web", default=None)
+        doc = self.store.read("sourcing", "web-check", default=None)
         return doc if isinstance(doc, dict) else None
 
     def check_web(self) -> None:
@@ -843,4 +858,4 @@ class Sourcer:
             doc = {"at": iso(), "ok": bool(found["urls"]), "reason": "" if found["urls"] else "the search returned no page"}
         except (AIError, UserError) as e:
             doc = {"at": iso(), "ok": False, "reason": str(e)[:200]}
-        self.store.write("sourcing", "_web", value=doc)
+        self.store.write("sourcing", "web-check", value=doc)

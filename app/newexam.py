@@ -330,6 +330,7 @@ class NewExams:
         if not self._counts(guide, matches)["sourced"]:
             # Something is wrong with the checks rather than with every page: start again from nothing.
             self._change(pid, lambda doc: doc.update(matches={}, checked=0, sourced=0, errors=0))
+            self.sourcer.forget(pid)
             raise UserError(f"No official page passed the check for any of the {total} skills, so Dojo did not add "
                             f"{code}. Press Build again to check every skill again.")
         progress("Putting the course together")

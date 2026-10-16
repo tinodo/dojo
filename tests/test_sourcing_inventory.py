@@ -161,6 +161,13 @@ class InventoryTests(unittest.TestCase):
                          "https://learn.microsoft.com/en-us/sql/disaster-recovery-drills")
         self.assertEqual(inv2.search(["troubleshooting SQL Server Agent jobs"], top=1)[0]["url"],
                          "https://learn.microsoft.com/en-us/sql/troubleshoot-job")
+        # Several pages come back, best first, each once, however many phrases found it.
+        many = inv2.search(["SQL Server Agent jobs", "troubleshoot SQL Server jobs", "SQL Server"], top=5)
+        urls = [h["url"] for h in many]
+        self.assertGreater(len(urls), 1)
+        self.assertEqual(urls[0], "https://learn.microsoft.com/en-us/sql/troubleshoot-job")
+        self.assertEqual(len(urls), len(set(urls)))
+        self.assertEqual({"url", "title", "summary"}, set(many[0]))
 
     def test_thread_safe_seed_reads_one_toc_once(self):
         now = [at()]

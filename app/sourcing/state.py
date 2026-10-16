@@ -165,7 +165,7 @@ class Books:
             self.store.write("sourcing", self.pid, value=doc)
 
     def keys(self) -> list[str]:
-        return [n for n in self.store.names("sourcing", self.pid) if not n.startswith("_")]
+        return [n for n in self.store.names("sourcing", self.pid) if not n.startswith("side-")]
 
     def skill(self, key: str) -> dict:
         doc = self.store.read("sourcing", self.pid, key, default=None)
@@ -179,13 +179,13 @@ class Books:
             self.store.write("sourcing", self.pid, doc["key"], value=doc)
 
     def side(self, name: str, default: Any = None) -> Any:
-        """A document of the exam that belongs to no skill (the R7 scan, the audit): `_name`."""
-        return self.store.read("sourcing", self.pid, f"_{name}", default=default)
+        """A document of the exam that belongs to no skill (the R7 scan, the audit): `side-<name>`."""
+        return self.store.read("sourcing", self.pid, f"side-{name}", default=default)
 
     def save_side(self, name: str, value: Any) -> None:
         with self._lock:
             self.lease.check()
-            self.store.write("sourcing", self.pid, f"_{name}", value=value)
+            self.store.write("sourcing", self.pid, f"side-{name}", value=value)
 
     def _fenced(self, doc: dict) -> None:
         """A document written by a newer owner is never written over by an older one."""

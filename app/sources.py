@@ -527,10 +527,12 @@ class Sources:
             raise e
         return (response.text.strip() if read is _article else html_to_text(response.text)), final
 
-    def page(self, url: str) -> tuple[str, str]:
+    def page(self, url: str, docs: bool = False) -> tuple[str, str]:
         """A page read for its structure (a study guide or a certification page): the address it ended
-        at after redirects, and its HTML. Nothing is stored. A missing page raises httpx.HTTPStatusError."""
-        response = self._request(url)
+        at after redirects, and its HTML. Nothing is stored. A missing page raises httpx.HTTPStatusError.
+        With `docs`, only documentation is read: the address and every redirect must pass `docs_url`
+        (a page that leads into training is refused with NotDocs before training is asked for, EG-39)."""
+        response = self._request(url, docs_url if docs else None)
         return str(response.url), response.text
 
     def data(self, url: str) -> Any:

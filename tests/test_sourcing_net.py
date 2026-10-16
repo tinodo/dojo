@@ -27,7 +27,7 @@ class FakeSources:
             raise step
         return step
 
-    def page(self, url: str):
+    def page(self, url: str, docs: bool = False):
         self.calls.append(("page", url))
         step = self.page_steps[url].pop(0)
         if isinstance(step, Exception):
