@@ -21,7 +21,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 import app.sourcing.ladder as ladder  # noqa: E402
 from app import readiness  # noqa: E402
 from app.ai import AIError, StubAI  # noqa: E402
-from app.core import iso, utcnow  # noqa: E402
+from app.core import iso, utcnow, current_spend  # noqa: E402
+from app.learning import LESSON_TEMPLATE  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from app.sourcing.inventory import Inventory  # noqa: E402
 from app.sourcing.state import LeaseLost, new_skill, skill_key  # noqa: E402
@@ -65,6 +66,7 @@ class Hooked(StubAI):
         self.fail: dict[str, int] = {}       # task -> the next calls of it that fail
         self.fail_web = False
         self.web_calls: list[tuple] = []
+        self.spends: list = []               # what each model call was attributed to (app.core.current_spend)
         self.scan_for = "Dimensioning"       # the title scan names the pages whose title has this word
         self.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "teaches"   # a hub teaches nothing
         self._keep = threading.Lock()
@@ -73,6 +75,7 @@ class Hooked(StubAI):
         task = re.search(r"TASK: (\w+)", system).group(1)
         with self._keep:
             self.prompts.append((role, task, system, user))
+            self.spends.append(current_spend())
             if self.fail.get(task):
                 self.fail[task] -= 1
                 raise AIError(f"the {role} model is down")
@@ -81,6 +84,7 @@ class Hooked(StubAI):
     def web_search(self, query, domains=(), max_searches=1):
         with self._keep:
             self.web_calls.append((query, domains, max_searches))
+            self.spends.append(current_spend())
         if self.fail_web:
             raise AIError("web search is down")
         return super().web_search(query, domains, max_searches)
@@ -140,6 +144,33 @@ class SourcingCase(unittest.TestCase):
 
     def later(self, **delta) -> None:
         self.clock[0] = self.clock[0] + timedelta(**delta)
+
+
+class BestTests(unittest.TestCase):
+    """Which accepted pages a skill cites (ladder.best)."""
+
+    @staticmethod
+    def url(name: str) -> str:
+        return LEARN + DOCS_AT + name
+
+    def doc(self, direct, gate_drops):
+        pages = [{"url": self.url(n), "title": n, "grade": "teaches", "by": ["r1u"], "rank": 1} for n in ("p", "q", "s")]
+        return {"accepted": pages,
+                "ranked": {"order": [self.url(n) for n in ("p", "q", "s")], "drop": [], "direct": [self.url(n) for n in direct],
+                           "models": {"gate": {"drop": [self.url(n) for n in gate_drops]}, "author": {"drop": []}}}}
+
+    def names(self, doc):
+        return [p["url"].rsplit("/", 1)[-1] for p in ladder.best(doc)]
+
+    def test_the_page_both_models_ranked_first_stays_though_one_of_them_dropped_it(self):
+        self.assertEqual(self.names(self.doc(direct=["s"], gate_drops=["p"])), ["s", "p", "q"],
+                         "the combined best page is never left out: only both models dropping a page leaves it out")
+
+    def test_a_page_only_one_model_dropped_does_not_fill_a_place_beside_a_direct_page(self):
+        self.assertEqual(self.names(self.doc(direct=["s"], gate_drops=["q"])), ["s", "p"])
+
+    def test_without_a_direct_page_the_order_of_the_models_decides(self):
+        self.assertEqual(self.names(self.doc(direct=[], gate_drops=["q"])), ["p", "q", "s"])
 
 
 class BuildTests(SourcingCase):
@@ -203,6 +234,13 @@ class BuildTests(SourcingCase):
         self.assertTrue(any(q.endswith("Skill: Implement widget backups on Contoso gadgets") for q in mine), "and its phrase for a product")
         self.assertTrue(any(q.endswith("Skill: Implement widget backups on Contoso cogs") for q in mine), "and for the other product")
         self.assertFalse(any(q.endswith("how to") or q.endswith("title") for q in mine), "not for every phrase of the planner")
+
+    def test_every_model_call_of_the_build_is_attributed_to_the_job_that_asked(self):
+        self.build()
+        self.assertTrue(self.ai.spends)
+        learners = {s.learner if s else None for s in self.ai.spends}
+        self.assertNotIn(None, learners, "the calls of the threads carry the learner and the action of the job")
+        self.assertEqual(len(learners), 1, learners)
 
     def test_the_inventory_search_finds_a_page_by_its_title(self):
         self.build(r3=True)
@@ -550,14 +588,38 @@ class BackgroundTests(SourcingCase):
         with mock.patch.object(ladder, "DAY_CALLS", 1):
             self.assertEqual(self.sourcer.wait_s(), 1800.0)
 
+    def test_a_judging_that_keeps_failing_blocks_the_skill_instead_of_trying_for_ever(self):
+        self.build()
+        self.ai.fail["verify_graded"] = 10_000   # the models cannot judge a page now
+        for _ in range(12):
+            self.sourcer.step()
+            self.later(hours=2)   # past every pause
+        book = self.book(UNSOURCED)
+        self.assertEqual(book["state"], "blocked")
+        self.assertIn(".verify.", book["blocked"]["step"])
+        tries = [s["tries"] for k, s in book["steps"].items() if ".verify." in k and not s["done"]]
+        self.assertEqual(tries, [3], "the same batch, tried three times: a repeat is the same step, not a new one")
+
+    def test_a_changed_source_set_makes_the_lesson_be_written_again(self):
+        self.build()
+        deeper = self.app.state.deeper
+        skill = next(s for s in skills_of(self.raw()) if s["sources"])
+        live = self.dojo.packages.get("xy-110")["skills"][skill["id"]]
+        meta = {"template": LESSON_TEMPLATE, "offered": [r["url"] for r in skill["sources"]]}
+        self.assertIsNone(deeper.why(live, meta), "a lesson written from the pages the package cites is left alone")
+        meta["offered"] = [LEARN + DOCS_AT + "the-page-an-earlier-lesson-was-written-from"]
+        self.assertEqual(deeper.why(live, meta), "pages", "the preparer writes it again (ADR 0008); the old lesson stays until the new one holds")
+
     def test_removing_the_exam_forgets_what_the_search_kept(self):
         self.build()
         self.steps()
+        self.assertTrue(self.store.names("inventory"), "the exam's table of contents were read")
         self.assertTrue(self.store.names("sourcing", "xy-110"))
         post(self.c, "/api/exam-packages/xy-110/remove", {"confirm": "REMOVE"})
         self.assertEqual(self.store.names("sourcing", "xy-110"), [])
         self.assertIsNone(self.store.read("sourcing", "xy-110", default=None))
         self.assertFalse(self.store.path("sourcing", "xy-110.lease").exists(), "a re-added exam is not kept waiting for a lease")
+        self.assertEqual(self.store.names("inventory"), [], "the inventory of the removed exam goes with it")
 
 
 def parse_next(book: dict):

@@ -24,9 +24,10 @@ from urllib.parse import urlsplit
 import httpx
 
 from ..ai import AIError, ask_json
-from ..core import UserError, iso, utcnow
+from ..core import UserError, carried, iso, utcnow
 from ..pagefinder import QUOTE_WORDS, label, untrusted
 from ..sources import GONE_CODES, NotDocs, excerpt, normalize
+from .counted import Counted
 from .retrieve import deny_url
 
 log = logging.getLogger("dojo.sourcing")
@@ -153,7 +154,7 @@ class Verifier:
     def __init__(self, dojo: Any, count: Callable[[], None] | None = None):
         self.dojo = dojo
         self.sources = dojo.sources
-        self.count = count or (lambda: None)   # called before every model call, so the daily cap can stop the work
+        self.ai = Counted(dojo.ai, count) if count else dojo.ai   # every attempt is counted first, so the daily cap can stop the work
 
     # ------------------------------------------------------------ pages
 
@@ -224,8 +225,7 @@ class Verifier:
             user = (f"<data>\n{self._head(ctx)}<domain>{untrusted(ctx['domain'], 300)}</domain>\n"
                     f"<group>{untrusted(ctx['group'], 300)}</group>\n<study-guide-skill>{untrusted(ctx['text'], 600)}"
                     f"</study-guide-skill>\n\n{blocks}\n</data>")
-            self.count()
-            answer = ask_json(self.dojo.ai, role, GRADE_SYSTEM, user, check=_check_sources)
+            answer = ask_json(self.ai, role, GRADE_SYSTEM, user, check=_check_sources)
             said = {_int(v.get("n")): v for v in answer["sources"] if isinstance(v, dict)}
             weak = []
             for x in batch:
@@ -257,9 +257,8 @@ class Verifier:
         if not blocks:
             return
         user = f"<data>\n{self._head(ctx)}<study-guide-skill>{untrusted(ctx['text'], 600)}</study-guide-skill>\n\n{blocks}\n</data>"
-        self.count()
         try:
-            answer = ask_json(self.dojo.ai, role, SENTENCE_SYSTEM, user, check=_check_sources)
+            answer = ask_json(self.ai, role, SENTENCE_SYSTEM, user, check=_check_sources)
         except AIError as e:
             log.info("no repaired quote from the %s model: %s", role, e)
             return
@@ -290,8 +289,7 @@ class Verifier:
         user = (f"<data>\n{self._head(ctx)}<domain>{untrusted(ctx['domain'], 300)}</domain>\n"
                 f"<group>{untrusted(ctx['group'], 300)}</group>\n<study-guide-skill>{untrusted(ctx['text'], 600)}"
                 f"</study-guide-skill>\n\n{blocks}\n</data>")
-        self.count()
-        answer = ask_json(self.dojo.ai, role, SET_SYSTEM, user, check=_check_set)
+        answer = ask_json(self.ai, role, SET_SYSTEM, user, check=_check_set)
         obligations = [o for o in answer["obligations"] if isinstance(o, dict) and str(o.get("text") or "").strip()]
         unsupported = []
         for o in obligations:
@@ -313,7 +311,7 @@ class Verifier:
         be written from mainly), "models": ...}. The orders are put together by the sum of places; the best page is
         never dropped. A page is only ever left out here, never added."""
         with ThreadPoolExecutor(2) as pool:
-            futures = {role: pool.submit(self._rank_round, ctx, role, pages) for role in ("gate", "author")}
+            futures = {role: pool.submit(carried(self._rank_round), ctx, role, pages) for role in ("gate", "author")}
             said = {role: f.result() for role, f in futures.items()}
         place = {p["url"]: sum(r["order"].index(i) for r in said.values()) for i, p in enumerate(pages)}
         order = sorted((p["url"] for p in pages), key=lambda u: (place[u], u))
@@ -335,8 +333,7 @@ class Verifier:
         user = (f"<data>\n{self._head(ctx)}<domain>{untrusted(ctx['domain'], 300)}</domain>\n"
                 f"<group>{untrusted(ctx['group'], 300)}</group>\n<study-guide-skill>{untrusted(ctx['text'], 600)}"
                 f"</study-guide-skill>\n\n" + "\n\n".join(blocks) + "\n</data>")
-        self.count()
-        answer = ask_json(self.dojo.ai, role, RANK_SYSTEM, user, check=_check_rank)
+        answer = ask_json(self.ai, role, RANK_SYSTEM, user, check=_check_rank)
         order: list[int] = []
         for v in answer["order"]:
             n = _int(v)

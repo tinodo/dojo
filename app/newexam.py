@@ -39,6 +39,7 @@ from .exam import blocker as exam_blocker
 from .pagefinder import MAX_SOURCES, PageFinder, github_hits, groundable, label, learn_hits, learn_search  # noqa: F401
 from .sourcing.ladder import Sourcer
 from .sourcing.state import skill_key  # noqa: F401 - the key of a skill in the build document and in the search's books
+from .sourcing.verify import VERIFIER_VERSION
 from .sources import normalize
 from .studyguide import (LEARN, after, cert_slug, exam_url, guide_url, issuer, normalize_code, parse_cert_page,
                          parse_guide, practice_for, resolve)
@@ -316,7 +317,10 @@ class NewExams:
         total = guide["skills"]
         for n, (d, g) in enumerate(work, 1):
             keys = [skill_key(d["title"], g["title"], t) for t in g["skills"]]
-            pending = [(k, t) for k, t in zip(keys, g["skills"]) if k not in matches or matches[k].get("error")]
+            # A skill whose pages an earlier Dojo checked (no version, or another) is checked again: only pages that two
+            # models accepted under the present rules reach a package.
+            pending = [(k, t) for k, t in zip(keys, g["skills"])
+                       if k not in matches or matches[k].get("error") or matches[k].get("v") != VERIFIER_VERSION]
             if not pending:
                 continue
             done = self._counts(guide, matches)["checked"]

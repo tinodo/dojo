@@ -89,6 +89,16 @@ def count_tokens() -> None:
     httpx.Client.send = counted
 
 
+def per_skill(skills: int) -> dict:
+    """The measured tokens of a run for each skill, by role: the numbers app/costs.py SOURCING_CALLS is set from."""
+    roles: dict[str, list[int]] = {"author": [0, 0], "gate": [0, 0]}
+    for model, (_, tokens_in, tokens_out) in TOKENS.items():
+        role = "gate" if model.startswith("grok") else "author"
+        roles[role][0] += tokens_in
+        roles[role][1] += tokens_out
+    return {role: {"input_tokens": round(i / max(1, skills)), "output_tokens": round(o / max(1, skills))} for role, (i, o) in roles.items()}
+
+
 def token_report() -> dict:
     out = {}
     for model, (calls, tokens_in, tokens_out) in sorted(TOKENS.items()):
@@ -275,7 +285,7 @@ def e2e_mode(app, args) -> int:
             print(f"   {'*' if c else ' '} {'POSITIVE' if u in pos else 'NEGATIVE' if u in neg else 'unlabelled'}  {u}")
     summary = {"counts": st["counts"], "skills_with_a_locked_positive_cited": f"{found}/{len(st['details'])}", "cited_negatives": critical,
                "accepted_but_not_cited_negatives": dropped_bad, "unlabelled_cited_pages": len(unlabelled), "calls": st["calls_today"],
-               "seconds": round(time.time() - started), "tokens": token_report()}
+               "seconds": round(time.time() - started), "tokens": token_report(), "per_skill": per_skill(len(st["details"]))}
     print(json.dumps(summary, indent=1))
     if args.out:
         Path(args.out).write_text(json.dumps({"summary": summary, "status": st, "unlabelled": unlabelled}, ensure_ascii=False, indent=1), "utf-8")

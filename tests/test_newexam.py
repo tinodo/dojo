@@ -1044,6 +1044,21 @@ class BuildFailureTests(unittest.TestCase):
         again = self.web.queries[before:]
         self.assertTrue(again and all("recycle" in q.lower() for q in again), again)
 
+    def test_pages_an_earlier_dojo_checked_are_checked_again(self):
+        self.web.down = {"recycle"}
+        self.assertEqual(self.build()["state"], "failed")
+        doc = self.store.read("package-builds", "xy-110")
+        self.assertTrue(doc["matches"] and all(m.get("v") for m in doc["matches"].values()), "every check says under which rules it was made")
+        for m in doc["matches"].values():
+            m.pop("v")   # a build an earlier Dojo stopped: its pages were accepted by one model...
+        self.store.write("package-builds", "xy-110", value=doc)
+        self.app.state.newexams.sourcer.forget("xy-110")   # ...and it kept no books of two models' verdicts
+        self.web.down = set()
+        before = len(self.web.queries)
+        self.assertEqual(self.build()["result"], {"package": "xy-110", "skills": 7, "sourced": 6})
+        again = self.web.queries[before:]
+        self.assertTrue(any("recycle" not in q.lower() for q in again), "the skills checked before are searched and judged again")
+
     def test_a_stopped_build_can_be_cleared_away(self):
         self.web.down = {"recycle"}
         self.assertEqual(self.build()["state"], "failed")

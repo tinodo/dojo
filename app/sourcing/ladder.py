@@ -30,9 +30,10 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from ..ai import AIError
-from ..core import UserError, iso, parse_iso, utcnow
+from ..core import UserError, carried, iso, parse_iso, utcnow
 from ..pagefinder import LICENSE, PUBLISHER, SCOPED_TOP, hub_pages
 from ..sources import same_page
+from .counted import Counted
 from .inventory import Inventory
 from .net import Net, SourcingError
 from .plan import plan_group
@@ -44,7 +45,7 @@ from .verify import VERIFIER_VERSION, Verifier, read_page
 log = logging.getLogger("dojo.sourcing")
 
 ROUNDS = 4
-VERIFY_LIMIT = 30          # pages judged for a skill in one round (the whole of what the searches add, see QUOTAS)
+VERIFY_LIMIT = 40          # pages judged for a skill in one round: all that the searches add (POOL_ADD), so none is left unjudged
 SLICE = 5                  # pages judged in one step (one batch of the gate model)
 MAX_ACCEPTED = 3           # a skill cites at most this many pages (app/packages.py)
 KEEP_ACCEPTED = 14          # accepted pages kept in a skill's book; the best ones when there are more
@@ -147,7 +148,8 @@ def best(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
     drop, direct = set(ranked.get("drop") or []), set(ranked.get("direct") or [])
     pages = [a for a in doc["accepted"] if a["url"] not in drop] or list(doc["accepted"])
     if direct:
-        one_dropped = {u for m in (ranked.get("models") or {}).values() for u in (m or {}).get("drop") or []}
+        order = ranked.get("order") or []
+        one_dropped = {u for m in (ranked.get("models") or {}).values() for u in (m or {}).get("drop") or []} - set(order[:1])
         pages = [a for a in pages if a["url"] in direct or a["url"] not in one_dropped] or pages
     place = {u: i for i, u in enumerate(ranked.get("order") or [])}
     return sorted(pages, key=lambda a: (a["url"] not in direct, place.get(a["url"], len(place)), _plain(a)))[:limit]
@@ -189,6 +191,7 @@ class Run:
         self.lease = sourcer.lease(pid)
         self.books = Books(sourcer.store, pid, self.lease)
         self.inv = Inventory(sourcer.store, sourcer.net, sourcer.dojo.sources, pid)
+        self.ai = Counted(sourcer.dojo.ai, self.count)   # every attempt to ask a model is counted against the day's calls
         self.verifier = Verifier(sourcer.dojo, count=self.count)
         self.scope: tuple[str, ...] = ()
         self._lock = threading.Lock()
@@ -373,6 +376,7 @@ class Sourcer:
         for name in self.store.names("sourcing", pid):
             self.store.delete("sourcing", pid, name)
         self.store.delete("sourcing", pid)
+        Inventory.forget(self.store, pid)
         try:
             self.store.path("sourcing", f"{pid}.lease").unlink(missing_ok=True)   # a re-added exam is not kept waiting for a lease nobody holds
         except OSError:
@@ -425,7 +429,7 @@ class Sourcer:
                 # Only a `covered` skill is written into the package now; the others are searched further in the
                 # background and written when the search is done with them (`_close`).
                 out[w["key"]] = {"sources": refs_of(doc) if doc["state"] == "covered" else [], "checked": iso(),
-                                 "accepted": len(doc["accepted"]),
+                                 "v": VERIFIER_VERSION, "accepted": len(doc["accepted"]),
                                  "error": error if not doc["accepted"] and error else None, "candidates": len(doc["pool"])}
             return out
         except CapReached as e:
@@ -458,7 +462,7 @@ class Sourcer:
         for r in range(first, last + 1):
             self._plan(run, domain, group, batch, r)
             with ThreadPoolExecutor(min(PARALLEL, len(batch))) as pool:
-                for f in [pool.submit(self._advance, run, w, r) for w in batch]:
+                for f in [pool.submit(carried(self._advance), run, w, r) for w in batch]:   # the learner and the action travel to the threads
                     f.result()
             self._grow(run, batch)
 
@@ -483,8 +487,7 @@ class Sourcer:
                 self._block(run, w, "plan")
         if not specs:
             return
-        run.count()
-        phrases = plan_group(self.dojo.ai, run.found, {"title": domain}, {"title": group}, specs)
+        phrases = plan_group(run.ai, run.found, {"title": domain}, {"title": group}, specs)
         for s in specs:
             doc = s["w"]["doc"]
             doc["plan"][str(r)] = phrases[s["key"]]
@@ -583,9 +586,8 @@ class Sourcer:
         domains = ("docs.github.com",) if github else (() if r == 4 else ("learn.microsoft.com",))
         lists: list[list[dict]] = []
         for phrase in phrases:
-            run.count()
             try:
-                found = self.dojo.ai.web_search(phrase, domains=domains, max_searches=2 if r == 4 else 1)
+                found = run.ai.web_search(phrase, domains=domains, max_searches=2 if r == 4 else 1)
             except AIError as e:
                 raise StepFailed(f"web search: {e}") from e
             hits = []
@@ -630,8 +632,7 @@ class Sourcer:
             new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
             if not new:
                 break
-            n = len([k for k in doc["steps"] if k.startswith(f"{doc['cycle']}.{r}.verify.")])
-            step = f"verify.{n}"
+            step = "verify." + fingerprint("batch", sorted(new))[:10]   # the pages name the step: a batch that fails again is this step with one more try
             if not begin(doc, step, fingerprint("verify", VERIFIER_VERSION, new, self._models())):
                 for u in new:
                     doc["pool"][u]["verdict"] = "rejected"
@@ -770,7 +771,7 @@ class Sourcer:
             side["tries"][wfp] = side["tries"].get(wfp, 0) + 1
             run.books.save_side("scan", side)
             try:
-                found = scan_window(self.dojo.ai, run.found, skills, window, count=run.count)
+                found = scan_window(run.ai, run.found, skills, window)
             except (AIError, UserError) as e:
                 log.info("a window of titles could not be scanned for %s: %s", run.pid, e)
                 for w in cohort:
@@ -790,7 +791,7 @@ class Sourcer:
                        if canon_url(p["url"]) and not deny_url(p["url"])]
             add_to_pool(w["doc"], entries, 3)
         with ThreadPoolExecutor(min(PARALLEL, len(cohort))) as pool:
-            for f in [pool.submit(self._after_scan, run, w) for w in cohort]:
+            for f in [pool.submit(carried(self._after_scan), run, w) for w in cohort]:
                 f.result()
         return True
 

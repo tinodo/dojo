@@ -32,7 +32,24 @@ _SYN = {
 }
 
 
+def toc_key(name: str, toc: str) -> str:
+    return f"{name}-{sha256(toc.encode('utf-8')).hexdigest()[:12]}"
+
+
 class Inventory:
+    @staticmethod
+    def forget(store, name: str) -> None:
+        """An exam was removed: its inventory goes too, the index and every table of contents it read (they are only
+        public titles, but nothing of a removed exam is kept)."""
+        index = store.read("inventory", name, default=None)
+        for row in (index.get("docsets") if isinstance(index, dict) else None) or []:
+            if isinstance(row, dict) and row.get("toc"):
+                store.delete("inventory", toc_key(name, str(row["toc"])))
+        for doc in store.names("inventory"):
+            if re.fullmatch(re.escape(name) + r"-[0-9a-f]{12}", doc):
+                store.delete("inventory", doc)
+        store.delete("inventory", name)
+
     def __init__(self, store, net, sources, name: str, now=utcnow):
         self.store = store
         self.net = net
@@ -137,7 +154,7 @@ class Inventory:
         return f"{u.scheme}://{u.netloc}/" + "/".join(bits[:-1]) if len(bits) > 1 else f"{u.scheme}://{u.netloc}"
 
     def _toc_key(self, toc: str) -> str:
-        return f"{self.name}-{sha256(toc.encode('utf-8')).hexdigest()[:12]}"
+        return toc_key(self.name, toc)
 
     def _load_entries(self, toc: str) -> list[dict]:
         rows = self._entries.get(toc)

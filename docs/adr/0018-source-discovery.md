@@ -79,10 +79,13 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   that the documentation lacks a page. A step that fails three times makes the skill `blocked` for the day; a blocked
   skill is never called exhausted. The build adds an exam when at least one skill has an accepted page; it writes the
   `covered` skills and leaves the rest to the background.
-- **Rounds** (`ladder.py`): 1 phrases plus all retrievers, the best 20 pages of the pool judged; 2 new phrases that know
-  the refusals, the next 20, refusals that several searches agree on judged once more with more of the page; 3 every
-  title of the inventory read by the gate model (R7); 4 web search with the exam's wording and no domain filter.
-  Exhausted and partial skills come back three days in a row, then weekly, with new wording.
+- **Rounds** (`ladder.py`): 1 phrases plus all retrievers, every page of the round's pool judged (at most 40, which is
+  what the searches can add); 2 new phrases that know the refusals and the accepted pages that were only the same area,
+  refusals that several searches agree on judged once more with more of the page; 3 every title of the inventory read by
+  the gate model (R7); 4 web search with the exam's wording and no domain filter. Web search asks with the planner's
+  phrase for the skill and with its phrases for a product or deployment option ("troubleshoot an HA/DR solution" finds
+  Azure SQL's pages; "... SQL Server on Azure VMs Always On availability groups" finds the troubleshooting guides of
+  Always On). Exhausted and partial skills come back three days in a row, then weekly, with new wording.
 - **Running it**: stage 0 of the background preparation, taking every other turn so lessons for the pages already
   found are written between its steps. The build job runs rounds 1 and 2 with progress as before and hands over.
   Per exam: a lease file with an epoch (a process that lost it writes nothing more), a ledger of steps keyed by cycle,
@@ -121,8 +124,37 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   A `partial` skill that was written with pages can gain pages up to three while its lesson has no film; when it cites
   three already, or its lesson has a film, it is `settled`: Studio shows it as partly covered, the exam page no longer
   counts it as still being searched, and it is not searched again. Studio marks which accepted pages the package cites.
+- **Counting and attribution**: every attempt to ask a model, a repeated malformed answer and a quote repair included,
+  is counted against the exam's 4,000 calls of the day (`counted.Counted` wraps the models of a run); the threads that
+  judge pages, compare them and scan titles run in a copy of the caller's context (`core.carried`), so the calls of an
+  add-exam build are attributed to the owner like the rest of the job (Python 3.13 threads start with an empty context).
+  The background search, like the rest of Dojo's shared background work, has no learner: its calls are booked to content,
+  and the owner is counted and never refused (ADR 0009). The study guide's words reach the web search inside `<data>`
+  with their angle brackets neutralised, under a fixed instruction that says they are material.
+- **When pages change, the lesson follows**: a skill whose package cites a page its lesson was not written from (a page
+  added to a `partial` skill, or pages that replaced refused ones) is written again by Deeper lessons (ADR 0008,
+  `DeeperLessons.why` = "pages"), within its daily allowance, from all the cited pages; the earlier lesson stays the one
+  shown until the new one passes every check. Nothing in the search writes or deletes a lesson.
+- **A build from an older Dojo**: every check a build keeps says under which rules it was made (`v`); a build that was
+  stopped before this change and resumed after it checks those skills again, so only pages two models accepted under
+  the present rules reach a package.
 - **Privacy**: web search receives public text only; `docs/privacy.md` says that Grounding with Bing is outside the
   Data Protection Addendum.
+
+## Measured on 16 October (the 13 DP-300 skills the old search left without a page, real models, real web search)
+
+- All 13 skills were `covered`, 12 of them in round 1 and 1 in round 2: 265 model calls in 37 minutes. 8 of 13 skills cite
+  a page of the locked positives; the other cited pages (21) are not in the locked sets, so the measurement does not judge
+  them: both models accepted them and Dojo found each quote on the page, and they are read by hand on the live site. Of
+  the 6 locked hard-negative pairs that both models accepted in this run (a page of the right product for another
+  operation, or an overview of a wider topic), the comparison kept 5 out of the cited pages. The sixth, MI
+  `database-copy-move-how-to` for "implement a migration between Azure SQL services", is cited because both models call
+  it direct: a borderline (it is the page for moving a database between managed instances), reported and not tuned.
+- Per page (`verify` mode, 42 locked positives, 80 locked hard negatives): 38 of 42 positives accepted and 6 of 80
+  negatives accepted, 20 of 20 skills with an accepted positive. The 6 are wrong-operation or overview pages that both
+  models grade `teaches` or `covers`; the comparison step is what keeps them out of a lesson, and the number is reported, not tuned.
+- Real cost of the search, per skill: author 58,300 input and 6,400 output tokens (web search, phrases, the reading of
+  every page, the comparison), checker 67,700 and 15,700; about $0.5 a skill at list price (`costs.SOURCING_CALLS`).
 
 ## Evaluation and the merge gate
 

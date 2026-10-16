@@ -7,7 +7,7 @@ the inventory is, and the work says so honestly: "configured retrieval exhausted
 documentation"."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from ..ai import ask_json
 from ..pagefinder import untrusted
@@ -33,8 +33,7 @@ def _int(value: Any) -> int:
         return -1
 
 
-def scan_window(ai: Any, found: dict, skills: list[dict], window: list[dict],
-                count: Callable[[], None] | None = None) -> dict[str, list[dict]]:
+def scan_window(ai: Any, found: dict, skills: list[dict], window: list[dict]) -> dict[str, list[dict]]:
     """The entries of one window that could teach each skill: {skill key: [entry]}, best first. `skills` holds
     {key, text}; an entry is {n, url, title, trail} as `Inventory.windows` gives it."""
     by_n = {e["n"]: e for e in window}
@@ -45,8 +44,6 @@ def scan_window(ai: Any, found: dict, skills: list[dict], window: list[dict],
         listing = "\n".join(f"[{k}] {untrusted(s['text'], 600)}" for k, s in enumerate(part, 1))
         user = (f"<data>\n<exam>{untrusted(found['code'], 40)} {untrusted(found.get('title', ''), 200)}</exam>\n<skills>\n{listing}\n</skills>\n"
                 f"<pages>\n{pages}\n</pages>\n</data>")
-        if count:
-            count()
         answer = ask_json(ai, "gate", SCAN_SYSTEM, user, check=_check)
         for m in answer["matches"]:
             k = _int(m.get("skill")) if isinstance(m, dict) else -1
