@@ -171,6 +171,18 @@ def _refused(res: dict) -> bool:
     return bool(gate and author and gate.get("grade") == "no" and author.get("grade") == "no")
 
 
+def audit_verdicts(pages: list[dict], results: list[dict]) -> tuple[list[dict], str]:
+    """How both models judged the pages a skill cites: one line for each page, and the skill's verdict. `supported`: a
+    page both accepted. `invalid`: both models read every page and gave each no grade. `weak`: anything between."""
+    verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res)}
+                for p, res in zip(pages, results)]
+    if any(v["state"] == "accepted" for v in verdicts):
+        return verdicts, "supported"
+    if verdicts and all(v["refused"] for v in verdicts):
+        return verdicts, "invalid"
+    return verdicts, "weak"
+
+
 def needs_work(doc: dict, has_sources: bool, now: Any) -> bool:
     """Whether a skill is worked on now. A skill with sources is worked on only when its cited pages were refused
     (`replacing`) or it is `partial` and a later cycle looks for more pages (`growing`); a `partial` skill that
@@ -940,14 +952,7 @@ class Sourcer:
             pages = [{"url": r["url"], "title": r.get("title") or r["url"]} for r in s["sources"]]
             results = run.verifier.grade_pages(ctx, pages, both_all=True)
             tries.pop(s["key"], None)
-            verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res)}
-                        for p, res in zip(pages, results)]
-            if any(v["state"] == "accepted" for v in verdicts):
-                verdict = "supported"
-            elif verdicts and all(v["refused"] for v in verdicts):
-                verdict = "invalid"   # both models read every cited page and gave each no grade: not a failed quote, not a split
-            else:
-                verdict = "weak"
+            verdicts, verdict = audit_verdicts(pages, results)   # invalid: both models read every page and gave each no grade, not a failed quote, not a split
             before = side["skills"].get(s["key"])
             entry = {"verdict": verdict, "pages": verdicts, "at": iso()}
             if verdict == "invalid":

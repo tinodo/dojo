@@ -839,10 +839,9 @@ class Budget:
             buckets = sums[day] if isinstance(sums[day], dict) else {}
             if day < oldest or not buckets:
                 continue
-            pooled = buckets.get("total")
-            if pooled is None:   # five or more members: the sums are kept apart, and these three do not overlap
-                pooled = sum(float(buckets.get(k) or 0.0) for k in ("content", "owner", "members"))
-            out[day] = round(float(pooled), 4)
+            # Below five members every call is in `total`, from five on in these three (`members` and the parts of it, `exam:` and
+            # `members_other`, overlap: only `members` is added). A day on which the count crossed five has both.
+            out[day] = round(sum(float(buckets.get(k) or 0.0) for k in ("total", "content", "owner", "members")), 4)
         return out
 
     def admin_view(self) -> dict:

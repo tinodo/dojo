@@ -9,6 +9,7 @@ import time
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("DOJO_LOCAL", "1")
 os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-import-"))
@@ -101,6 +102,16 @@ class CourseOverviewTests(StudioCase):
         self.narrate(second)
         self.assertEqual(self.row(self.course(), "listen")["have"], 2)
 
+    def test_a_price_that_is_not_complete_is_never_shown_as_the_cost(self):
+        self.film(self.write(self.skills[0]))
+        self.write(self.skills[1])
+        guess = {"lessons": 1, "videos": 2, "total": 0.0, "complete": False, "currency": "USD", "lines": []}
+        with mock.patch.object(self.app.state.costs, "film_estimate", lambda plans: guess):
+            course = self.course()
+        text = " ".join([self.row(course, "video")["note"]] + [a["text"] for a in course["attention"]])
+        self.assertNotIn("$0.00", text)
+        self.assertIn("The price list could not be read just now, so no price is shown.", text)
+
     def test_a_filmed_lesson_counts_and_the_price_of_the_rest_is_shown(self):
         a, b = self.write(self.skills[0]), self.write(self.skills[1])
         self.film(a)
@@ -159,11 +170,14 @@ class CourseOverviewTests(StudioCase):
         self.assertEqual(set(ids), {"gh-300", "dp-800", self.pid})
 
     def test_what_a_reading_costs_is_nothing_but_reading(self):
-        before = sorted(str(p.relative_to(self.tmp)) for p in Path(self.tmp).rglob("*") if p.is_file())
+        def files() -> list[str]:
+            # the public price list is kept by the cost page and the estimates alike: it is the one thing a reading can leave
+            return sorted(str(p.relative_to(self.tmp)) for p in Path(self.tmp).rglob("*") if p.is_file() and p.name != "prices.json")
+
+        before = files()
         self.read("courses")
         self.read("activity")
-        after = sorted(str(p.relative_to(self.tmp)) for p in Path(self.tmp).rglob("*") if p.is_file())
-        self.assertEqual(before, after, "Studio's overview writes nothing")
+        self.assertEqual(before, files(), "Studio's overview writes no record of its own")
 
     def test_both_views_are_closed_while_a_timed_exam_runs(self):
         self.app.state.exams.open_attempt = lambda learner: {"id": "exam-00000000000000000000"}
@@ -184,11 +198,22 @@ class ActivityTests(StudioCase):
         self.assertEqual({e["course"] for e in events}, {"XY-110"})
         self.assertTrue(all(e["title"].startswith("Wrote the lesson") and e["tone"] == "info" for e in events))
 
-    def test_a_lesson_written_again_says_so(self):
+    def test_a_lesson_written_again_says_so_whatever_made_it(self):
         old = self.write(self.skills[0])
-        self.write(self.skills[0], upgrade_of=old)
+        self.write(self.skills[0], upgrade_of=old)   # on the deeper template
         titles = [e["title"] for e in self.read("activity")["events"] if e["kind"] == "lesson"]
         self.assertEqual(sum(1 for t in titles if t.endswith(" again")), 1)
+
+    def test_a_lesson_written_after_a_page_changed_or_by_hand_is_again_too(self):
+        # no `upgrade_of`: what the drift check and the owner's own rewrite make
+        first = self.write(self.skills[1])
+        second = self.write(self.skills[1], tag="rewritten")
+        doc = self.dojo.lesson(second)
+        doc["created"] = iso(utcnow() + timedelta(hours=1))
+        self.dojo.store.write("content", "lessons", second, value=doc)
+        self.dojo._lesson_meta.pop(second, None)
+        again = {e["link"]: e["title"].endswith(" again") for e in self.read("activity")["events"] if e["kind"] == "lesson"}
+        self.assertEqual((again[f"#/lesson/{first}"], again[f"#/lesson/{second}"]), (False, True))
 
     def test_what_the_search_for_pages_did_is_listed_with_the_pages_it_found(self):
         events = [e for e in self.read("activity")["events"] if e["kind"] == "pages"]
@@ -244,6 +269,8 @@ class ActivityTests(StudioCase):
         self.dojo.store.write("team", "meter", value={"days": {day: {"content": 1.0, "owner": 2.0, "members": 3.0, "members_other": 3.0,
                                                                        "exam:xy-110": 3.0}}, "months": {}})
         self.assertEqual(budget.spend_days(14), {day: 6.0}, "the buckets that do not overlap are added, the parts of 'members' are not")
+        self.dojo.store.write("team", "meter", value={"days": {day: {"total": 2.0, "content": 1.0, "members": 0.5, "exam:xy-110": 0.5}}, "months": {}})
+        self.assertEqual(budget.spend_days(14), {day: 3.5}, "a day on which the fifth member joined has both kinds of bucket")
 
 
 class ReadingTests(StudioCase):
@@ -336,6 +363,13 @@ class StudioScreenTests(unittest.TestCase):
     def test_the_activity_is_grouped_by_the_readers_own_days_and_can_be_filtered(self):
         self.assertIn('toLocaleDateString("en-CA")', part("function feedDays(events) {"))
         self.assertIn("aria-pressed", part("async function studioActivity() {"))
+
+    def test_every_link_to_the_studio_log_opens_the_checks(self):
+        for link in ('linkButton("See the studio log", "#/quality/checks"', 'href: "#/quality/checks" }, "The studio log lists them and why."',
+                     'href: "#/quality/checks" }, "See the studio log."'):
+            self.assertIn(link, SCRIPT)
+        self.assertNotIn('href: "#/quality" }, "See the studio log."', SCRIPT)
+        self.assertNotIn('href: "#/quality" }, "The studio log lists them and why."', SCRIPT)
 
     def test_the_old_studio_checks_are_all_still_there(self):
         checks = part("async function studioChecks() {")

@@ -290,7 +290,7 @@ function jobCard(title, start, onDone, onFail, note) {
       if (token !== state.nav) return;
       if (onFail) onFail(e);
       else put(el, h("h2", null, "That did not work"), h("p", { class: "sub" }, e.message),
-        h("div", { class: "actions top" }, linkButton("See the studio log", "#/quality", "ghost")));
+        h("div", { class: "actions top" }, linkButton("See the studio log", "#/quality/checks", "ghost")));
     });
   return el;
 }
@@ -1167,7 +1167,7 @@ function provenance(L) {
       "Source content is licensed CC BY 4.0 by its publishers."),
     L.blocked.length
       ? h("p", { class: "small" }, `${L.blocked.length} part${L.blocked.length === 1 ? " was" : "s were"} removed because ${L.blocked.length === 1 ? "it" : "they"} did not hold. `,
-          h("a", { class: "link", href: "#/quality" }, "The studio log lists them and why."))
+          h("a", { class: "link", href: "#/quality/checks" }, "The studio log lists them and why."))
       : h("p", { class: "small" }, "Nothing had to be removed."),
     h("p", { class: "small muted" }, "Points, misconceptions and self-check answers carry exact quotes. Titles, slide bullets and narration carry no quote; the independent model checked them against the same source pages."),
     h("p", { class: "small muted" }, `Lesson written ${fmtDate(L.created)}.`),
@@ -3328,7 +3328,7 @@ function claimsPanel(L, claims, tail) {
       h("span", null, h("b", null, "Where the claims come from. "),
         `Every point in the written lesson carries an exact quote. Slide bullets are a summary of those points, checked element by element by ${L.models.gate}.`)),
     L.blocked.length ? h("p", { class: "conf" }, icon("alert", "xs"),
-      h("span", null, `${L.blocked.length} part${L.blocked.length === 1 ? " was" : "s were"} removed. `, h("a", { class: "link", href: "#/quality" }, "See the studio log."))) : null,
+      h("span", null, `${L.blocked.length} part${L.blocked.length === 1 ? " was" : "s were"} removed. `, h("a", { class: "link", href: "#/quality/checks" }, "See the studio log."))) : null,
     tail || null);
 }
 
@@ -5862,7 +5862,7 @@ async function viewAnswer(id) {
         A.not_covered ? h("p", { class: "note top" }, h("strong", null, "Not covered by the sources: "), A.not_covered) : null,
         A.blocked.length ? h("p", { class: "conf" }, icon("alert", "xs"),
           h("span", null, `${A.blocked.length} part${A.blocked.length === 1 ? " was" : "s were"} removed because ${A.blocked.length === 1 ? "it" : "they"} did not hold. `,
-            h("a", { class: "link", href: "#/quality" }, "The studio log lists them and why."))) : null),
+            h("a", { class: "link", href: "#/quality/checks" }, "The studio log lists them and why."))) : null),
       h("section", { class: "panel w430" }, eyebrow("file", "Sources"), sourceList(A.sources)))];
 }
 
@@ -6061,7 +6061,37 @@ function covRow(r) {
     h("p", { class: "small muted" }, r.note));
 }
 
-function courseCard(x) {
+// The two-model check of an original course's pages: a report, started by the owner with the price shown.
+function pageCheckBlock(x, repaint) {
+  const pc = x.pagecheck;
+  if (!pc) return null;
+  const status = h("p", { class: "small muted" });
+  const price = pc.price && pc.price.complete && pc.price.total !== null && pc.price.total !== undefined ? `about ${usd(pc.price.total)} at list price` : "price not listed";
+  const go = button(pc.state === "partial" ? `Check the rest (${price})` : `Check these pages (${price})`, async () => {
+    if (!window.confirm(`Check the ${plural(pc.price.pages, "page")} of ${x.exam}?\n\nTwo model families read every page and say whether it teaches its skill. This costs ${price} and changes nothing: no page, lesson or film.`)) return;
+    go.disabled = true;
+    try {
+      await runJob(api(`/api/studio/pagecheck/${x.package}`, { method: "POST", body: {} }), (s, secs) => { status.textContent = `${s} · ${secs}s`; });
+      await repaint();
+    } catch (e) {
+      status.textContent = e.message;
+      go.disabled = false;
+    }
+  }, "ghost sm");
+  const list = pc.not_supported.length ? h("details", { class: "how" }, h("summary", null, `${plural(pc.not_supported.length, "skill")} whose pages were not confirmed`),
+    pc.not_supported.map((s) => h("div", { class: "near" },
+      h("span", null, s.text, s.pages.map((p) => h("small", { class: "block muted" }, ext(p.url, p.title), p.grade ? ` · graded ${p.grade}` : p.why ? ` · refused: ${p.why}` : ""))),
+      chip(s.verdict === "invalid" ? "pages refused" : "only partly", s.verdict === "invalid" ? "rose" : "amber")))) : null;
+  return h("div", { class: "pagecheck top" },
+    h("h3", null, "The two-model page check"),
+    pc.state === "done" ? h("p", { class: "small muted" }, `Every skill was checked${pc.finished ? ` on ${fmtDate(pc.finished)}` : ""}: ${pc.supported} confirmed, ${pc.weak} only partly, ${pc.invalid} refused. Nothing was changed.`)
+      : pc.state === "running" ? h("p", { class: "small muted" }, "A check is running. Open this page again in a few minutes.")
+      : [h("p", { class: "small muted" }, "Two model families read every page this course cites and say whether it teaches its skill, as they do for the pages Dojo's own search finds. It is a report: nothing is changed."),
+        h("div", { class: "actions" }, go), status],
+    list);
+}
+
+function courseCard(x, repaint) {
   const attn = (x.attention || []).map((a) => h("div", { class: "attn-row" }, ATTN_CHIP[a.level] ? chip(ATTN_CHIP[a.level][0], ATTN_CHIP[a.level][1]) : h("i", { class: "attn-dot" }),
     h("span", null, a.text, " ", a.link ? h("a", { class: "link", href: a.link }, a.link_text || "Open") : null)));
   return h("section", { class: x.ready ? "panel course" : "panel course edge-amber" },
@@ -6069,15 +6099,18 @@ function courseCard(x) {
       h("span", { class: "chips" }, chip(x.added ? "added by you" : "original course", "line"), x.ready ? chip("Ready to study", "sage") : chip("Not ready yet", "amber"))),
     h("p", { class: "sub" }, `${plural(x.skills, "skill")}. ${x.verdict}`),
     h("div", { class: "cov-grid" }, x.rows.map(covRow)),
+    pageCheckBlock(x, repaint),
     attn.length ? [h("h3", { class: "top" }, "What to know"), h("div", { class: "attn" }, attn)] : null);
 }
 
 async function studioCourses() {
-  const c = await api("/api/studio/courses");
-  return [
-    c.courses.map(courseCard),
+  const host = h("div", { class: "courses" });
+  const paint = (c) => put(host, c.courses.map((x) => courseCard(x, repaint)),
     h("p", { class: "note top" }, "“Ready to study” means every skill has an official page, a lesson and its Listen audio. ", NOT_A_PREDICTION,
-      ` Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. Open the page again for a new reading.`)];
+      ` Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. Open the page again for a new reading.`));
+  const repaint = async () => paint(await api("/api/studio/courses?fresh=true"));
+  paint(await api("/api/studio/courses"));
+  return host;
 }
 
 // Activity: what Dojo did, newest first, day by day.

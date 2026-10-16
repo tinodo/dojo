@@ -64,6 +64,7 @@ from .labs import LABS, FakeRunner, LabRoom, LabUser, SqlRunner, is_waking, sql_
 from .mirror import Mirror
 from .newexam import NewExams
 from .packages import Packages
+from .pagecheck import PageCheck
 from .plan import Planner
 from .play import PlayRoom
 from .play_board import Board
@@ -549,7 +550,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         # Before anything is served: reservations left open by the process that ended are settled.
         budget.recover([owner.key] + [r["key"] for r in team.rows() if r.get("key") and not r.get("deleted_at")])
     pool.budget = budget
-    studio = Studio(dojo, newexams, checker, costs, preparer, drift, pool, budget, owner)   # Studio's course overview and activity (ADR 0019)
+    pagecheck = PageCheck(dojo, owner, costs)   # the two-model check of the pages a course cites, when the owner asks (ADR 0019)
+    studio = Studio(dojo, newexams, checker, costs, preparer, drift, pool, budget, owner, pagecheck)   # Studio's course overview and activity (ADR 0019)
     team.on_sweep.append(lambda: budget.prune([owner.key] + [m.key for m in team.active_learners()]))
     social = PlaySocial(settings, store, team, play)   # circles and the witness room (ADR 0010)
     board = Board(social)                  # the effort board: weekly bands, no order
@@ -631,6 +633,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     app.state.team = team
     app.state.budget = budget
     app.state.studio = studio
+    app.state.pagecheck = pagecheck
     app.state.background = background
     app.state.five = five
     app.state.nudges = nudges
@@ -1720,10 +1723,18 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         return checker.summary()
 
     @app.get("/api/studio/courses")
-    def studio_courses(learner: Learner = Admin) -> dict:
-        """How far each course is: what exists, what is missing, what the rest would cost (ADR 0019)."""
+    def studio_courses(fresh: bool = False, learner: Learner = Admin) -> dict:
+        """How far each course is: what exists, what is missing, what the rest would cost (ADR 0019). `fresh` reads it
+        again now: the page asks for that once after the owner started something."""
         _no_help_during_exam(learner, "The course overview is closed")
-        return studio.courses()
+        return studio.courses(fresh)
+
+    @app.post("/api/studio/pagecheck/{pid}")
+    def studio_pagecheck(pid: str, learner: Learner = Admin) -> dict:
+        """The owner asked for the two-model check of a built-in course's pages, at the price shown: a report that
+        changes no source, lesson or film (ADR 0019)."""
+        _no_help_during_exam(learner, "The page check is closed")
+        return pagecheck.start(learner, _check_id(pid, PKG))
 
     @app.get("/api/studio/activity")
     def studio_activity(learner: Learner = Admin) -> dict:

@@ -1,8 +1,8 @@
 """Studio for the owner (docs/adr/0019-studio-overview.md): how far each course is, and what Dojo did on its own.
 
-Everything here is read from what Dojo already keeps. Nothing is written, no model is called and nothing is
-spent. The words are chosen here, in one place, so that a number never reaches the screen without saying what it
-counts."""
+Everything here is read from what Dojo already keeps. It writes no record of its own (the public price list that the
+estimates read is kept, as it is for the cost page), calls no model and spends nothing. The words are chosen here, in
+one place, so that a number never reaches the screen without saying what it counts."""
 from __future__ import annotations
 
 import logging
@@ -15,6 +15,7 @@ from typing import Any
 
 from .core import iso, parse_iso, utcnow
 from .newexam import BUILD, exam_blocker
+from .pagecheck import KIND as PAGECHECK
 from .prepare import DEEP_PER_DAY
 
 log = logging.getLogger("dojo.studio")
@@ -23,7 +24,8 @@ CACHE_S = 60          # a reading is fresh this long; after that it is read agai
 FEED_DAYS = 14        # the activity looks back this far; the job records and the meter keep about as much
 FEED_EVENTS = 300     # and shows at most this many events, newest first
 LEVELS = {"bad": 0, "warn": 1, "info": 2}
-JOB_LABEL = {BUILD: "Building a course", "video": "Filming a lesson", "deck": "Drawing a lesson's diagrams"}
+JOB_LABEL = {BUILD: "Building a course", "video": "Filming a lesson", "deck": "Drawing a lesson's diagrams",
+             PAGECHECK: "Checking a course's pages"}
 FILM_NOTE = "Filming costs money, so Dojo never films on its own: you approve each price."
 
 
@@ -35,19 +37,19 @@ class Studio:
     """The owner's overview of every course, and the feed of what Dojo did."""
 
     def __init__(self, dojo: Any, newexams: Any, checker: Any, costs: Any, preparer: Any, drift: Any, pool: Any,
-                 budget: Any, owner: Any):
+                 budget: Any, owner: Any, pagecheck: Any = None):
         self.dojo, self.newexams, self.checker, self.costs = dojo, newexams, checker, costs
-        self.preparer, self.drift, self.pool, self.budget, self.owner = preparer, drift, pool, budget, owner
+        self.preparer, self.drift, self.pool, self.budget, self.owner, self.pagecheck = preparer, drift, pool, budget, owner, pagecheck
         self._lock = threading.Lock()
         self._seen: dict[str, tuple[float, Any]] = {}
         self._busy: set[str] = set()   # views being read again in the background
         self._kinds: dict[str, tuple[float, str]] = {}   # what Watch plays for a lesson with no film of its own, kept a few minutes
 
-    def _cached(self, key: str, make: Any) -> Any:
+    def _cached(self, key: str, make: Any, fresh: bool = False) -> Any:
         """The last reading of a view. One that is older than CACHE_S is still what the page gets: it is read again in the
-        background, so a visit never waits for the reading except the very first one."""
+        background, so a visit never waits for the reading except the very first one. `fresh` reads it now."""
         with self._lock:
-            hit = self._seen.get(key)
+            hit = None if fresh else self._seen.get(key)
             if hit:
                 if time.monotonic() - hit[0] >= CACHE_S and key not in self._busy:
                     self._busy.add(key)
@@ -82,8 +84,8 @@ class Studio:
 
     # ------------------------------------------------------------ the courses
 
-    def courses(self) -> dict:
-        return self._cached("courses", self._courses)
+    def courses(self, fresh: bool = False) -> dict:
+        return self._cached("courses", self._courses, fresh)
 
     def _courses(self) -> dict:
         try:
@@ -141,11 +143,12 @@ class Studio:
                 unfilmed.append(lid)
         price = self._film_price(unfilmed)
         search = self._search(pid) if added else None
+        check = self.pagecheck.view(pid) if self.pagecheck is not None and not added else None
         failed = self._failed(pid)
         rechecking = len(self.drift.rechecking(pid)) if self.drift is not None else 0
         blocker = exam_blocker(pkg)
         rows = [
-            self._pages_row(total, with_pages, spread, search),
+            self._pages_row(total, with_pages, spread, search, check),
             self._row("lessons", "Lessons", lessons, with_pages, "The written lesson for each skill that has an official page."),
             self._row("listen", "Listen", listen, lessons, "Every slide read aloud, so a lesson can be heard instead of read."),
             self._row("deeper", "Deeper Listen", deeper, lessons,
@@ -167,10 +170,10 @@ class Studio:
         out = {"package": pid, "exam": meta["exam"], "title": meta["title"], "added": added, "version": meta.get("version"),
                "skills": total, "ready": ready, "rows": rows,
                "video": {"own": films["own"], "earlier": films["earlier"], "none": films["none"], "price": price},
-               "search": search}
+               "search": search, "pagecheck": check}
         out["verdict"] = ("Everything needed to study this course is there." if ready
                           else f"{_plural(total - lessons, 'skill')} of {total} can't be studied from a lesson yet.")
-        out["attention"] = self._attention(pid, out, with_pages, lessons, listen, deeper, failed, rechecking, price, search)
+        out["attention"] = self._attention(pid, out, with_pages, lessons, listen, deeper, failed, rechecking, price, search, check)
         return out
 
     @staticmethod
@@ -179,11 +182,16 @@ class Studio:
         return {"key": key, "label": label, "have": have, "of": of, "state": state, "note": note}
 
     @staticmethod
-    def _pages_row(total: int, with_pages: int, spread: Counter, search: dict | None) -> dict:
+    def _pages_row(total: int, with_pages: int, spread: Counter, search: dict | None, check: dict | None) -> dict:
         if search is None:
             shape = ", ".join(f"{spread[n]} cite{'s' if spread[n] == 1 else ''} {_plural(n, 'page')}" for n in (1, 2, 3) if spread.get(n))
-            note = (f"{shape}. The first page of each skill comes from the original list; Dojo's older search added the others. "
-                    "No page has been through the two-model page check that added exams get yet.")
+            note = f"{shape}. The first page of each skill comes from the original list; Dojo's older search added the others. "
+            if check and check["checked"]:
+                note += (f"Two model families read them: {check['supported']} of {check['checked']} skills have a page both accepted, "
+                         f"{check['weak']} only partly, {check['invalid']} refused."
+                         + (f" {_plural(check['unchecked'], 'skill')} still to check." if check["unchecked"] else ""))
+            else:
+                note += "No page has been through the two-model page check that added exams get yet."
         else:
             note = (f"{search['covered']} skills were found by Dojo's own search: two model families both accepted each page and "
                     f"quoted it. {search['legacy']} keep pages from before that search: {search['supported']} confirmed by both models, "
@@ -199,8 +207,10 @@ class Studio:
         if none:
             parts.append(f"{none} have no film")
         note = "; ".join(parts) + ". " + FILM_NOTE
-        if price and price.get("total") is not None:
+        if price and price.get("complete") and price.get("total") is not None:
             note += f" Filming the rest would cost about ${price['total']:,.2f} at list price."
+        elif price:
+            note += " The price list could not be read just now, so no price is shown."
         return {"key": "video", "label": "Watch", "have": own, "of": lessons, "state": "ok" if own == lessons else "todo", "note": note}
 
     def _film_price(self, unfilmed: list[str]) -> dict | None:
@@ -232,7 +242,7 @@ class Studio:
                    if key.startswith(f"{pid}/") or key.startswith(f"audio:{pid}/") or key.startswith(f"deep:{pid}/"))
 
     def _attention(self, pid: str, course: dict, with_pages: int, lessons: int, listen: int, deeper: int, failed: int,
-                   rechecking: int, price: dict | None, search: dict | None) -> list[dict]:
+                   rechecking: int, price: dict | None, search: dict | None, check: dict | None = None) -> list[dict]:
         total, items = course["skills"], []
 
         def add(level: str, text: str, link: str | None = None, link_text: str | None = None) -> None:
@@ -258,12 +268,19 @@ class Studio:
             add("info", f"Dojo is still finding official pages for {_plural(search['unfinished'], 'skill')}.")
         if lessons and deeper < lessons:
             add("info", f"{_plural(lessons - deeper, 'lesson')} {'waits' if lessons - deeper == 1 else 'wait'} for Deeper Listen.")
-        if search is None:
+        if search is None and not (check and check["checked"]):
             add("info", "Every page of this course is from before Dojo's two-model page check. A lesson's sentences are still checked against its pages, "
                         "but nobody has asked whether a page covers its whole skill.")
+        if check and check["invalid"]:
+            add("warn", f"{_plural(check['invalid'], 'skill')} cite{'s' if check['invalid'] == 1 else ''} only pages that both models refuse. "
+                        "Nothing was changed: the lessons stay as they are, and the list is under the pages.")
+        if check and check["weak"]:
+            add("info", f"{_plural(check['weak'], 'skill')} cite{'s' if check['weak'] == 1 else ''} pages that cover {'it' if check['weak'] == 1 else 'them'} only partly: "
+                        "the two models did not agree, or neither was sure.")
         missing = course["video"]["earlier"] + course["video"]["none"]
         if missing:
-            cost = f" Filming them all would cost about ${price['total']:,.2f}." if price and price.get("total") is not None else ""
+            cost = (f" Filming them all would cost about ${price['total']:,.2f}." if price and price.get("complete") and price.get("total") is not None
+                    else " The price list could not be read just now, so no price is shown." if price else "")
             where = f"#/add-exam/{pid}" if course["added"] else "#/quality/checks"
             add("info", f"{_plural(missing, 'lesson')} {'has' if missing == 1 else 'have'} no film of the current lesson.{cost} {FILM_NOTE}",
                 where, "Approve filming")
@@ -308,11 +325,15 @@ class Studio:
 
     def _lesson_events(self, since: Any) -> list[dict]:
         out = []
-        for m in self.dojo.lesson_index():
+        index = self.dojo.lesson_index()
+        first: dict[tuple[Any, Any], str] = {}   # the oldest lesson of each skill: a later one was written again, after a changed page or a deeper template
+        for m in sorted(index, key=lambda m: (m.get("created") or "", m["id"])):
+            first.setdefault((m.get("package"), m.get("skill")), m["id"])
+        for m in index:
             at = m.get("created")
             if not at or parse_iso(at) < since:
                 continue
-            again = bool(m.get("upgrade_of"))
+            again = bool(m.get("upgrade_of")) or first.get((m.get("package"), m.get("skill"))) != m["id"]
             out.append({"at": at, "kind": "lesson", "tone": "info", "course": self._exam(m.get("package")),
                         "title": f"Wrote the lesson “{m.get('title')}”" + (" again" if again else ""),
                         "detail": self._skill(m.get("package"), m.get("skill")), "link": f"#/lesson/{m['id']}"})
