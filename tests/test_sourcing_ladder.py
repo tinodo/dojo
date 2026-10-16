@@ -24,7 +24,7 @@ from app.ai import AIError, StubAI  # noqa: E402
 from app.core import iso, utcnow  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from app.sourcing.inventory import Inventory  # noqa: E402
-from app.sourcing.state import skill_key  # noqa: E402
+from app.sourcing.state import LeaseLost, new_skill, skill_key  # noqa: E402
 from tests.test_api import POST  # noqa: E402
 from tests.test_newexam import DOCS_AT, LEARN, Web, done, html, make_app, post, skills_of  # noqa: E402
 
@@ -202,18 +202,66 @@ class BuildTests(SourcingCase):
         self.assertTrue(all(e["verdict"] == "rejected" and e["why"] == "split" for e in book["pool"].values()
                             if "alerts" in e["title"].lower()))
 
-    def test_a_skill_with_only_partly_covering_pages_is_written_and_keeps_searching(self):
+    def test_a_skill_with_only_partly_covering_pages_is_written_when_the_search_is_done_with_it(self):
         ai = Hooked()
         ai.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "covers"
         ai.set_answer = lambda role: "partly"
         self.build(ai=ai)
-        self.assertEqual(self.result["sourced"], 6, "pages that cover part of a skill still teach what they cover")
+        self.assertEqual(self.result["sourced"], 0, "the build writes the skills that are covered, and only those")
         book = self.book("Implement widget backups")
         self.assertEqual(book["state"], "searching")
-        self.assertTrue(book["partial"] and book["activated"]["partial"] and book["growing"])
+        self.assertTrue(book["partial"])
+        self.assertFalse(book.get("activated"))
+        self.assertEqual(self.skill("Implement widget backups")["sources"], [])
+        self.steps()
+        book = self.book("Implement widget backups")
+        self.assertEqual((book["state"], book["round"]), ("partial", 4))
+        self.assertTrue(book["activated"]["partial"], "pages that cover part of a skill still teach what they cover")
+        self.assertTrue(self.skill("Implement widget backups")["sources"])
         st = self.c.get("/api/studio/sourcing").json()["exams"][0]
         self.assertEqual(st["complete"], False)
         self.assertEqual(st["counts"].get("covered", 0), 0)
+
+    def test_every_page_of_the_round_is_judged_and_the_two_models_choose_the_pages_cited(self):
+        ai = Hooked()
+        extra = [LEARN + DOCS_AT + f"widget-backup-{w}" for w in ("alpha", "beta", "gamma", "delta")]
+        ai.search_urls = lambda q: extra if "backups" in q else []
+
+        def ranking(role, titles):
+            numbers = range(1, len(titles) + 1)
+            return (sorted(numbers, key=lambda i: (0 if "gamma" in titles[i - 1] else 1, i)),
+                    [i for i in numbers if "alpha" in titles[i - 1] or "beta" in titles[i - 1]])
+
+        ai.ranking = ranking
+        self.build(ai=ai)
+        book = self.book("Implement widget backups")
+        self.assertGreaterEqual(len(book["accepted"]), 5, "judging did not stop at three accepted pages")
+        self.assertTrue(all(e["verdict"] != "new" for e in book["pool"].values()), "the whole pool was judged")
+        cited = [r["url"].rsplit("/", 1)[-1] for r in self.skill("Implement widget backups")["sources"]]
+        self.assertEqual(cited[0], "widget-backup-gamma")
+        self.assertFalse({"widget-backup-alpha", "widget-backup-beta"} & set(cited), "both models dropped them")
+        self.assertEqual(len(cited), 3)
+        self.assertEqual(sorted(book["ranked"]["drop"]), sorted(LEARN + DOCS_AT + f"widget-backup-{w}" for w in ("alpha", "beta")))
+        self.assertEqual(ai.calls_of("rank_sources", "gate"), ai.calls_of("rank_sources", "author"))
+        [row] = [d for d in self.sourcer.status("xy-110")["details"] if d["text"] == "Implement widget backups"]
+        self.assertEqual(sum(1 for a in row["accepted"] if a["cited"]), 3, "Studio shows which accepted pages the lesson cites")
+
+    def test_pages_both_models_drop_never_leave_a_skill_without_a_page(self):
+        ai = Hooked()
+        ai.search_urls = lambda q: [LEARN + DOCS_AT + "widget-backup-alpha"] if "backups" in q else []
+        ai.ranking = lambda role, titles: (list(range(1, len(titles) + 1)), list(range(1, len(titles) + 1)))
+        self.build(ai=ai)
+        self.assertEqual(self.result["sourced"], 6)
+        self.assertEqual(len(self.skill("Implement widget backups")["sources"]), 1, "only the best page stays")
+
+    def test_the_exam_is_added_when_every_skill_is_only_partly_covered(self):
+        ai = Hooked()
+        ai.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "covers"
+        ai.set_answer = lambda role: "partly"
+        self.build(ai=ai)
+        st = self.c.get("/api/exam-packages/xy-110").json()
+        self.assertEqual(st["state"], "added")
+        self.assertEqual(st["matching"]["sourced"], 0)
 
     def test_a_split_set_of_pages_is_one_look_more_not_a_yes(self):
         ai = Hooked()
@@ -340,6 +388,41 @@ class BackgroundTests(SourcingCase):
         self.assertEqual(self.book(UNSOURCED)["round"], 2)
         run.lease.release()
 
+    def test_a_step_still_running_when_the_exam_is_removed_writes_nothing_more(self):
+        self.build()
+        run = ladder.Run(self.sourcer, "xy-110", {"code": "XY-110", "title": "x"})
+        self.assertTrue(run.lease.acquire())
+        key = skill_key("d", "g", "t")
+        post(self.c, "/api/exam-packages/xy-110/remove", {"confirm": "REMOVE"})
+        with self.assertRaises(LeaseLost):
+            run.books.save_skill(new_skill(key))
+        with self.assertRaises(LeaseLost):   # and a skill is never written back into the removed package
+            self.sourcer._activate(run, {"doc": new_skill(key), "key": key})
+        self.assertEqual(self.store.names("sourcing", "xy-110"), [])
+        self.assertIsNone(self.store.read("packages", "xy-110", default=None))
+
+    def test_the_package_lock_is_the_one_the_removal_holds(self):
+        self.build()
+        self.assertIs(self.nx.sourcer.package_lock, self.sourcer._package)
+
+    def test_the_pause_is_as_long_as_the_next_due_step_needs(self):
+        self.build()
+        self.ai.scan_for = "no title has this word"
+        self.assertEqual(self.sourcer.wait_s(), 15.0, "a skill is due now")
+        self.ai.fail["scan_titles"] = 1
+        self.sourcer.step()   # the title scan fails: the skill waits five minutes
+        self.assertIn("is down", self.book(UNSOURCED)["failure"])
+        self.assertTrue(15 <= self.sourcer.wait_s() <= 300, self.sourcer.wait_s())
+        self.later(minutes=6)
+        self.steps()
+        self.assertEqual(self.book(UNSOURCED)["state"], "exhausted")
+        self.assertEqual(self.sourcer.wait_s(), 1800.0, "nothing is due before tomorrow")
+
+    def test_the_pause_is_long_when_the_days_calls_are_used(self):
+        self.build()
+        with mock.patch.object(ladder, "DAY_CALLS", 1):
+            self.assertEqual(self.sourcer.wait_s(), 1800.0)
+
     def test_removing_the_exam_forgets_what_the_search_kept(self):
         self.build()
         self.steps()
@@ -347,6 +430,7 @@ class BackgroundTests(SourcingCase):
         post(self.c, "/api/exam-packages/xy-110/remove", {"confirm": "REMOVE"})
         self.assertEqual(self.store.names("sourcing", "xy-110"), [])
         self.assertIsNone(self.store.read("sourcing", "xy-110", default=None))
+        self.assertFalse(self.store.path("sourcing", "xy-110.lease").exists(), "a re-added exam is not kept waiting for a lease")
 
 
 def parse_next(book: dict):
@@ -393,6 +477,32 @@ class AuditTests(SourcingCase):
         urls = [s["url"] for s in self.skill(UNSOURCED)["sources"]]
         self.assertTrue(urls and not any(u.endswith("/" + slug) for u in urls), urls)
         self.assertEqual(self.book(UNSOURCED)["state"], "covered")
+
+    def test_a_page_one_model_still_accepts_never_makes_the_audit_call_it_invalid(self):
+        self.build()
+        slug = self.legacy()
+        before = self.skill(UNSOURCED)["sources"]
+        same = lambda title: slug.replace("-", " ") == title.lower()   # noqa: E731
+        self.ai.grades = lambda role, title, text: ("teaches" if role == "gate" else "no") if same(title) else "teaches"
+        self.steps()
+        self.later(hours=21)
+        self.steps()
+        row = next(d for d in self.sourcer.status("xy-110")["details"] if d["text"] == UNSOURCED)
+        self.assertEqual(row["audit"]["verdict"], "weak", "a split is not a refusal")
+        self.assertEqual(self.skill(UNSOURCED)["sources"], before)
+
+    def test_a_check_that_keeps_failing_is_given_up_after_three_tries(self):
+        self.build()
+        self.legacy()
+        self.ai.fail["verify_graded"] = 1000
+        with self.assertLogs("dojo.sourcing", level="ERROR"):
+            for _ in range(6):
+                self.sourcer.step()
+        row = next(d for d in self.sourcer.status("xy-110")["details"] if d["text"] == UNSOURCED)
+        self.assertEqual(row["audit"]["verdict"], "unchecked")
+        paid = self.ai.calls_of("verify_graded")
+        self.assertFalse(self.sourcer.step())
+        self.assertEqual(self.ai.calls_of("verify_graded"), paid, "nothing more is paid for")
 
     def test_pages_both_models_refuse_are_kept_while_the_lesson_has_a_film(self):
         self.build()
@@ -464,6 +574,21 @@ class PreparerTurnsTests(unittest.TestCase):
         self.assertTrue(p.step())    # L again, same
         self.assertFalse(p.step())   # S: nothing left; L: nothing to write: sleep
         self.assertEqual("".join(order), "SLSLSL")
+
+    def test_the_pause_is_short_after_work_and_never_longer_than_the_search_needs(self):
+        p = Preparer.__new__(Preparer)
+        p.sourcing = mock.Mock()
+        p.sourcing.wait_s.return_value = 240.0
+        self.assertEqual(p.wait_after(True), 15)
+        self.assertEqual(p.wait_after(False), 240.0)
+        p.sourcing.wait_s.return_value = 5
+        self.assertEqual(p.wait_after(False), 15.0)
+        p.sourcing.wait_s.return_value = 99999
+        self.assertEqual(p.wait_after(False), 1800.0)
+        p.sourcing.wait_s.side_effect = RuntimeError("no")
+        self.assertEqual(p.wait_after(False), 1800)
+        p.sourcing = None
+        self.assertEqual(p.wait_after(False), 1800)
 
     def test_a_learner_at_work_stops_both(self):
         p, order = self.preparer([True], [True])

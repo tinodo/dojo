@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("DOJO_LOCAL", "1")
 
@@ -101,6 +102,49 @@ class LeaseTests(unittest.TestCase):
         doc["epoch"] = 5
         with self.assertRaises(LeaseLost):
             books.save_skill(doc)
+
+
+    def test_a_revoked_lease_writes_nothing_more(self):
+        _, a, _ = leases(self.store)
+        self.assertTrue(a.acquire())
+        books = Books(self.store, "xy-110", a)
+        books.save_skill(new_skill("k1"))
+        a.revoke()   # the exam was removed while this owner was working
+        for write in (lambda: books.save_skill(new_skill("k2")), lambda: books.save_side("scan", {}), lambda: books.save_index({"package": "xy-110"})):
+            with self.assertRaises(LeaseLost):
+                write()
+        with self.assertRaises(LeaseLost):
+            a.check()
+        self.assertIsNone(self.store.read("sourcing", "xy-110", "k2", default=None))
+
+    def test_a_write_that_outlived_the_lease_is_noticed_at_once(self):
+        clock, a, b = leases(self.store)
+        self.assertTrue(a.acquire())
+        books = Books(self.store, "xy-110", a)
+        real = self.store.write
+
+        def slow(*args, **kwargs):
+            real(*args, **kwargs)
+            clock.now += 601   # the write took so long that the lease ran out, and another process took it
+            self.assertTrue(b.acquire())
+
+        with mock.patch.object(self.store, "write", slow), self.assertRaises(LeaseLost):
+            books.save_skill(new_skill("k1"))
+
+
+    def test_what_is_written_while_the_exam_is_removed_goes_too(self):
+        _, a, _ = leases(self.store)
+        self.assertTrue(a.acquire())
+        books = Books(self.store, "xy-110", a)
+        real = self.store.write
+
+        def removed_meanwhile(*args, **kwargs):
+            real(*args, **kwargs)
+            a.revoke()
+
+        with mock.patch.object(self.store, "write", removed_meanwhile), self.assertRaises(LeaseLost):
+            books.save_skill(new_skill("k1"))
+        self.assertIsNone(self.store.read("sourcing", "xy-110", "k1", default=None))
 
 
 class LedgerTests(unittest.TestCase):

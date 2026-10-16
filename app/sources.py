@@ -535,10 +535,11 @@ class Sources:
         response = self._request(url, docs_url if docs else None)
         return str(response.url), response.text
 
-    def data(self, url: str) -> Any:
-        """The JSON answer of a search on one of the two hosts."""
+    def data(self, url: str, docs: bool = False) -> Any:
+        """The JSON answer of a search on one of the two hosts. With `docs`, the address and every redirect must
+        pass `docs_url` (a table of contents, which belongs to documentation, never leads into training, EG-39)."""
         try:
-            return self._request(url).json()
+            return self._request(url, docs_url if docs else None).json()
         except ValueError as e:
             raise UserError("The search answered with something Dojo cannot read.") from e
 

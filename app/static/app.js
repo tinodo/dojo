@@ -6436,7 +6436,8 @@ function sourcingSkill(d) {
   const [label, kind] = SRC_STATE[d.state] || [d.state, "line"];
   return h("div", { class: "near" },
     h("span", null, d.text, h("small", { class: "block muted" }, `${d.domain} · ${d.group}`),
-      d.accepted.map((a) => h("small", { class: "block" }, chip(a.grade, a.grade === "teaches" ? "sage" : "line"), " ", ext(a.url, a.title))),
+      d.accepted.map((a) => h("small", { class: a.cited ? "block" : "block muted" }, chip(a.grade, a.grade === "teaches" ? "sage" : "line"), " ", ext(a.url, a.title),
+        a.cited ? null : " (accepted, not used: pages that explain the skill more directly were chosen)")),
       d.failure ? h("small", { class: "block bad" }, d.failure) : null,
       d.blocked ? h("small", { class: "block bad" }, `Blocked at ${d.blocked.step}: ${d.blocked.error}`) : null,
       d.next ? h("small", { class: "block muted" }, `Next search ${fmtWhen(d.next)}`) : null),
@@ -8139,7 +8140,7 @@ function buildPanel(f, date, kept, token) {
       tile("narration", "for Listen and your podcast"),
       tile("exams", minutes ? `timed, ${minutes} minutes, weighted like the blueprint` : "untimed: no exam duration found"),
       tile("checks", "three questions in three minutes")),
-    h("p", { class: "note top" }, "Checking the official pages takes a few minutes. Then the lessons are written, checked and narrated in the background, one at a time, taking turns with your other exams. A skill with no verified official page is marked, not faked."),
+    h("p", { class: "note top" }, "Finding and checking the official pages of a whole exam takes a while, an hour or more: Dojo reads many pages and two different models check each one. You can leave this page. Dojo then goes on by itself until every skill has its pages, and the lessons are written, checked and narrated in the background, one at a time, taking turns with your other exams. A skill that has no verified official page yet is marked, not faked."),
     f.resume && kept ? clearBuild(kept, `An earlier build stopped after ${f.resume.checked} of ${plural(f.resume.skills || 0, "skill")}${f.resume.error ? `: ${f.resume.error}` : "."} Building again keeps the pages already checked.`) : null,
     h("h3", { class: "top" }, "What it costs"),
     h("p", { class: "small muted" }, "Writing and narration run by themselves once you confirm. Presenter videos are not in this price: they are filmed only when you press Film the lessons, which shows its own price."),

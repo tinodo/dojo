@@ -58,7 +58,7 @@ def plan_group(ai: Any, found: dict, domain: dict, group: dict, skills: list[dic
             lines.append("    tried: " + " | ".join(untrusted(t, PHRASE_CHARS) for t in s["tried"][-8:]))
         if s.get("rejected"):
             lines.append("    rejected: " + " | ".join(f"{untrusted(r['title'], 120)} ({r['why']})" for r in s["rejected"][-8:]))
-    user = (f"Exam: {found['code']} {untrusted(found.get('title', ''), 200)}\n<data>\n<domain>{untrusted(domain['title'], 300)}</domain>\n"
+    user = (f"<data>\n<exam>{untrusted(found['code'], 40)} {untrusted(found.get('title', ''), 200)}</exam>\n<domain>{untrusted(domain['title'], 300)}</domain>\n"
             f"<group>{untrusted(group['title'], 300)}</group>\n<skills>\n" + "\n".join(lines) + "\n</skills>\n</data>\n"
             f"Write up to {PHRASES} phrases for each numbered skill.")
     by_number: dict[int, list] = {}

@@ -52,6 +52,7 @@ class Lease:
         self.pause = pause
         self.epoch = 0
         self._kept = 0.0
+        self.revoked = False   # the exam was removed while this owner worked: nothing more is written
         self._lock = threading.Lock()
 
     def _read(self) -> dict | None:
@@ -94,8 +95,13 @@ class Lease:
                 return True
             return False
 
+    def revoke(self) -> None:
+        self.revoked = True
+
     def check(self) -> None:
         """Raises LeaseLost unless the lease still names this owner and epoch."""
+        if self.revoked:
+            raise LeaseLost("the exam was removed")
         held = self._read()
         if not (held and held.get("owner") == self.owner and held.get("epoch") == self.epoch and self.epoch):
             raise LeaseLost("another process holds the sourcing lease")
@@ -172,6 +178,7 @@ class Books:
             self.lease.keep()
             self._fenced(doc)
             self.store.write("sourcing", self.pid, value=doc)
+            self._written()
 
     def keys(self) -> list[str]:
         return [n for n in self.store.names("sourcing", self.pid) if not n.startswith("side-")]
@@ -186,6 +193,7 @@ class Books:
             self._fenced(doc)
             doc["updated"] = iso()
             self.store.write("sourcing", self.pid, doc["key"], value=doc)
+            self._written(doc["key"])
 
     def side(self, name: str, default: Any = None) -> Any:
         """A document of the exam that belongs to no skill (the R7 scan, the audit): `side-<name>`."""
@@ -195,6 +203,17 @@ class Books:
         with self._lock:
             self.lease.keep()
             self.store.write("sourcing", self.pid, f"side-{name}", value=value)
+            self._written(f"side-{name}")
+
+    def _written(self, *name: str) -> None:
+        """Still the owner after the write: a process that stalled long enough to lose the lease stops here. When the
+        exam was removed meanwhile, what was just written goes too (`Sourcer.forget` may have run before the write)."""
+        try:
+            self.lease.check()
+        except LeaseLost:
+            if self.lease.revoked:
+                self.store.delete("sourcing", self.pid, *name)
+            raise
 
     def _fenced(self, doc: dict) -> None:
         """A document written by a newer owner is never written over by an older one."""

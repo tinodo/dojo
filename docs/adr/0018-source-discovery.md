@@ -54,30 +54,51 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   of the two. A quote that is not on the page gets one repair: the model names a numbered sentence taken from the page.
   A page one model accepts and the other refuses is read again by both with more of the page; still split means
   refused. Nothing is accepted by rank, by agreement of searches or by one model.
-- **Covered, partial, exhausted, blocked**: a skill is `covered` when an accepted page has both grades `teaches`, or
-  when both models, each listing the skill's obligations with a verified sentence for each, say the accepted pages
-  together cover it. Otherwise it is `partial`: its pages are written after round 4 (the lesson checker refuses what a
-  page does not support) and the search goes on. `exhausted` means every step of the four rounds ran and nothing was
-  accepted: it says that the configured retrieval is exhausted, never that the documentation lacks a page. A step that
-  fails three times makes the skill `blocked` for the day; a blocked skill is never called exhausted.
-- **Rounds** (`ladder.py`): 1 phrases plus all retrievers, the best 20 pages judged; 2 new phrases that know the
-  refusals, the next 20, refusals that several searches agree on judged once more with more of the page; 3 every title
-  of the inventory read by the gate model (R7); 4 web search with the exam's wording and no domain filter. Exhausted and
-  partial skills come back three days in a row, then weekly, with new wording.
+- **Choosing the pages a lesson cites** (`_rank`, `Verifier.rank_pages`): every page of a round's pool is judged (the
+  first version stopped at three accepted pages, and the first real run showed what that costs: all 13 test skills were
+  `covered` after round 1, but 9 of the 43 pages they cited were neighbours, such as the HA/DR checklists for "monitor"
+  and "troubleshoot", an Azure Pipelines task for "monitor and troubleshoot deployments", or Kusto's row-level security
+  for an Azure SQL skill). With two or more accepted pages, both models then read them side by side, in address order,
+  and each orders them by how directly they explain what the skill's verb and subject ask and names the pages that only
+  belong to the same area. The orders are added; a page is dropped only when both models drop it; the best page is never
+  dropped; nothing is ever added by this step. On those 13 skills with the owner's pages mixed in, both models put the
+  troubleshooting guides first and dropped the checklists, and put ARM's deployment history and common deployment
+  errors above the Azure Pipelines task.
+- **Covered, partial, exhausted, blocked**: a skill is `covered` when a page it cites (the best three after that
+  comparison) has both grades `teaches`, or when both models, each listing the skill's obligations with a verified
+  sentence for each, say the cited pages together cover it. Otherwise it is `partial`: its pages are written only when
+  round 4 is done (the lesson checker refuses what a page does not support) and the search goes on. `exhausted` means
+  every step of the four rounds ran and nothing was accepted: it says that the configured retrieval is exhausted, never
+  that the documentation lacks a page. A step that fails three times makes the skill `blocked` for the day; a blocked
+  skill is never called exhausted. The build adds an exam when at least one skill has an accepted page; it writes the
+  `covered` skills and leaves the rest to the background.
+- **Rounds** (`ladder.py`): 1 phrases plus all retrievers, the best 20 pages of the pool judged; 2 new phrases that know
+  the refusals, the next 20, refusals that several searches agree on judged once more with more of the page; 3 every
+  title of the inventory read by the gate model (R7); 4 web search with the exam's wording and no domain filter.
+  Exhausted and partial skills come back three days in a row, then weekly, with new wording.
 - **Running it**: stage 0 of the background preparation, taking every other turn so lessons for the pages already
   found are written between its steps. The build job runs rounds 1 and 2 with progress as before and hands over.
-  Per exam: a lease file with an epoch (a process that lost it writes nothing more), a ledger of steps keyed by cycle,
-  round and step with an input fingerprint, at most 4 skills at once, 4,000 model calls a day (a cap pauses the work,
-  it never ends a skill), the author's web searches one at a time with back-off.
+  Per exam: a lease file with an epoch (a process that lost it writes nothing more; the lease is checked again after
+  every write, and the removal of an exam revokes it, holds the package lock, and deletes what a step wrote meanwhile),
+  a ledger of steps keyed by cycle, round and step with an input fingerprint, at most 4 skills at once, 4,000 model
+  calls a day (a cap pauses the work, it never ends a skill), the author's web searches one at a time with back-off.
+  The preparer sleeps only until the search is next due (15 seconds to 30 minutes), so a step that failed is retried
+  after its own pause. One residual window is left and accepted: a process that stalls for longer than the lease's ten
+  minutes between its check and its write can still write once; the check after the write then stops it.
 - **Nothing that exists is changed**: only skills without sources are written. A skill that has sources keeps them,
   and with them its lesson, narration and film. The exceptions are a skill whose cited pages both models refuse (found
-  by the audit, replaced only while its lesson has no film) and a `partial` skill, which may gain pages up to three,
-  again only while its lesson has no film. Readiness is unchanged except that it cannot say "book" while a skill has
+  by the audit: both models read every cited page and each gave it no grade, not a failed quote and not a split; judged
+  again a day later, three a day, and replaced only while its lesson has no film) and a `partial` skill, which may gain
+  pages up to three, again only while its lesson has no film. Readiness is unchanged except that it cannot say "book" while a skill has
   no page.
 - **Screens**: the repair button, its price question and its route are gone. The exam page says in one line how many
   skills Dojo is still finding pages for. Studio lists every skill with its state, its accepted pages (grade, quotes,
   retrievers), blocked steps and the audit, and says whether web search works (one cached self-test a day, never at
   start-up).
+- **Documentation only (EG-39)**: tables of contents are read documentation-only (the address and every redirect must
+  pass `docs_url`, and a table of contents a page names outside the documentation is never asked for); a page that
+  leads to `/previous-versions/` is refused after the redirect, before any model reads it; the exam's title, which comes
+  from the study guide, stands inside `<data>` in every prompt like everything else read from the web.
 - **Privacy**: web search receives public text only; `docs/privacy.md` says that Grounding with Bing is outside the
   Data Protection Addendum.
 

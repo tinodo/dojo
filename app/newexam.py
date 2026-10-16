@@ -327,8 +327,9 @@ class NewExams:
         if len(failed) > max(1, ERROR_SHARE * total):
             raise UserError(f"The checks could not run for {len(failed)} of {total} skills (last problem: "
                             f"{failed[-1]['error']}). The pages already checked are kept: press Build again to continue.")
-        if not self._counts(guide, matches)["sourced"]:
-            # Something is wrong with the checks rather than with every page: start again from nothing.
+        if not self._counts(guide, matches)["found"]:
+            # Something is wrong with the checks rather than with every page: start again from nothing. (A skill with
+            # pages that are only partly enough counts as found: the search goes on with it once the exam is added.)
             self._change(pid, lambda doc: doc.update(matches={}, checked=0, sourced=0, errors=0))
             self.sourcer.forget(pid)
             raise UserError(f"No official page passed the check for any of the {total} skills, so Dojo did not add "
@@ -360,7 +361,8 @@ class NewExams:
         keys = set(cls._keys(guide))
         mine = [matches[k] for k in keys if k in matches]
         return {"skills": len(keys), "checked": sum(1 for m in mine if not m.get("error")),
-                "sourced": sum(1 for m in mine if m.get("sources")), "errors": sum(1 for m in mine if m.get("error"))}
+                "sourced": sum(1 for m in mine if m.get("sources")), "found": sum(1 for m in mine if m.get("accepted") or m.get("sources")),
+                "errors": sum(1 for m in mine if m.get("error"))}
 
     # Searching, picking and checking pages lives in app/pagefinder.py, shared with Deeper lessons (ADR 0008).
 
@@ -682,10 +684,11 @@ class NewExams:
             code = (self.packages.get(pid)["meta"]["exam"] if added else (doc or {}).get("code")) or pid.upper()
             with self.pool_keeper.paused(learner):
                 with self.jobs.exclusive(learner):
-                    if added:
-                        self.packages.remove(pid)
+                    with self.sourcer.package_lock:   # a skill the search writes meanwhile is never put back into the removed package
+                        if added:
+                            self.packages.remove(pid)
+                        self.sourcer.forget(pid)
                     removed = self._forget_content(pid)
-                    self.sourcer.forget(pid)
                     for who in everyone:
                         self._unenroll(who, pid)
                     self.store.delete("package-builds", pid)

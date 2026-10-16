@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 
 from app.sourcing.net import Net, SourcingError
-from app.sources import Sources
+from app.sources import NotDocs, Sources
 from app.core import Store
 
 
@@ -20,7 +20,7 @@ class FakeSources:
         self.post_steps = {}
         self.calls = []
 
-    def data(self, url: str):
+    def data(self, url: str, docs: bool = False):
         self.calls.append(("data", url))
         step = self.data_steps[url].pop(0)
         if isinstance(step, Exception):
@@ -99,6 +99,28 @@ class NetTests(unittest.TestCase):
         net = Net(FakeSources())
         with self.assertRaises(SourcingError):
             net.get_json("https://evil.example/steal")
+
+    def test_a_documentation_only_read_never_follows_a_redirect_into_training(self):
+        seen = []
+        toc = "https://learn.microsoft.com/en-us/sql/toc.json"
+
+        def web(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.path)
+            if request.url.path == "/en-us/sql/toc.json":
+                return httpx.Response(302, headers={"location": "/en-us/training/paths/toc.json"}, request=request)
+            return httpx.Response(200, json={"items": []}, request=request)
+
+        store = Store(Path(tempfile.mkdtemp(prefix="dojo-sourcing-net-")))
+        src = Sources(store, http=httpx.Client(transport=httpx.MockTransport(web), follow_redirects=False))
+        net = Net(src, per_second=1000.0, sleep=lambda s: None)
+        with self.assertRaises(SourcingError):
+            net.get_json(toc, docs=True)
+        self.assertEqual(seen, ["/en-us/sql/toc.json"], "training was never asked for")
+        with self.assertRaises(NotDocs):
+            src.data(toc, docs=True)
+        seen.clear()
+        self.assertEqual(src.data(toc), {"items": []}, "a search is not a page: no documentation check")
+        self.assertEqual(seen, ["/en-us/sql/toc.json", "/en-us/training/paths/toc.json"])
 
     def test_post_json_keeps_redirect_response(self):
         src = FakeSources()

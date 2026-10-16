@@ -11,7 +11,7 @@ class FakeNet:
         self.posts = []
         self.replies = []
 
-    def get_json(self, url: str):
+    def get_json(self, url: str, docs: bool = False):
         return self.answers[url]
 
     def post_json(self, url: str, body: dict, headers: dict | None = None):

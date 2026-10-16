@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlsplit
 
 from ..core import iso, parse_iso, utcnow
 from ..pagefinder import label
+from ..sources import docs_url
 from .retrieve import Hit, canon_url, deny_url
 
 _TOC_META = re.compile(r"<meta\b[^<>]*>", re.I)
@@ -177,7 +178,7 @@ class Inventory:
     def _read_toc(self, toc: str, remaining: int) -> tuple[list[dict], bool, str]:
         fetched = iso(self.now())
         try:
-            data = self.net.get_json(toc)
+            data = self.net.get_json(toc, docs=True)
             items = data.get("items") if isinstance(data, dict) else None
             rows: list[dict] = []
             self._walk(items if isinstance(items, list) else [], [], toc, rows, min(20_000, remaining))
@@ -210,7 +211,8 @@ class Inventory:
                 continue
             found = _TOC_CONTENT.search(tag)
             if found:
-                return urljoin(final, found.group(1))
+                toc = urljoin(final, found.group(1))
+                return toc if docs_url(toc) else None   # a table of contents outside the documentation is never read (EG-39)
         return None
 
     def _ensure_bm25(self) -> tuple[list[dict], dict[str, float], float]:

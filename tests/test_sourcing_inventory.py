@@ -24,6 +24,7 @@ class FakeNet:
         self.jsons = {}
         self.head_calls = Counter()
         self.json_calls = Counter()
+        self.docs_only = {}
         self.lock = threading.Lock()
 
     def get_page_head(self, url: str, limit: int = 150_000):
@@ -34,9 +35,10 @@ class FakeNet:
             raise step
         return step
 
-    def get_json(self, url: str):
+    def get_json(self, url: str, docs: bool = False):
         with self.lock:
             self.json_calls[url] += 1
+            self.docs_only[url] = docs
         step = self.jsons[url]
         if isinstance(step, list):
             step = step.pop(0)
@@ -168,6 +170,25 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(urls[0], "https://learn.microsoft.com/en-us/sql/troubleshoot-job")
         self.assertEqual(len(urls), len(set(urls)))
         self.assertEqual({"url", "title", "summary"}, set(many[0]))
+
+    def test_a_table_of_contents_is_read_as_documentation_only(self):
+        net = FakeNet()
+        seed = "https://learn.microsoft.com/en-us/sql/topic"
+        toc = "https://learn.microsoft.com/en-us/sql/toc.json"
+        net.heads[seed] = (seed, toc_meta("toc.json"))
+        net.jsons[toc] = {"items": [{"toc_title": "One", "href": "/en-us/sql/one"}]}
+        inv, _ = self.make_inventory(net, lambda: at())
+        inv.seed([seed])
+        self.assertIs(net.docs_only[toc], True, "the read refuses every redirect that leaves the documentation (EG-39)")
+
+    def test_a_table_of_contents_outside_the_documentation_is_never_asked_for(self):
+        net = FakeNet()
+        seed = "https://learn.microsoft.com/en-us/sql/topic"
+        net.heads[seed] = (seed, toc_meta("/en-us/training/paths/toc.json"))
+        inv, _ = self.make_inventory(net, lambda: at())
+        inv.seed([seed])
+        self.assertEqual(sum(net.json_calls.values()), 0)
+        self.assertEqual(inv.size(), 0)
 
     def test_thread_safe_seed_reads_one_toc_once(self):
         now = [at()]

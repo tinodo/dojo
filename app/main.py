@@ -577,7 +577,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             # One thread, a fixed rotation, one batch at a time, and only in a spare work slot. The same
             # first delays as the services' own loops.
             if prepare_on:
-                background.add("prepare", preparer.step, 120, wait=lambda worked: 15 if worked else 1800,
+                background.add("prepare", preparer.step, 120, wait=preparer.wait_after,
                                wake=preparer._wake, service=preparer)
                 background.add("pool", pool.step, 300, wait=lambda s: max(5, s), wake=pool.wake, service=pool)
             if drift_on:

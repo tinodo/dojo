@@ -339,7 +339,7 @@ _CANDIDATE = re.compile(r'<candidate n="(\d+)" found-for="([^"]*)"')
 _PART = re.compile(r"^(P\d+) (.+?) \(about (\d+) words\):", re.M)
 _ONLY = re.compile(r"^Write ONLY these parts again: ([P\d, ]+)\.", re.M)
 _SLIDE = re.compile(r'^SLIDE (\d+): "', re.M)
-_ROLE_TASKS = frozenset({"verify_graded", "pick_sentences", "complete_set"})   # stub handlers that need to know the model asked
+_ROLE_TASKS = frozenset({"verify_graded", "pick_sentences", "complete_set", "rank_sources"})   # stub handlers that need to know the model asked
 _TITLE = re.compile(r'<source n="(\d+)" title="([^"]*)"')
 _SKILL_LINE = re.compile(r"^\[(\d+)\] (.+)$", re.M)
 _PAGE_LINE = re.compile(r"^\[(\d+)\] (.+)$", re.M)
@@ -374,6 +374,8 @@ class StubAI:
         self.search_urls: Callable[[str], list[str]] = lambda query: []
         self.grades: Callable[[str, str, str], str] = lambda role, title, text: "teaches"
         self.set_answer: Callable[[str], str] = lambda role: "yes"
+        # The order and the drops a model gives accepted pages: (role, titles) -> (numbers best first, numbers dropped).
+        self.ranking: Callable[[str, list[str]], tuple[list[int], list[int]]] = lambda role, titles: (list(range(1, len(titles) + 1)), [])
 
     def web_search(self, query: str, domains: tuple[str, ...] = (), max_searches: int = 1) -> dict:
         self.calls.append(("author", "web_search"))
@@ -663,6 +665,12 @@ class StubAI:
             first.setdefault(n, sentence)
         return {"obligations": [{"text": f"Part {n}", "source": n, "quote": q} for n, q in sorted(first.items())],
                 "answer": self.set_answer(role), "reason": "stub"}
+
+    def _rank_sources(self, user: str, role: str) -> dict:
+        """The order and the drops a test decides (`ranking`), from the titles of the sources."""
+        titles = [t for _, t in sorted((int(n), t) for n, t in _TITLE.findall(user))]
+        order, drop = self.ranking(role, titles)
+        return {"order": order, "drop": drop, "reason": "stub"}
 
     def _scan_titles(self, user: str) -> dict:
         """For each skill, up to two pages whose title shares a word of five letters or more with it."""

@@ -38,13 +38,13 @@ class Net:
         self._lock = threading.RLock()
         self._buckets: dict[str, tuple[float, float]] = {}
 
-    def get_json(self, url: str) -> Any:
+    def get_json(self, url: str, docs: bool = False) -> Any:
         try:
             url = check_url(url)
         except UserError as e:
             raise SourcingError(str(e)) from e
         self._host(url)
-        return self._retry(url, lambda: self.sources.data(url))
+        return self._retry(url, lambda: self.sources.data(url, docs=docs))
 
     def get_page_head(self, url: str, limit: int = 150_000) -> tuple[str, str]:
         try:

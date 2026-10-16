@@ -46,7 +46,8 @@ ROUNDS = 4
 VERIFY_LIMIT = 20          # pages judged for a skill in one round
 SLICE = 5                  # pages judged in one step (one batch of the gate model)
 MAX_ACCEPTED = 3           # a skill cites at most this many pages (app/packages.py)
-KEEP_ACCEPTED = 8
+KEEP_ACCEPTED = 10          # accepted pages kept in a skill's book; the best ones when there are more
+RANK_LIMIT = 8              # accepted pages the two models order and sift (the best by the plain order)
 APPEAL_LIMIT = 6
 APPEALABLE = ("other-task", "mention", "quote")
 QUOTAS = {"r1s": 5, "r1u": 5, "r2": 5, "r3": 5, "r4": 8, "r7": 10}
@@ -60,6 +61,7 @@ SCAN_PICKS = 10
 RETRY_DAYS = (1, 1, 1, 7)  # days until the next cycle of an `exhausted` or `partial` skill: three daily, then weekly
 BACKOFF_MIN = 5            # minutes after a failed step, doubled for each try
 AUDIT_PER_STEP = 4
+AUDIT_TRIES = 3             # tries of the audit of one skill, counted before each paid call: then it is left `unchecked`
 REPLACE_PER_DAY = 3        # skills whose cited pages both models refused, put back to the search, in a UTC day
 CONFIRM_HOURS = 20         # a skill whose cited pages were refused is judged once more after this, before anything is replaced
 SEED_TOP = 3               # pages of each skill that grow the inventory
@@ -118,7 +120,9 @@ def apply_result(doc: dict, url: str, res: dict) -> None:
             doc["accepted"].append({"url": res["url"], "title": res["title"], "grade": res["grade"],
                                     "gate": _slim(res["gate"]), "author": _slim(res["author"]), "sha256": res["sha256"],
                                     "by": e["by"], "rank": e["rank"], "at": res["at"]})
-            doc["accepted"] = doc["accepted"][:KEEP_ACCEPTED]
+            if len(doc["accepted"]) > KEEP_ACCEPTED:
+                worst = {id(a) for a in sorted(doc["accepted"], key=_plain)[KEEP_ACCEPTED:]}
+                doc["accepted"] = [a for a in doc["accepted"] if id(a) not in worst]
     elif res["state"] == "unread":
         e["verdict"], e["why"] = "unread", res["why"]
         e["tries"] = e.get("tries", 0) + 1
@@ -126,9 +130,20 @@ def apply_result(doc: dict, url: str, res: dict) -> None:
         e["verdict"], e["why"] = "rejected", res["why"]
 
 
+def _plain(a: dict) -> tuple:
+    """The order of accepted pages before the models have compared them: both-`teaches` first, then those more
+    searches agreed on, then the better rank."""
+    return a["grade"] != "teaches", -len(a.get("by") or []), a.get("rank") or 99
+
+
 def best(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
-    """The accepted pages a skill cites: both-`teaches` first, then those more searches agreed on."""
-    return sorted(doc["accepted"], key=lambda a: (a["grade"] != "teaches", -len(a.get("by") or []), a.get("rank") or 99))[:limit]
+    """The accepted pages a skill cites. Once the two models have compared the pages (`_rank`) their order counts and
+    the pages both dropped are left out (never all of them); a page accepted after that comes after the compared ones."""
+    ranked = doc.get("ranked") or {}
+    drop = set(ranked.get("drop") or [])
+    pages = [a for a in doc["accepted"] if a["url"] not in drop] or list(doc["accepted"])
+    place = {u: i for i, u in enumerate(ranked.get("order") or [])}
+    return sorted(pages, key=lambda a: (place.get(a["url"], len(place)), _plain(a)))[:limit]
 
 
 def refs_of(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
@@ -139,6 +154,12 @@ def refs_of(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
                     "use": "ground", "verified": {"quote": a["gate"]["quote"], "by": f"{a['gate']['model']}; {a['author']['model']}",
                                                   "on": a["at"][:10], "sha256": a["sha256"]}})
     return out
+
+
+def _refused(res: dict) -> bool:
+    """Whether both models read the page and each gave it no grade at all."""
+    gate, author = res.get("gate"), res.get("author")
+    return bool(gate and author and gate.get("grade") == "no" and author.get("grade") == "no")
 
 
 def needs_work(doc: dict, has_sources: bool, now: Any) -> bool:
@@ -325,13 +346,26 @@ class Sourcer:
             self.dojo.packages.add(fresh)
             return fresh
 
+    @property
+    def package_lock(self) -> Any:
+        """Held while a package is read, changed and written here, and by the removal of an exam, so a skill is
+        never written back into a package that was just removed."""
+        return self._package
+
     def forget(self, pid: str) -> None:
-        """The exam was removed: what the search kept for it goes too."""
+        """The exam was removed: what the search kept for it goes too, and any step still running for it stops at its
+        next write (its lease is revoked)."""
+        with self._lock:
+            lease = self._leases.pop(pid, None)
+        if lease is not None:
+            lease.revoke()
         for name in self.store.names("sourcing", pid):
             self.store.delete("sourcing", pid, name)
         self.store.delete("sourcing", pid)
-        with self._lock:
-            self._leases.pop(pid, None)
+        try:
+            self.store.path("sourcing", f"{pid}.lease").unlink(missing_ok=True)   # a re-added exam is not kept waiting for a lease nobody holds
+        except OSError:
+            log.info("could not remove the sourcing lease of %s", pid)
 
     def _work(self, run: Run, raw: dict) -> bool:
         raw = self._tidy(run, raw)
@@ -377,7 +411,10 @@ class Sourcer:
             for w in batch:
                 doc = w["doc"]
                 error = (doc.get("blocked") or {}).get("error") if doc["state"] == "blocked" else doc.get("failure")
-                out[w["key"]] = {"sources": refs_of(doc) if doc["accepted"] else [], "checked": iso(),
+                # Only a `covered` skill is written into the package now; the others are searched further in the
+                # background and written when the search is done with them (`_close`).
+                out[w["key"]] = {"sources": refs_of(doc) if doc["state"] == "covered" else [], "checked": iso(),
+                                 "accepted": len(doc["accepted"]),
                                  "error": error if not doc["accepted"] and error else None, "candidates": len(doc["pool"])}
             return out
         except CapReached as e:
@@ -395,10 +432,8 @@ class Sourcer:
         try:
             for s in self.skills_of(raw):
                 doc = run.books.skill(s["key"])
-                if doc["accepted"] and s["sources"] and not doc.get("activated"):
-                    covered = doc["state"] == "covered"
-                    doc["activated"] = {"at": iso(), "sources": len(s["sources"]), "partial": not covered, "build": True}
-                    doc["growing"] = not covered   # a skill written as `partial` goes on through rounds 3 and 4
+                if doc["state"] == "covered" and doc["accepted"] and s["sources"] and not doc.get("activated"):
+                    doc["activated"] = {"at": iso(), "sources": len(s["sources"]), "partial": False, "build": True}
                     run.books.save_skill(doc)
         finally:
             run.lease.release()
@@ -450,6 +485,7 @@ class Sourcer:
             self._retrieve(run, w, r)
             self._verify(run, w, r)
             self._appeal(run, w, r)
+            self._rank(run, w)
             self._assess(run, w)
             doc["round"] = r
             doc["failure"] = None
@@ -566,7 +602,7 @@ class Sourcer:
             elif e["verdict"] == "rejected" and e.get("why") == "quote" and not e.get("quote_tries"):
                 e["verdict"], e["quote_tries"] = "new", 1   # no valid quote is a failure of the models, not a verdict on the page: once more
         done = 0
-        while done < VERIFY_LIMIT and len(doc["accepted"]) < MAX_ACCEPTED:
+        while done < VERIFY_LIMIT:   # the whole round's pool: the best pages are chosen among what was accepted, not the first three
             new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
             if not new:
                 break
@@ -589,7 +625,7 @@ class Sourcer:
         """Pages one model refused that several searches agree on are judged by both models once more, with more of
         the page. Acceptance still needs both models; the searches only say which refusals deserve a second look."""
         doc, ctx = w["doc"], w["ctx"]
-        if r < 2 or len(doc["accepted"]) >= MAX_ACCEPTED:
+        if r < 2:
             return
         cands = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "rejected" and e.get("why") in APPEALABLE
                         and not e.get("appealed") and (len(e["by"]) >= 2 or e["rank"] <= 3)),
@@ -606,16 +642,40 @@ class Sourcer:
         finish(doc, "appeal")
         run.books.save_skill(doc)
 
+    def _rank(self, run: Run, w: dict) -> None:
+        """Which of the accepted pages a lesson is written from. A page that two models accepted one by one can still
+        be a checklist of a wider topic, or another task's page: both models read the accepted pages side by side,
+        order them by how directly they explain the skill and name the ones that do not. Pages are only left out
+        here, never added, and the best one always stays."""
+        doc, ctx = w["doc"], w["ctx"]
+        pages = sorted(sorted(doc["accepted"], key=_plain)[:RANK_LIMIT], key=lambda a: a["url"])   # shown in address order: no place is favoured
+        if len(pages) < 2:
+            doc["ranked"] = None
+            return
+        fp = fingerprint("rank", VERIFIER_VERSION, [(a["url"], a["sha256"]) for a in pages], self._models())
+        if (doc.get("ranked") or {}).get("fp") == fp or not begin(doc, "rank", fp):
+            return
+        run.books.save_skill(doc)
+        try:
+            snapped = [{"url": a["url"], "title": a["title"], "grade": a["grade"], "snap": self.dojo.sources.candidate(a["url"])}
+                       for a in pages]
+        except UserError as e:
+            raise StepFailed(f"a page cannot be read again: {e}") from e
+        result = run.verifier.rank_pages(ctx, snapped)
+        doc["ranked"] = {"fp": fp, "order": result["order"], "drop": result["drop"], "models": result["models"], "at": iso()}
+        finish(doc, "rank")
+        run.books.save_skill(doc)
+
     def _assess(self, run: Run, w: dict) -> None:
-        """`covered` when an accepted page has both grades `teaches`, or when both models say the best pages
+        """`covered` when a page the skill cites has both grades `teaches`, or when both models say the cited pages
         together cover the skill; otherwise `partial` (when there are accepted pages)."""
         doc, ctx = w["doc"], w["ctx"]
         if not doc["accepted"]:
             return
-        if any(a["grade"] == "teaches" for a in doc["accepted"]):
+        chosen = best(doc)
+        if any(a["grade"] == "teaches" for a in chosen):
             doc["state"] = "covered"
             return
-        chosen = best(doc)
         fp = fingerprint("set", VERIFIER_VERSION, [(a["url"], a["sha256"]) for a in chosen], self._models())
         if not (doc.get("set") and doc["set"].get("fp") == fp):
             if begin(doc, "set", fp):
@@ -689,6 +749,7 @@ class Sourcer:
         try:
             self._verify(run, w, 3)
             self._appeal(run, w, 3)
+            self._rank(run, w)
             self._assess(run, w)
             doc["round"] = 3
             doc["failure"] = None
@@ -722,6 +783,7 @@ class Sourcer:
         pid = run.pid
         store = self.store
         with self._package:
+            run.lease.check()   # an exam removed meanwhile (`forget`) is never written back
             raw = store.read("packages", pid, default=None)
             if not isinstance(raw, dict):
                 return   # the exam is not added yet: `adopt` notes it afterwards
@@ -786,17 +848,25 @@ class Sourcer:
                     and parse_iso(side["skills"][s["key"]]["wait_until"]) <= now)][:AUDIT_PER_STEP]
         if not todo:
             return False
+        tries = side.setdefault("tries", {})
         for s in todo:
             ctx = self._context(raw, s)
+            if tries.get(s["key"], 0) >= AUDIT_TRIES:
+                side["skills"][s["key"]] = {"verdict": "unchecked", "pages": [], "at": iso(), "error": "the check failed three times"}
+                tries.pop(s["key"], None)
+                run.books.save_side("audit", side)
+                continue
+            tries[s["key"]] = tries.get(s["key"], 0) + 1
+            run.books.save_side("audit", side)   # the try is written down before the paid call: a failing check ends
             pages = [{"url": r["url"], "title": r.get("title") or r["url"]} for r in s["sources"]]
             results = run.verifier.grade_pages(ctx, pages, both_all=True)
-            verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why")}
+            tries.pop(s["key"], None)
+            verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res)}
                         for p, res in zip(pages, results)]
-            semantic = [v for v in verdicts if v["state"] == "rejected" and v["why"] not in ("gone", "not-docs")]
             if any(v["state"] == "accepted" for v in verdicts):
                 verdict = "supported"
-            elif semantic and len(semantic) == len(verdicts):
-                verdict = "invalid"
+            elif verdicts and all(v["refused"] for v in verdicts):
+                verdict = "invalid"   # both models read every cited page and gave each no grade: not a failed quote, not a split
             else:
                 verdict = "weak"
             before = side["skills"].get(s["key"])
@@ -835,8 +905,9 @@ class Sourcer:
             counts[state] += 1
             skills.append({"id": s["id"], "text": s["text"], "domain": s["domain"], "group": s["group"], "state": state,
                            "round": doc["round"] if doc else 0, "sources": len(s["sources"]),
-                           "accepted": [{k: a[k] for k in ("url", "title", "grade", "by", "rank")} | {"gate": a["gate"]["quote"], "author": a["author"]["quote"]}
-                                        for a in (doc or {}).get("accepted", [])],
+                           "accepted": [{k: a[k] for k in ("url", "title", "grade", "by", "rank")} | {"gate": a["gate"]["quote"], "author": a["author"]["quote"],
+                                                                                                     "cited": a in cited}
+                                        for cited in [best(doc) if doc else []] for a in (doc or {}).get("accepted", [])],
                            "next": (doc or {}).get("next"), "blocked": (doc or {}).get("blocked"),
                            "failure": (doc or {}).get("failure"), "replacing": bool((doc or {}).get("replacing")),
                            "audit": (audit.get("skills") or {}).get(s["key"])})
@@ -852,6 +923,39 @@ class Sourcer:
         """The numbers the exam page shows."""
         s = self.status(pid)
         return {k: s.get(k) for k in ("missing", "incomplete", "complete")} if s else {}
+
+    def wait_s(self) -> float:
+        """Seconds until the search has work again, 15 to 1800: what the preparer sleeps when nothing was to do. A
+        step that failed is tried again after its pause, a skill that waits for its next cycle at its date."""
+        now = self.now()
+        soonest = 1800.0
+        far = now + timedelta(days=36500)
+        try:
+            for pid in self.exams():
+                raw = self.store.read("packages", pid, default=None)
+                if not isinstance(raw, dict):
+                    continue
+                index = self.store.read("sourcing", pid, default=None) or {}
+                if int((index.get("calls") or {}).get(utcnow().date().isoformat()) or 0) >= DAY_CALLS:
+                    continue   # the day's calls are used: nothing is due before tomorrow
+                for s in self.skills_of(raw):
+                    doc = self.store.read("sourcing", pid, s["key"], default=None)
+                    if not (isinstance(doc, dict) and doc.get("key") == s["key"]):
+                        if not s["sources"]:
+                            return 15.0
+                        continue
+                    if not needs_work(doc, bool(s["sources"]), far):
+                        continue
+                    if due(doc, now):
+                        return 15.0
+                    soonest = min(soonest, (parse_iso(doc["next"]) - now).total_seconds())
+                audit = self.store.read("sourcing", pid, "side-audit", default=None) or {}
+                for entry in (audit.get("skills") or {}).values():
+                    if entry.get("verdict") == "invalid" and not entry.get("confirmed") and entry.get("wait_until"):
+                        soonest = min(soonest, (parse_iso(entry["wait_until"]) - now).total_seconds())
+        except Exception:  # noqa: BLE001 - the pause is only a preference
+            return 60.0
+        return max(15.0, min(1800.0, soonest))
 
     def diag(self) -> dict:
         return {"current": self.state["current"], "last": self.state["last"], "worked": self.state["worked"],

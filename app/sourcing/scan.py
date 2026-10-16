@@ -43,7 +43,7 @@ def scan_window(ai: Any, found: dict, skills: list[dict], window: list[dict],
     for start in range(0, len(skills), SKILLS_PER_CALL):
         part = skills[start:start + SKILLS_PER_CALL]
         listing = "\n".join(f"[{k}] {untrusted(s['text'], 600)}" for k, s in enumerate(part, 1))
-        user = (f"Exam: {found['code']} {untrusted(found.get('title', ''), 200)}\n<data>\n<skills>\n{listing}\n</skills>\n"
+        user = (f"<data>\n<exam>{untrusted(found['code'], 40)} {untrusted(found.get('title', ''), 200)}</exam>\n<skills>\n{listing}\n</skills>\n"
                 f"<pages>\n{pages}\n</pages>\n</data>")
         if count:
             count()

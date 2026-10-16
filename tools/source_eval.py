@@ -49,6 +49,50 @@ def title_of(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1].split("?")[0].replace("-", " ")
 
 
+TOKENS: dict[str, list[int]] = {}   # model -> [calls, input tokens, output tokens], as the service reported them
+LIST_PRICE = {"gpt-5.5": (5.0, 30.0), "grok-4-1-fast-reasoning": (0.2, 0.5)}   # USD per million tokens (app/costs.py)
+
+
+def count_tokens() -> None:
+    """Add up the usage the service reports for every model call of this run: the measured size of the work, which
+    the cost estimate of app/costs.py (`SOURCING_CALLS`) is set from."""
+    import threading  # noqa: PLC0415
+
+    import httpx  # noqa: PLC0415
+
+    lock = threading.Lock()
+    send = httpx.Client.send
+
+    def counted(self, request, *args, **kwargs):
+        response = send(self, request, *args, **kwargs)
+        try:
+            if "services.ai.azure.com" in str(request.url) and response.status_code == 200:
+                body = response.json()
+                usage = body.get("usage") or {}
+                tokens_in = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)))
+                # Some services (grok) count their reasoning outside completion_tokens: total_tokens holds it.
+                tokens_out = max(int(usage.get("completion_tokens", usage.get("output_tokens", 0))), int(usage.get("total_tokens", 0)) - tokens_in)
+                with lock:
+                    row = TOKENS.setdefault(str(body.get("model") or "?").split("@")[0], [0, 0, 0])
+                    row[0] += 1
+                    row[1] += tokens_in
+                    row[2] += tokens_out
+        except Exception:  # noqa: BLE001 - counting must never change a run
+            pass
+        return response
+
+    httpx.Client.send = counted
+
+
+def token_report() -> dict:
+    out = {}
+    for model, (calls, tokens_in, tokens_out) in sorted(TOKENS.items()):
+        price = next((v for k, v in LIST_PRICE.items() if model.startswith(k)), None)
+        out[model] = {"calls": calls, "input_tokens": tokens_in, "output_tokens": tokens_out,
+                      "usd_at_list_price": round(tokens_in * price[0] / 1e6 + tokens_out * price[1] / 1e6, 2) if price else None}
+    return out
+
+
 def setup(models: bool) -> object:
     if models and (os.environ.get("DOJO_LOCAL_AI") != "real" or not os.environ.get("DOJO_AI_ENDPOINT") or not os.environ.get("DOJO_MODELS")):
         print("Set DOJO_LOCAL=1, DOJO_LOCAL_AI=real, DOJO_TENANT_ID, DOJO_AI_ENDPOINT and DOJO_MODELS first (see the docstring).")
@@ -69,6 +113,8 @@ def setup(models: bool) -> object:
     import logging  # noqa: PLC0415
     logging.disable(logging.INFO)
     from app.main import create_app  # noqa: PLC0415
+    if models:
+        count_tokens()
     return create_app()
 
 
@@ -106,6 +152,7 @@ def report_verify(rows: list[dict], args) -> int:
     summary = {"positives_accepted": f"{len(accepted_pos)}/{len(pos)}", "negatives_accepted": f"{len(accepted_neg)}/{len(neg)}",
                "skills_with_an_accepted_positive": f"{sum(skills.values())}/{len(skills)}", "unread": len(unread),
                "accepted_negatives": [{k: r[k] for k in ("skill", "url", "kind", "grade", "third")} for r in accepted_neg]}
+    summary["tokens"] = token_report()
     print(json.dumps(summary, indent=1))
     if args.out:
         Path(args.out).write_text(json.dumps({"summary": summary, "rows": rows}, ensure_ascii=False, indent=1), "utf-8")
@@ -134,7 +181,7 @@ def sets_mode(app, args) -> int:
         print(f"{'ok   ' if ok else 'WRONG'} expected {case['label']:10s} got {got:10s} gate={out['gate']['answer']} author={out['author']['answer']}  {case['text'][:60]}")
         if out["gate"]["unsupported"] or out["author"]["unsupported"]:
             print(f"       unsupported: gate {out['gate']['unsupported']} author {out['author']['unsupported']}")
-    print(json.dumps({"wrong": wrong, "incomplete_sets_called_complete": bad}, indent=1))
+    print(json.dumps({"wrong": wrong, "incomplete_sets_called_complete": bad, "tokens": token_report()}, indent=1))
     return 1 if bad or (wrong and args.strict) else 0
 
 
@@ -204,23 +251,25 @@ def e2e_mode(app, args) -> int:
         print(f"step {steps} ({time.time() - started:.0f}s): {st['counts']} calls={st['calls_today']} {st.get('note') or ''}")
     st = sourcer.status(raw["id"])
     by_text = {s["text"]: s for s in skills}
-    critical, unlabelled, found = [], [], 0
+    critical, dropped_bad, unlabelled, found = [], [], [], 0
     for d in st["details"]:
         s = by_text.get(d["text"])
         pos = {canon_url(p["url"]) for p in s["positives"]}
         neg = {canon_url(n["url"]) for n in s["negatives"]}
-        acc = [a["url"] for a in d["accepted"]]
-        hit = [u for u in acc if u in pos]
+        # Dojo keeps addresses as Learn redirects them (with `?view=`): they are compared as the locked sets write them.
+        acc = [(canon_url(a["url"]), bool(a.get("cited"))) for a in d["accepted"]]
+        cited = [u for u, c in acc if c]
+        hit = [u for u in cited if u in pos]
         found += bool(hit)
-        bad = [u for u in acc if u in neg]
-        other = [u for u in acc if u not in pos and u not in neg]
-        critical += [(d["text"], u) for u in bad]
-        unlabelled += [(d["text"], u) for u in other]
-        print(f"{d['state']:10s} round {d['round']} accepted={len(acc)} locked-positives-found={len(hit)}/{len(pos)}  {d['text'][:60]}")
-        for u in acc:
-            print(f"      {'POSITIVE' if u in pos else 'NEGATIVE' if u in neg else 'unlabelled'}  {u}")
-    summary = {"counts": st["counts"], "skills_with_a_locked_positive": f"{found}/{len(st['details'])}", "accepted_negatives": critical,
-               "unlabelled_accepted_pages": len(unlabelled), "calls": st["calls_today"], "seconds": round(time.time() - started)}
+        critical += [(d["text"], u) for u in cited if u in neg]   # a negative a lesson would be written from
+        dropped_bad += [(d["text"], u) for u, c in acc if u in neg and not c]
+        unlabelled += [(d["text"], u) for u in cited if u not in pos and u not in neg]
+        print(f"{d['state']:10s} round {d['round']} accepted={len(acc)} cited={len(cited)} locked-positives-cited={len(hit)}/{len(pos)}  {d['text'][:60]}")
+        for u, c in acc:
+            print(f"   {'*' if c else ' '} {'POSITIVE' if u in pos else 'NEGATIVE' if u in neg else 'unlabelled'}  {u}")
+    summary = {"counts": st["counts"], "skills_with_a_locked_positive_cited": f"{found}/{len(st['details'])}", "cited_negatives": critical,
+               "accepted_but_not_cited_negatives": dropped_bad, "unlabelled_cited_pages": len(unlabelled), "calls": st["calls_today"],
+               "seconds": round(time.time() - started), "tokens": token_report()}
     print(json.dumps(summary, indent=1))
     if args.out:
         Path(args.out).write_text(json.dumps({"summary": summary, "status": st, "unlabelled": unlabelled}, ensure_ascii=False, indent=1), "utf-8")

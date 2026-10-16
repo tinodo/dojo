@@ -103,8 +103,17 @@ class Preparer:
             except Exception:  # noqa: BLE001 - never let the background loop die
                 log.exception("preparation step crashed")
                 worked = False
-            self._wake.wait(15 if worked else 1800)
+            self._wake.wait(self.wait_after(worked))
             self._wake.clear()
+
+    def wait_after(self, worked: bool) -> float:
+        """Seconds until the next step: soon after work, else no later than the search for pages is due again."""
+        if worked:
+            return 15
+        try:
+            return max(15.0, min(1800.0, float(self.sourcing.wait_s()))) if self.sourcing is not None else 1800
+        except Exception:  # noqa: BLE001 - the pause is only a preference
+            return 1800
 
     def order(self) -> list[str]:
         """The exams in turn, for new lessons and narration: the owner's active exam first, then the
