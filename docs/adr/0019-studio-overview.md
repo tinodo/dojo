@@ -66,7 +66,7 @@ a minute), and is now about a second.
 ## Not decided here
 
 - A bulk way to approve filming for the original courses (their lessons offer it one by one, and in Studio's "Film again"
-  for lessons whose film is of an earlier version).
+  for lessons whose film is of an earlier version). Decided in [ADR 0020](0020-studio-actions.md): a button for each course.
 - What to do with a skill whose pages the check does not confirm. The check only reports. Replacing a page of an original
   course changes the lesson written from it and makes its film out of date, which costs money: it stays the owner's decision.
 

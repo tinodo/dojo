@@ -1892,3 +1892,30 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
   .feed-row { grid-template-columns: 72px 1fr; }
   .feed-row .t { grid-column: 1 / -1; }
 }
+/* Studio, Courses (ADR 0020): one line for each thing a course is made of, and the button that makes what is missing. */
+.make-all { margin-bottom: 16px; }
+.make-line { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; padding: 9px 0; border-top: 1px solid var(--line-2); font-size: 14px; }
+.make-line:first-of-type { border-top: 0; }
+.make-line b { min-width: 84px; }
+.make-line > span:nth-child(2) { flex: 1; color: var(--ink-2); }
+.make-line .cost { font: 600 14px var(--mono); color: var(--ink); white-space: nowrap; }
+.mk { margin-top: 8px; }
+.mk-row { display: grid; grid-template-columns: 130px minmax(160px, 1fr) minmax(0, 1.5fr); gap: 6px 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line-2); }
+.mk-row:first-child { border-top: 0; }
+.mk-l { font-weight: 600; font-size: 14px; }
+.mk-m { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mk-m .bar { flex: 1; min-width: 60px; }
+.mk-n { font: 600 13px var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mk-a { display: flex; align-items: center; justify-content: flex-end; gap: 6px 10px; flex-wrap: wrap; min-width: 0; text-align: right; }
+.mk-s { font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+.mk-s.muted { color: var(--ink-3); }
+.mk-s.ok { color: var(--sage-ink); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.mk-s.bad { color: var(--rose-ink); }
+.mk-row.ok .bar > i { background: var(--sage); }
+.mk-row.todo .bar > i { background: var(--amber); }
+.mk-row.warn .bar > i { background: var(--rose); }
+.course > details.how { margin-top: 10px; }
+@media (max-width: 720px) {
+  .mk-row { grid-template-columns: 1fr; }
+  .mk-a { justify-content: flex-start; text-align: left; }
+}

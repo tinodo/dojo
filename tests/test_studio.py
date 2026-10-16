@@ -16,7 +16,9 @@ os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-import-"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.core import iso, utcnow  # noqa: E402
+import app.studio as studio_mod  # noqa: E402
+from app.core import iso, new_id, utcnow  # noqa: E402
+from tests.test_api import POST  # noqa: E402
 from tests.test_newexam import Web, done, make_app, post  # noqa: E402
 
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
@@ -123,9 +125,9 @@ class CourseOverviewTests(StudioCase):
         self.assertEqual(price["lessons"], 1)
         self.assertGreater(price["videos"], 0)
         self.assertIn("you approve each price", watch["note"])
-        film = next(x for x in course["attention"] if "no film of the current lesson" in x["text"])
-        self.assertEqual((film["link"], film["level"]), (f"#/add-exam/{self.pid}", "info"))
-        self.assertIn("Dojo never films on its own", film["text"])
+        self.assertFalse(any("no film of the current lesson" in a["text"] for a in course["attention"]), "the Videos row has the button")
+        videos = course["make"]["videos"]
+        self.assertEqual((videos["have"], videos["of"], videos["offer"]["lessons"]), (1, 2, 1))
 
     def test_a_rewritten_lesson_plays_the_film_of_the_earlier_version_and_says_so(self):
         old = self.write(self.skills[0])
@@ -186,6 +188,181 @@ class CourseOverviewTests(StudioCase):
             r = self.c.get(f"/api/studio/{view}")
             self.assertEqual(r.status_code, 409, view)
             self.assertIn("timed practice exam", r.json()["detail"])
+
+
+class MakeTests(StudioCase):
+    """What the Courses page lets the owner make, and what it asks first (ADR 0020)."""
+
+    def ready(self, count: int = 2) -> list[str]:
+        lessons = [self.write(s) for s in self.skills[:count]]
+        for lesson in lessons:
+            self.narrate(lesson)
+        return lessons
+
+    def videos(self, pid: str | None = None) -> dict:
+        return self.course(pid)["make"]["videos"]
+
+    def press(self, token: str, status: int = 200, pid: str | None = None) -> dict:
+        r = self.c.post(f"/api/studio/film/{pid or self.pid}", json={"confirm": "FILM", "offer": token}, headers=POST)
+        self.assertEqual(r.status_code, status, r.text)
+        return r.json()
+
+    def test_a_course_offers_the_lessons_without_a_film_at_a_price_and_names_them_with_a_token(self):
+        self.ready()
+        videos = self.videos()
+        offer = videos["offer"]
+        self.assertEqual((videos["have"], videos["of"], offer["lessons"]), (0, 2, 2))
+        self.assertGreater(offer["videos"], 0)
+        self.assertGreater(offer["usd"], 0)
+        self.assertTrue(offer["complete"])
+        self.assertRegex(offer["token"], r"^[0-9a-f]{16}$")
+        self.assertTrue(offer["fits"])
+        self.assertEqual(offer["eta_minutes"], round(2 * (studio_mod.FILM_MINUTES + studio_mod.GAP_ADDED_MIN)))
+        make = self.read()["make"]
+        self.assertEqual([k["package"] for k in make["films"]["courses"]], [self.pid], "only the course with lessons to film")
+        self.assertEqual((make["films"]["lessons"], make["films"]["usd"]), (2, offer["usd"]))
+        self.assertTrue(make["films"]["priced"] and make["films"]["fits"])
+        self.assertEqual(set(make["storage"]), {"videos", "bytes", "budget_bytes", "limit_bytes", "average_bytes", "queued_bytes", "free_bytes"})
+        self.assertFalse(make["busy"], "nothing is being made")
+
+    def test_pressing_the_button_approves_the_set_and_price_shown_and_nothing_else(self):
+        self.ready()
+        body = self.press(self.videos()["offer"]["token"])
+        videos = next(x for x in body["courses"] if x["package"] == self.pid)["make"]["videos"]
+        self.assertEqual((videos["waiting"], videos["filming"], videos["offer"]), (2, 0, None))
+        self.assertEqual(videos["eta_minutes"], round(2 * (studio_mod.FILM_MINUTES + studio_mod.GAP_ADDED_MIN)))
+        self.assertTrue(body["make"]["busy"], "the page keeps looking while films wait")
+        self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 2)
+        self.assertEqual([j for j in self.dojo.jobs.for_learner(self.owner) if j["kind"] == "video"], [], "approving files nothing by itself")
+        self.assertIn("nothing new to film", self.press("0" * 16, 409)["detail"])
+
+    def test_a_token_for_another_set_or_price_is_refused(self):
+        self.ready()
+        token = self.videos()["offer"]["token"]
+        path = f"/api/studio/film/{self.pid}"
+        self.assertEqual(self.c.post(path, json={"offer": token}, headers=POST).status_code, 422, "the word is needed")
+        self.assertEqual(self.c.post(path, json={"confirm": "FILM", "offer": "not-a-token"}, headers=POST).status_code, 422)
+        self.assertEqual(self.c.post(path, json={"confirm": "FILM", "offer": token}).status_code, 403, "the page's own header is needed")
+        self.assertIn("changed", self.press("0" * 16, 409)["detail"])
+        real = self.app.state.costs.film_estimate
+        with mock.patch.object(self.app.state.costs, "film_estimate", lambda plans: {**real(plans), "total": real(plans)["total"] + 1.0}):
+            self.assertIn("price changed", self.press(token, 409)["detail"], "the same lessons at another price are another offer")
+        self.write(self.skills[2])
+        self.press(token, 409)
+        self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 0, "none of the refused presses approved anything")
+
+    def test_a_price_that_cannot_be_worked_out_is_never_approved(self):
+        self.ready()
+        real = self.app.state.costs.film_estimate
+        with mock.patch.object(self.app.state.costs, "film_estimate", lambda plans: {**real(plans), "complete": False}):
+            self.assertIsNone(self.videos()["offer"]["token"])
+            self.assertFalse(self.read()["make"]["films"]["priced"])
+            self.assertIn("could not be worked out", self.press("0" * 16, 409)["detail"])
+
+    def test_films_that_would_not_fit_are_not_approved_and_the_page_says_how_much_room_is_left(self):
+        self.ready()
+        full = {"videos": 100, "bytes": 5_300_000_000, "budget_bytes": 6_000_000_000}
+        with mock.patch.object(self.dojo.avatar, "usage", return_value=full):
+            body = self.read()
+            offer = next(x for x in body["courses"] if x["package"] == self.pid)["make"]["videos"]["offer"]
+            self.assertFalse(offer["fits"])
+            self.assertFalse(body["make"]["films"]["fits"])
+            self.assertEqual(body["make"]["storage"]["free_bytes"], 100_000_000, "filming pauses at 90% of the budget")
+            self.assertIn("not room", self.press(offer["token"], 409)["detail"])
+        self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 0)
+
+    def test_films_already_approved_take_room_before_they_are_made(self):
+        self.ready()
+        self.press(self.videos()["offer"]["token"])
+        storage = self.read()["make"]["storage"]
+        self.assertGreater(storage["queued_bytes"], 0)
+        self.assertEqual(storage["free_bytes"], storage["limit_bytes"] - storage["bytes"] - storage["queued_bytes"])
+
+    def test_stop_forgets_the_films_that_have_not_started_and_leaves_the_one_being_made(self):
+        first = self.ready()[0]
+        self.press(self.videos()["offer"]["token"])
+        job = new_id("job")
+        self.dojo.store.write("jobs", job, value={"id": job, "kind": "video", "learner": self.owner.key, "ref": first, "state": "running",
+                                                  "created": iso(), "heartbeat": iso()})
+        self.app.state.newexams.filed(first, job)   # one of them is being made
+        r = self.c.post(f"/api/studio/film/{self.pid}/stop", headers=POST)
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["stopped"], 1)
+        videos = next(x for x in body["courses"] if x["package"] == self.pid)["make"]["videos"]
+        self.assertEqual((videos["waiting"], videos["filming"], videos["offer"]["lessons"]), (0, 1, 1), "the stopped lesson can be approved again")
+        self.assertEqual(self.c.post("/api/studio/film/no-such-course/stop", headers=POST).status_code, 404)
+
+    def test_make_approves_each_course_on_its_own_and_says_what_happened_to_each(self):
+        self.ready()
+        token = self.videos()["offer"]["token"]
+        r = self.c.post("/api/studio/make", json={"confirm": "MAKE", "decks": True, "films": [
+            {"package": self.pid, "offer": token}, {"package": "gh-300", "offer": "0" * 16}]}, headers=POST)
+        self.assertEqual(r.status_code, 200, r.text)
+        results = r.json()["results"]
+        self.assertEqual([(x["what"], x["ok"]) for x in results], [("films", True), ("films", False), ("diagrams", True)])
+        self.assertIn("nothing new to film", results[1]["error"])
+        self.assertEqual((results[0]["exam"], results[1]["exam"]), ("XY-110", "GH-300"))
+        self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 2, "a course that was refused did not stop the other")
+        self.assertTrue(self.app.state.preparer.deck_ahead())
+        self.assertEqual(self.c.post("/api/studio/make", json={"decks": True}, headers=POST).status_code, 422)
+
+    def test_the_diagrams_are_one_line_for_all_courses(self):
+        self.ready()
+        decks = self.read()["make"]["decks"]
+        self.assertFalse(decks["ahead"])
+        self.assertEqual(decks["ready"], 0)
+        self.assertGreater(decks["lessons"], 0)
+        self.assertEqual(decks["remaining"], decks["lessons"])
+        self.assertEqual(decks["per_day"], 20)
+        self.assertEqual(decks["days"], -(-decks["remaining"] // 20))
+        self.assertIn("usd", decks)
+        self.c.post("/api/studio/make", json={"confirm": "MAKE", "decks": True, "films": []}, headers=POST)
+        after = self.read()["make"]
+        self.assertTrue(after["decks"]["ahead"])
+        self.assertTrue(after["busy"], "the page keeps looking while diagrams are drawn")
+
+    def test_the_routes_are_closed_while_a_timed_exam_runs(self):
+        self.app.state.exams.open_attempt = lambda learner: {"id": "exam-00000000000000000000"}
+        for path, body in ((f"/api/studio/film/{self.pid}", {"confirm": "FILM", "offer": "0" * 16}), (f"/api/studio/film/{self.pid}/stop", None),
+                           ("/api/studio/make", {"confirm": "MAKE"})):
+            r = self.c.post(path, json=body, headers=POST)
+            self.assertEqual(r.status_code, 409, path)
+            self.assertIn("timed practice exam", r.json()["detail"])
+
+    def test_a_lesson_with_one_of_its_two_films_is_priced_for_the_other(self):
+        lesson = self.ready(1)[0]
+        whole = self.videos()["offer"]
+        lines = [self.dojo._slide_lines(sl) for sl in self.dojo.lesson(lesson)["slides"]]
+        jobs = self.dojo.avatar.lesson_films(lines)
+        self.assertEqual(len(jobs), 2)
+        self.dojo.avatar.synthesize(*jobs[0])
+        part = self.videos()["offer"]
+        self.assertEqual((whole["videos"], part["videos"]), (2, 1))
+        self.assertLess(part["usd"], whole["usd"])
+        self.assertEqual(part["lessons"], 1, "still a lesson to film")
+
+    def test_the_newest_lesson_of_a_skill_is_the_one_lessons_for_puts_first(self):
+        a, b = self.write(self.skills[0], tag="a"), self.write(self.skills[0], tag="b")
+        for lesson in (a, b):
+            doc = self.dojo.lesson(lesson)
+            doc["created"] = "2026-10-16T10:00:00+00:00"   # the same second
+            self.dojo.store.write("content", "lessons", lesson, value=doc)
+            self.dojo._lesson_meta.pop(lesson, None)
+        first = self.dojo.lessons_for(self.pid, self.skills[0]["id"])[0]["id"]
+        self.film(first)
+        course = self.course()
+        self.assertEqual((course["video"]["own"], self.videos()["have"]), (1, 1), "the lesson the films are asked for is the one counted")
+
+    def test_the_pace_of_a_film_is_the_middle_of_the_finished_ones_and_three_minutes_until_there_are_five(self):
+        self.assertEqual(self.studio._pace(), studio_mod.FILM_MINUTES)
+        start = utcnow() - timedelta(days=1)
+        for minutes in (2, 2, 3, 9, 30):
+            job = new_id("job")
+            self.dojo.store.write("jobs", job, value={"id": job, "kind": "video", "learner": self.owner.key, "ref": "x", "state": "done",
+                                                      "created": iso(start), "heartbeat": iso(start + timedelta(minutes=minutes))})
+        self.studio._paced = None
+        self.assertEqual(self.studio._pace(), 3.0)
 
 
 class ActivityTests(StudioCase):
@@ -331,6 +508,28 @@ class ReadingTests(StudioCase):
                 time.sleep(0.01)
 
 
+class StaleReadingTests(StudioCase):
+    def test_a_reading_made_on_the_spot_is_not_overwritten_by_an_older_one_that_finishes_later(self):
+        gate, started = threading.Event(), threading.Event()
+
+        def slow():
+            started.set()
+            gate.wait(5)
+            return {"n": "older"}
+
+        self.assertEqual(self.studio._cached("k", lambda: {"n": "first"}), {"n": "first"})
+        self.studio._seen["k"] = (time.monotonic() - 3600, {"n": "first"})
+        self.assertEqual(self.studio._cached("k", slow), {"n": "first"})   # a reading begins in the background
+        self.assertTrue(started.wait(5))
+        self.assertEqual(self.studio._cached("k", lambda: {"n": "now"}, fresh=True), {"n": "now"})   # the owner did something and read at once
+        gate.set()
+        for _ in range(200):
+            if not self.studio._busy:
+                break
+            time.sleep(0.01)
+        self.assertEqual(self.studio._cached("k", lambda: {"n": "never"}), {"n": "now"}, "the older reading did not take its place")
+
+
 class StoreNamesTests(unittest.TestCase):
     def test_names_lists_the_json_documents_of_a_folder_and_nothing_else(self):
         tmp = tempfile.mkdtemp(prefix="dojo-names-")
@@ -386,6 +585,32 @@ class StudioScreenTests(unittest.TestCase):
             self.assertIn(link, SCRIPT)
         self.assertNotIn('href: "#/quality" }, "See the studio log."', SCRIPT)
         self.assertNotIn('href: "#/quality" }, "The studio log lists them and why."', SCRIPT)
+
+    def test_every_button_that_spends_money_shows_its_price_and_asks_first(self):
+        videos = part("function videoCell(x, c, act) {")
+        self.assertLess(videos.index("window.confirm("), videos.index('confirm: "FILM", offer: o.token'), "asked before anything is approved")
+        self.assertIn("usd(o.usd)", videos, "the price is on the button")
+        self.assertIn("price not available just now", videos, "no button without a price")
+        self.assertIn("no room", videos)
+        self.assertIn("Stop the rest", videos)
+        panel = part("function makePanel(c, act) {")
+        self.assertLess(panel.index("window.confirm(ask())"), panel.index('"/api/studio/make"'))
+        self.assertIn('confirm: "MAKE"', panel)
+        self.assertIn("Lessons written later get one too, until you stop it here.", panel, "the diagrams stay on for lessons written later")
+        self.assertIn("about ${usd(total)} at list price", panel)
+
+    def test_the_page_looks_again_while_something_is_made_and_stops_when_it_is_left(self):
+        body = part("async function studioCourses() {")
+        self.assertIn("host.isConnected", body)
+        self.assertIn("c.make.busy", body)
+        self.assertIn("setTimeout(poll, 30000)", body)
+        self.assertIn("notice", body, "what a button said stays on the page")
+
+    def test_a_course_is_one_line_for_each_thing_it_is_made_of(self):
+        card = part("function courseCard(x, c, act) {")
+        for label in ("Lessons", "Listen", "Deeper Listen", "Diagrams", "Videos", "Page check"):
+            self.assertIn(f'"{label}"', card)
+        self.assertIn('h("details", { class: "how" }, h("summary", null, "Details: what each number counts")', card, "the explanations are kept, out of the way")
 
     def test_the_old_studio_checks_are_all_still_there(self):
         checks = part("async function studioChecks() {")

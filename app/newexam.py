@@ -628,6 +628,37 @@ class NewExams:
         self.preparer.wake()
         return self.status(learner, pid)
 
+    def film_state(self, pid: str) -> dict:
+        """Where the filming of an added exam stands, for Studio's Courses page: the lessons the owner could
+        approve now with the token `approve_film` wants, and how many films wait, are being made or failed."""
+        doc = self._settled(pid) or {"package": pid}
+        film = doc.get("film") or {}
+        lessons = self._lessons(pid, self._media())
+        waiting, offer = self._queue(film, lessons["unfilmed"])
+        filming = [k for k, r in (film.get("filed") or {}).items() if not r.get("done")]
+        return {"offer": offer, "token": self._offer_token(offer) if offer else None, "waiting": len(waiting),
+                "filming": len(filming), "queued": waiting + filming,
+                "failed": sum(1 for x in offer if x in (film.get("failed") or {}))}
+
+    def cancel_film(self, pid: str) -> int:
+        """The owner stopped the films of an added exam that have not started: the lessons that wait are
+        forgotten, as if never approved. A film that is being made is not touched. Returns how many."""
+        if not self.packages.is_added(pid):
+            raise HTTPException(404, "No such added exam.")
+        with self._lock:
+            doc = self._doc(pid)
+            if not doc:
+                return 0
+            self._settle(doc)
+            film = doc.setdefault("film", {})
+            waiting, _ = self._queue(film, self._lessons(pid, self._media())["unfilmed"])
+            if not waiting:
+                return 0
+            film["approved"] = [x for x in film.get("approved") or [] if x not in waiting]
+            self.store.write("package-builds", pid, value=doc)
+        log.info("the owner stopped %d approved film(s) of %s that had not started", len(waiting), pid)
+        return len(waiting)
+
     def next_film(self) -> str | None:
         """The next lesson the owner approved for filming that is still not filmed, or None."""
         for pid in self.packages.ids():
@@ -637,7 +668,11 @@ class NewExams:
             film = (doc or {}).get("film") or {}
             if not film.get("approved"):
                 continue
-            present = {m["id"] for m in self.dojo.lesson_index() if m.get("package") == pid}
+            newest: dict[Any, tuple[str, str]] = {}   # a lesson written again since the approval is not filmed: the new one waits for its own
+            for m in self.dojo.lesson_index():
+                if m.get("package") == pid and (m.get("skill") not in newest or (m.get("created") or "") > newest[m.get("skill")][0]):
+                    newest[m.get("skill")] = (m.get("created") or "", m["id"])
+            present = {v[1] for v in newest.values()}
             for lesson in film["approved"]:
                 if lesson in (film.get("filed") or {}) or lesson in (film.get("failed") or {}) or lesson not in present:
                     continue

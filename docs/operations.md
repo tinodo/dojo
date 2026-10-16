@@ -252,7 +252,7 @@ These have no effect in Azure.
 
 All of Dojo's state is files under `/home/dojo-data`. App Service makes automatic backups of `/home` on Basic
 plans and above: about every hour, kept for 30 days. Automatic backups stop working once the site's content
-is larger than 30 GB, so watch the size (the avatar cache has its own 3 GB budget).
+is larger than 30 GB, so watch the size (the avatar cache has its own 6 GB budget).
 
 To restore, use the Azure portal (the app → Backups → Restore). A restore puts back the whole share as it was
 at that time. In team mode, tell members first: their work since that backup is lost. Restoring to a new

@@ -20,6 +20,7 @@ os.environ.setdefault("DOJO_LOCAL", "1")
 os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-import-"))
 
 import httpx  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import app.drift as drift_mod  # noqa: E402
@@ -833,6 +834,161 @@ class FilmTests(DriftCase):
         script = (Path(__file__).resolve().parents[1] / "app" / "static" / "app.js").read_text("utf-8")
         panel = script.split("function refilmPanel(d, paint) {", 1)[1].split("\n}\n", 1)[0]
         self.assertIn('h("div", { class: "actions top refilm" }, btn), pricesAge(est),', panel, "right under the button")
+
+
+class OfferTests(DriftCase):
+    """What Studio's Courses page films for a built-in course (ADR 0020): every newest lesson without a video of its own, the
+    ones filmed before and the ones never filmed, approved as one priced set, filed one at a time, and stopped on request."""
+
+    def setUp(self):
+        super().setUp()
+        self.dojo.store.write("content", "prices", value={**PRICES, "fetched": iso()})
+        slow = mock.patch.object(drift_mod, "FILM_WAIT_S", 3600)   # the loop that files approved films sleeps until the test is over
+        slow.start()
+        self.addCleanup(slow.stop)
+
+    def read(self) -> dict:
+        self.app.state.studio._seen.clear()
+        return self.get("/api/studio/courses")
+
+    def videos(self, pid: str = PID) -> dict:
+        return next(x for x in self.read()["courses"] if x["package"] == pid)["make"]["videos"]
+
+    def approve_quietly(self, token: str):
+        """Approve while the owner has something running, so that nothing is filed yet."""
+        with mock.patch.object(self.drift, "_owner_busy", return_value=True):
+            return self.drift.approve_offer(PID, token)
+
+    def test_a_lesson_never_filmed_is_offered_though_it_is_not_a_film_again(self):
+        lesson = self.lesson()
+        self.assertEqual(self.drift.refilm_candidates(), [], "no earlier version was filmed")
+        offer = self.drift.film_offer(PID)
+        self.assertEqual([(x["id"], x["why"], x["replaces"], x["package"], x["skill"]) for x in offer], [(lesson, "never", None, PID, S)])
+        self.assertGreater(offer[0]["characters"], 0)
+        self.assertEqual(self.drift.film_offer("dp-800"), [], "only the course asked for")
+
+    def test_a_partly_filmed_lesson_is_offered_for_the_rest(self):
+        lesson = self.lesson()
+        per_speaker = self.drift._film_plan(lesson)["films"]
+        self.assertGreater(len(per_speaker), 1)
+        speaker = next(iter(per_speaker))
+        lines = [self.dojo._slide_lines(sl) for sl in self.dojo.lesson(lesson)["slides"]]
+        job = next(j for j in self.dojo.avatar.lesson_films(lines) if j[0] == speaker)
+        self.dojo.avatar.synthesize(*job)
+        self.assertTrue(self.drift._any_filmed(lesson))
+        self.assertFalse(self.drift._filmed(lesson))
+        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [lesson])
+
+    def test_the_token_names_the_set_and_a_set_that_changed_is_refused(self):
+        a = self.lesson()
+        token = self.drift.offer_token(self.drift.film_offer(PID))
+        self.assertRegex(token, r"^[0-9a-f]{16}$")
+        b = self.lesson(OTHER)
+        with self.assertRaises(HTTPException) as refused:
+            self.drift.approve_offer(PID, token)
+        self.assertEqual(refused.exception.status_code, 409)
+        self.assertIn("changed", refused.exception.detail)
+        self.assertEqual(self.drift._doc()["films"], {}, "nothing was approved")
+        self.assertEqual(sorted(x["id"] for x in self.drift.film_offer(PID)), sorted([a, b]))
+
+    def test_approving_the_offer_films_each_lesson_once_through_the_ordinary_job(self):
+        lesson = self.lesson()
+        token = self.drift.offer_token(self.drift.film_offer(PID))
+        est = self.drift.approve_offer(PID, token)
+        self.assertGreater(est["usd"], 0)
+        [job] = self.video_jobs()
+        self.assertEqual((job["ref"], job["learner"]), (lesson, self.owner.key))
+        self.assertEqual(self.wait_job(job["id"])["state"], "done")
+        self.drift._file_films()
+        film = self.drift._doc()["films"][lesson]
+        self.assertEqual((film["state"], film["package"], film["skill"], film["replaces"]), ("done", PID, S, None))
+        self.assertTrue(self.drift._filmed(lesson))
+        self.assertEqual(self.drift.film_offer(PID), [])
+        with self.assertRaises(HTTPException) as nothing:
+            self.drift.approve_offer(PID, token)
+        self.assertEqual(nothing.exception.status_code, 409)
+        self.assertEqual(len(self.video_jobs()), 1, "filmed once")
+
+    def test_a_lesson_held_back_by_a_changed_page_is_not_offered(self):
+        self.lesson()
+        self.web.set(PAGE, GITHUB_MD.replace(Q2, NEW))
+        self.read_due()
+        self.assertEqual(self.drift.film_offer(PID), [], "it is written again first, and the new lesson is offered")
+
+    def test_an_added_exams_films_belong_to_its_build_not_to_this_check(self):
+        self.lesson()
+        with mock.patch.object(self.dojo.packages, "is_added", lambda pid: True):
+            self.assertEqual(self.drift.film_offer(PID), [])
+            self.assertEqual(self.drift.refilm_candidates(), [])
+
+    def test_a_film_approved_for_a_lesson_that_was_written_again_is_not_made(self):
+        old = self.lesson()
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        self.assertEqual(self.drift._doc()["films"][old]["state"], "approved")
+        time.sleep(1.1)   # lessons are ordered by the second they were written in
+        new = self.lesson()
+        self.assertNotEqual(old, new)
+        self.assertTrue(self.drift._file_films() is False, "nothing is left to film")
+        self.assertEqual(self.drift._doc()["films"], {}, "the approval for the old lesson was dropped, not filmed")
+        self.assertEqual(self.video_jobs(), [])
+        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [new], "the new lesson waits for an approval of its own")
+
+    def test_stopping_forgets_the_films_that_have_not_started_and_leaves_the_one_being_made(self):
+        a, b = self.lesson(), self.lesson(OTHER)
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        job = new_id("job")
+        self.dojo.store.write("jobs", job, value={"id": job, "kind": "video", "learner": self.owner.key, "ref": a, "state": "running",
+                                                  "created": iso(), "heartbeat": iso()})
+        self.drift._set_film(a, state="filed", job=job, tries=1)
+        queue = self.drift.film_queue(PID)
+        self.assertEqual((queue["waiting"], queue["filming"], sorted(queue["ids"])), (1, 1, sorted([a, b])))
+        self.assertEqual(self.drift.cancel_films("dp-800"), 0, "another course's films are not touched")
+        self.assertEqual(self.drift.cancel_films(PID), 1)
+        self.assertEqual(list(self.drift._doc()["films"]), [a])
+        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [b], "the stopped lesson can be approved again")
+
+    def test_filming_waits_while_the_presenter_videos_are_full(self):
+        lesson = self.lesson()
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        with mock.patch.object(self.dojo.avatar, "usage", return_value={"videos": 9, "bytes": 95, "budget_bytes": 100}):
+            self.assertTrue(self.drift._file_films(), "still approved")
+        self.assertEqual(self.video_jobs(), [])
+        self.assertEqual(self.drift._doc()["films"][lesson]["state"], "approved")
+        self.drift._file_films()
+        self.assertEqual(len(self.video_jobs()), 1)
+
+    def test_the_courses_page_offers_the_never_filmed_lessons_and_approves_them_through_this_check(self):
+        lesson = self.lesson()
+        videos = self.videos()
+        self.assertEqual((videos["have"], videos["of"], videos["offer"]["lessons"]), (0, 1, 1))
+        self.assertTrue(videos["offer"]["token"])
+        path = f"/api/studio/film/{PID}"
+        with mock.patch.object(self.drift, "_owner_busy", return_value=True):
+            r = self.c.post(path, json={"confirm": "FILM", "offer": videos["offer"]["token"]}, headers=POST)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.drift._doc()["films"][lesson]["state"], "approved")
+        after = self.videos()
+        self.assertEqual((after["waiting"], after["offer"]), (1, None))
+        self.assertEqual(self.c.post(path, json={"confirm": "FILM", "offer": videos["offer"]["token"]}, headers=POST).status_code, 409)
+        stopped = self.c.post(f"{path}/stop", headers=POST)
+        self.assertEqual((stopped.status_code, stopped.json()["stopped"]), (200, 1))
+        self.assertEqual(self.drift._doc()["films"], {})
+
+    def test_the_lessons_that_are_not_offered_are_counted_with_the_reason(self):
+        self.lesson()
+        self.web.set(PAGE, GITHUB_MD.replace(Q2, NEW))
+        self.read_due()
+        videos = self.videos()
+        self.assertEqual((videos["offer"], videos["later"]), (None, {"held": 1}), "a changed page holds the lesson back until it is written again")
+
+    def test_a_job_that_is_already_running_for_the_lesson_leaves_the_film_approved(self):
+        lesson = self.lesson()
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        busy = HTTPException(409, "This lesson is already being filmed.")
+        with mock.patch.object(self.dojo.jobs, "start", side_effect=busy):
+            self.drift._file_films()
+        film = self.drift._doc()["films"][lesson]
+        self.assertEqual((film["state"], film["error"]), ("approved", None), "tried again later, not failed")
 
 
 class LabTests(DriftCase):

@@ -52,13 +52,13 @@ from typing import Any
 from fastapi import HTTPException
 
 from .ai import AIError
+from .avatar import FILM_STORAGE_SHARE
 from .core import Learner, UserError, iso, parse_iso, utcnow
 from .learning import DECK_GONE
 
 log = logging.getLogger("dojo.prepare")
 
 FILM_QUIET_S = 180          # the owner's jobs have done nothing for this long before a filming job is filed
-FILM_STORAGE_SHARE = 0.9    # approved filming stops at this share of the presenter video storage budget
 DEEP_PER_DAY = 20           # Deeper Listen narrations written a day, UTC days (ADR 0007)
 DEEP_RETRY = timedelta(days=7)  # a Deeper Listen that did not pass its check is written again after this,
 DEEP_ATTEMPTS = 2               # at most this many times in all
@@ -471,6 +471,11 @@ class Preparer:
         """The owner has turned on drawing visual decks ahead of time. It is off until then (ADR 0014)."""
         return self._deck_day().get("ahead") is True
 
+    def deck_switch(self) -> dict:
+        """The owner's switch and today's count, read from one small file: `deck_status` also reads every lesson."""
+        day = self._deck_day()
+        return {"ahead": day.get("ahead") is True, "per_day": DECK_PER_DAY, "today": day["today"]}
+
     def set_deck_ahead(self, on: bool) -> bool:
         with self.dojo.store.lock:
             doc = self._deck_day()
@@ -571,7 +576,7 @@ class Preparer:
         running = self.dojo.jobs.existing(self.owner, "video", lesson)
         try:
             job = running or self.dojo.jobs.start(self.owner, "video", self.dojo.lesson_video, self.owner, lesson,
-                                                  ref=lesson, only_if_free=True)
+                                                  ref=lesson, only_if_free=True, busy_message="This lesson is already being filmed.")
         except HTTPException:
             self.state["film_note"] = "The next film waits for a free work slot."
             return True
