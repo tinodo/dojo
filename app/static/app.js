@@ -6706,9 +6706,9 @@ function refilmPanel(d, paint) {
     try { paint(await api("/api/studio/drift/refilm", { method: "POST", body: { lessons: R.lessons.map((x) => x.id) } })); }
     catch (e) { status.textContent = e.message; btn.disabled = false; }
   }, "amber") : null;
-  if (btn && est.usd === null) {   // nothing is filmed at a price Dojo cannot show
+  if (btn && (est.usd === null || !est.voice_priced)) {   // nothing is filmed at a price Dojo cannot show completely: the voices are part of it
     btn.disabled = true;
-    status.textContent = "The price list could not be read just now, so nothing can be approved.";
+    status.textContent = "The price list could not be read completely just now, so nothing can be approved.";
   }
   const pace = est.pace === "measured" ? "at the pace of your own videos" : "at an assumed pace of 14 characters a second";
   const why = [changed ? `${plural(changed, "lesson")} after a source page changed` : null,

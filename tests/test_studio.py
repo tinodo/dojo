@@ -408,7 +408,7 @@ class MakeTests(StudioCase):
         watch = SCRIPT.split("const priced = !!(L.film_price && L.film_price.complete);", 1)[1].split("\n}\n", 1)[0]
         self.assertIn("if (!priced) {", watch)
         self.assertIn("btn.disabled = true;", watch.split("if (!priced) {", 1)[1])
-        self.assertIn("if (btn && est.usd === null) {", part("function refilmPanel(d, paint) {"))
+        self.assertIn("if (btn && (est.usd === null || !est.voice_priced)) {", part("function refilmPanel(d, paint) {"))
         self.assertIn("if (!e.complete) {", part("function filmPanel(st, onStatus, note) {"))
 
     def test_the_routes_are_closed_while_a_timed_exam_runs(self):
