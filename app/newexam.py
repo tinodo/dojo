@@ -667,7 +667,7 @@ class NewExams:
                 return 0
             film["approved"] = [x for x in film.get("approved") or [] if x not in waiting]
             self.store.write("package-builds", pid, value=doc)
-        log.info("the owner stopped %d approved film(s) of %s that had not started", len(waiting), pid)
+        log.info("the owner stopped %d approved film(s) of an added exam that had not started", len(waiting))
         return len(waiting)
 
     def next_film(self) -> str | None:
