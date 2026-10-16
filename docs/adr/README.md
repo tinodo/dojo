@@ -27,6 +27,8 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0015](0015-judge-again.md) | Judge again: an answer judged with older judging rules can be judged again with today's, once, at the learner's request. A new event points at the old judgement, which stays visible; a dispute stays with the judgement it was filed against. | Proposed (built) |
 | [0016](0016-grader-bench-and-referee.md) | The grader bench measures judgements against answers with known results (version 2: 97.9%); judging rules version 3 adds a referee, a third model that decides the points the checker disagrees about (version 3: 432 of 432). | Proposed (built) |
 | [0017](0017-dispute-review.md) | A dispute is reviewed: the referee decides every point of the disputed judgement with the learner's reason. Upheld, its judgement replaces the disputed one; not upheld, the judgement counts again. | Proposed (built) |
+| [0018](0018-source-discovery.md) | Every skill of an added exam gets verified official pages that Dojo finds itself: Learn's search, the tables of contents and a web search propose them, two model families both accept each page and quote it, and Dojo keeps the books. No button, no price question. | Proposed (built) |
+| [0019](0019-studio-overview.md) | Studio answers three questions for the owner: is each course complete (a card per course), what did Dojo do on its own (an activity feed with the metered spend), and how does it check itself (what Studio showed before). It reads what Dojo keeps and spends nothing. | Proposed (built) |
 
 ## Writing a new ADR
 

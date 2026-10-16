@@ -171,6 +171,19 @@ def _refused(res: dict) -> bool:
     return bool(gate and author and gate.get("grade") == "no" and author.get("grade") == "no")
 
 
+def audit_verdicts(pages: list[dict], results: list[dict]) -> tuple[list[dict], str]:
+    """How both models judged the pages a skill cites: one line for each page, and the skill's verdict. `supported`: a
+    page both accepted. `invalid`: both models read every page and gave each no grade. `weak`: anything between."""
+    verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res),
+                 **({"moved_to": res["moved_to"]} if res.get("moved_to") else {})}
+                for p, res in zip(pages, results)]
+    if any(v["state"] == "accepted" for v in verdicts):
+        return verdicts, "supported"
+    if verdicts and all(v["refused"] for v in verdicts):
+        return verdicts, "invalid"
+    return verdicts, "weak"
+
+
 def needs_work(doc: dict, has_sources: bool, now: Any) -> bool:
     """Whether a skill is worked on now. A skill with sources is worked on only when its cited pages were refused
     (`replacing`) or it is `partial` and a later cycle looks for more pages (`growing`); a `partial` skill that
@@ -940,14 +953,7 @@ class Sourcer:
             pages = [{"url": r["url"], "title": r.get("title") or r["url"]} for r in s["sources"]]
             results = run.verifier.grade_pages(ctx, pages, both_all=True)
             tries.pop(s["key"], None)
-            verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res)}
-                        for p, res in zip(pages, results)]
-            if any(v["state"] == "accepted" for v in verdicts):
-                verdict = "supported"
-            elif verdicts and all(v["refused"] for v in verdicts):
-                verdict = "invalid"   # both models read every cited page and gave each no grade: not a failed quote, not a split
-            else:
-                verdict = "weak"
+            verdicts, verdict = audit_verdicts(pages, results)   # invalid: both models read every page and gave each no grade, not a failed quote, not a split
             before = side["skills"].get(s["key"])
             entry = {"verdict": verdict, "pages": verdicts, "at": iso()}
             if verdict == "invalid":
@@ -1009,6 +1015,20 @@ class Sourcer:
         if s["sources"]:
             return [a for a in doc["accepted"] if any(same_page(a["url"], r.get("url")) for r in s["sources"])]
         return best(doc)
+
+    def activations(self, pid: str, since: Any) -> list[dict]:
+        """When the search gave skills their pages since `since`, newest first, for Studio's activity: the skill, how
+        far it got (covered or partly), and how many pages its package cites now."""
+        raw = self.store.read("packages", pid, default=None)
+        if not isinstance(raw, dict):
+            return []
+        out = []
+        for s in self.skills_of(raw):
+            doc = self.store.read("sourcing", pid, s["key"], default=None)
+            at = ((doc or {}).get("activated") or {}).get("at") if isinstance(doc, dict) and doc.get("key") == s["key"] else None
+            if at and parse_iso(at) >= since:
+                out.append({"at": at, "skill": s["text"], "state": doc["state"], "pages": len(s["sources"])})
+        return sorted(out, key=lambda x: x["at"], reverse=True)
 
     def summary(self, pid: str) -> dict:
         """The numbers the exam page shows. Every skill's document is read to make them, and the page asks every few

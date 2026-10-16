@@ -308,12 +308,14 @@ class Store:
         """The names of the JSON documents in a folder, without `.json`, sorted."""
         folder = self.path(*parts) if parts else self.root
         with self.lock:
-            if not folder.is_dir():
+            try:
+                # scandir knows what each entry is from the listing itself, so a folder of hundreds of lessons is not
+                # asked about file by file (the lesson index lists it once for every skill).
+                with os.scandir(folder) as entries:
+                    return sorted(x.name[:-5] for x in entries
+                                  if x.name.endswith(".json") and not x.name.startswith(".") and x.is_file())
+            except (FileNotFoundError, NotADirectoryError):
                 return []
-            return sorted(
-                x.name[:-5] for x in folder.iterdir()
-                if x.is_file() and x.name.endswith(".json") and not x.name.startswith(".")
-            )
 
     def read_bytes(self, *parts: str) -> bytes | None:
         p = self.path(*parts)

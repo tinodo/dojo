@@ -106,6 +106,14 @@ SOURCING_CALLS = (
     ("pick", "Finding official pages", "author", 64900, 7800, 1.0),
     ("verify", "Checking the pages with a second model", "gate", 88700, 20700, 1.0),
 )
+# What checking one page a skill cites takes (app/pagecheck.py): both models read the page, as the search reads a page it
+# finds. Measured on the 122 pages of the evaluation (tools/source_eval.py, verify mode: 959 and 103 tokens a page for the
+# author, 2,296 and 388 for the checker, when the author sees only the pages the checker accepts), here with the author
+# reading every page and a quarter more for the pages that need a second reading or a repair.
+PAGECHECK_CALLS = (
+    ("page_author", "Reading each page with the author model", "author", 2500, 500, 1.0),
+    ("page_gate", "Reading each page with the checker", "gate", 2500, 450, 1.0),
+)
 NARRATION_CHARS = 3000       # characters narrated per lesson, until three lessons have been narrated
 SPEAKING_CPS = 14.0          # characters a presenter says per second, until a minute of video is filmed
 # Deeper Listen (ADR 0007), per round of one lesson: (key, what, role, input tokens, output tokens). The
@@ -685,6 +693,16 @@ class Costs:
                    else ". Studio shows what it costs."),
             ],
         }
+
+    def pagecheck_estimate(self, pages: int) -> dict:
+        """What the two-model check of `pages` cited pages costs at list prices (app/pagecheck.py). Web searches and
+        speech are not part of it: it reads pages and calls the two models."""
+        prices = self.prices()
+        lines = [self._model_line(prices, key, what, role, tokens_in, tokens_out, pages * calls)
+                 for key, what, role, tokens_in, tokens_out, calls in PAGECHECK_CALLS]
+        total, complete = self._summed(lines)
+        return {"label": LABEL, "currency": "USD", "pages": pages, "lines": lines, "total": total, "complete": complete,
+                "left_out": left_out(lines), "fetched": prices.get("fetched"), "stale": bool(prices.get("stale"))}
 
     def deeper_estimate(self, searches: int, lessons: int, narrated: int | None = None, deep_again: int = 0) -> dict:
         """What deeper lessons (ADR 0008) cost at list prices: searching for more official pages for

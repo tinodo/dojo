@@ -1859,3 +1859,36 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
   .dkv-draw { stroke-dashoffset: 0; }
   .dkv-p .dkv-head { opacity: 1; }
 }
+
+/* Studio: courses and activity (ADR 0019) */
+.studio-tabs { margin: 2px 0 16px; }
+.course { margin-bottom: 16px; }
+.course.edge-amber { border-left: 4px solid var(--amber); }
+.cov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 16px 28px; margin-top: 12px; }
+.cov-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.cov-n { font: 600 13px var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cov .bar { margin: 6px 0; }
+.cov p { margin: 0; line-height: 1.45; }
+.cov.ok .bar > i { background: var(--sage); }
+.cov.warn .bar > i { background: var(--rose); }
+.cov.todo .bar > i { background: var(--amber); }
+.attn { display: grid; gap: 9px; margin-top: 6px; }
+.attn-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
+.attn-row .chip { flex: none; margin-top: 1px; }
+.attn-dot { flex: none; width: 7px; height: 7px; margin: 7px 8px 0 4px; border-radius: 50%; background: var(--ink-3); }
+.now-row { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-top: 1px solid var(--line-2); font-size: 13px; }
+.now-row:first-of-type { border-top: 0; }
+.feed-day { margin-top: 16px; }
+.feed-day-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.feed-day-h h3 { margin: 0; }
+.feed-row { display: grid; grid-template-columns: 72px minmax(120px, 190px) 1fr; gap: 12px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line-2); font-size: 13px; line-height: 1.45; }
+.feed-row .tm { color: var(--ink-3); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.feed-row .t small { display: block; margin-top: 2px; }
+.feed-filter { margin-top: 4px; }
+.feed-filter .chip { cursor: pointer; border: 1px solid var(--line); font-family: inherit; }
+.feed-filter .chip.ink { border-color: var(--ink); }
+.feed-row.bad .t { color: var(--rose-ink); }
+@media (max-width: 720px) {
+  .feed-row { grid-template-columns: 72px 1fr; }
+  .feed-row .t { grid-column: 1 / -1; }
+}

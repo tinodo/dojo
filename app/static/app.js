@@ -290,7 +290,7 @@ function jobCard(title, start, onDone, onFail, note) {
       if (token !== state.nav) return;
       if (onFail) onFail(e);
       else put(el, h("h2", null, "That did not work"), h("p", { class: "sub" }, e.message),
-        h("div", { class: "actions top" }, linkButton("See the studio log", "#/quality", "ghost")));
+        h("div", { class: "actions top" }, linkButton("See the studio log", "#/quality/checks", "ghost")));
     });
   return el;
 }
@@ -468,7 +468,7 @@ function renderSide() {
     navLink("#/plan", "plan", "Plan"),
     h("div", { class: "sep" }),
     navLink("#/quality", "studio", isAdmin() ? "Studio" : "Studio log"),
-    h("p", { class: "cap" }, isAdmin() ? "how your course is built" : "what the checker removed"),
+    h("p", { class: "cap" }, isAdmin() ? "is each course complete?" : "what the checker removed"),
     isAdmin() && state.me.team ? navLink("#/members", "shield", "Members") : null,
     exams,
     h("div", { class: "foot" }, h("a", { href: "#/help" }, "Help"), h("a", { href: "#/phone" }, "On your phone"), h("a", { href: "#/about" }, "How Dojo works"),
@@ -1167,7 +1167,7 @@ function provenance(L) {
       "Source content is licensed CC BY 4.0 by its publishers."),
     L.blocked.length
       ? h("p", { class: "small" }, `${L.blocked.length} part${L.blocked.length === 1 ? " was" : "s were"} removed because ${L.blocked.length === 1 ? "it" : "they"} did not hold. `,
-          h("a", { class: "link", href: "#/quality" }, "The studio log lists them and why."))
+          h("a", { class: "link", href: "#/quality/checks" }, "The studio log lists them and why."))
       : h("p", { class: "small" }, "Nothing had to be removed."),
     h("p", { class: "small muted" }, "Points, misconceptions and self-check answers carry exact quotes. Titles, slide bullets and narration carry no quote; the independent model checked them against the same source pages."),
     h("p", { class: "small muted" }, `Lesson written ${fmtDate(L.created)}.`),
@@ -3328,7 +3328,7 @@ function claimsPanel(L, claims, tail) {
       h("span", null, h("b", null, "Where the claims come from. "),
         `Every point in the written lesson carries an exact quote. Slide bullets are a summary of those points, checked element by element by ${L.models.gate}.`)),
     L.blocked.length ? h("p", { class: "conf" }, icon("alert", "xs"),
-      h("span", null, `${L.blocked.length} part${L.blocked.length === 1 ? " was" : "s were"} removed. `, h("a", { class: "link", href: "#/quality" }, "See the studio log."))) : null,
+      h("span", null, `${L.blocked.length} part${L.blocked.length === 1 ? " was" : "s were"} removed. `, h("a", { class: "link", href: "#/quality/checks" }, "See the studio log."))) : null,
     tail || null);
 }
 
@@ -5862,7 +5862,7 @@ async function viewAnswer(id) {
         A.not_covered ? h("p", { class: "note top" }, h("strong", null, "Not covered by the sources: "), A.not_covered) : null,
         A.blocked.length ? h("p", { class: "conf" }, icon("alert", "xs"),
           h("span", null, `${A.blocked.length} part${A.blocked.length === 1 ? " was" : "s were"} removed because ${A.blocked.length === 1 ? "it" : "they"} did not hold. `,
-            h("a", { class: "link", href: "#/quality" }, "The studio log lists them and why."))) : null),
+            h("a", { class: "link", href: "#/quality/checks" }, "The studio log lists them and why."))) : null),
       h("section", { class: "panel w430" }, eyebrow("file", "Sources"), sourceList(A.sources)))];
 }
 
@@ -6029,10 +6029,158 @@ const PIPE = [
   ["06", "Record", "hash-chained events", "record"],
 ];
 
-async function viewQuality() {
+// ---------------------------------------------------------------- Studio (ADR 0019)
+// The owner's page. Courses: is everything there, per course. Activity: what Dojo did on its own and what it is doing now.
+// Checks: how Dojo checks its own work, with everything it blocked. Costs: list-price estimates and the exams added.
+const STUDIO_TABS = [["courses", "Courses"], ["activity", "Activity"], ["checks", "Checks"], ["costs", "Costs"]];
+const STUDIO_LEAD = {
+  courses: "Is each course complete? What exists for every skill, what is missing, and what finishing it would cost.",
+  activity: "What Dojo did on its own, what it is doing now, and what the metered calls cost each day.",
+  checks: "How Dojo checks its own work: the checker, the voices, the official pages and source changes. Nothing is dropped silently.",
+  costs: "What building and finishing a course costs at list prices, and the exams you have added.",
+};
+
+async function viewQuality(tab) {
   if (!isAdmin()) return viewStudioLog();
-  const [log, a, v, c, dr, dl, sr] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
-    api("/api/studio/voices").catch((e) => ({ error: e.message })), api("/api/studio/costs").catch((e) => ({ error: e.message })),
+  const at = STUDIO_TABS.some(([id]) => id === tab) ? tab : "courses";
+  const body = await ({ courses: studioCourses, activity: studioActivity, checks: studioChecks, costs: studioCosts })[at]();
+  const tabs = h("div", { class: "seg studio-tabs", role: "tablist", "aria-label": "Studio" }, STUDIO_TABS.map(([id, label]) =>
+    h("a", { href: id === "courses" ? "#/quality" : `#/quality/${id}`, role: "tab", "aria-selected": String(id === at), class: id === at ? "s on" : "s" }, label)));
+  return [pageHead("Studio", STUDIO_LEAD[at], null, helpQ("studio")), tabs, body];
+}
+
+// Courses: one card for each course, one row for each thing a course is made of.
+const ATTN_CHIP = { bad: ["Problem", "rose"], warn: ["Needs a look", "amber"] };
+
+function covRow(r) {
+  const filled = r.have !== null && r.have !== undefined;
+  const pct = filled && r.of ? Math.round((100 * r.have) / r.of) : 0;
+  return h("div", { class: `cov ${r.state}` },
+    h("div", { class: "cov-h" }, h("b", null, r.label), filled ? h("span", { class: "cov-n" }, `${r.have} of ${r.of}`) : r.state === "warn" ? chip("not available", "rose") : null),
+    filled ? h("div", { class: "bar", role: "img", "aria-label": `${r.label}: ${r.have} of ${r.of}` }, wide(h("i", null), `${pct}%`)) : null,
+    h("p", { class: "small muted" }, r.note));
+}
+
+// The two-model check of an original course's pages: a report, started by the owner with the price shown.
+function pageCheckBlock(x, repaint) {
+  const pc = x.pagecheck;
+  if (!pc) return null;
+  const status = h("p", { class: "small muted" });
+  const price = pc.price && pc.price.complete && pc.price.total !== null && pc.price.total !== undefined ? `about ${usd(pc.price.total)} at list price` : "price not listed";
+  const go = button(pc.state === "partial" ? `Check the rest (${price})` : `Check these pages (${price})`, async () => {
+    if (!window.confirm(`Check the ${plural(pc.price ? pc.price.pages : 0, "page")} of ${x.exam}?\n\nTwo model families read every page and say whether it teaches its skill. This costs ${price} and changes nothing: no page, lesson or film.`)) return;
+    go.disabled = true;
+    try {
+      await runJob(api(`/api/studio/pagecheck/${x.package}`, { method: "POST", body: {} }), (s, secs) => { status.textContent = `${s} · ${secs}s`; });
+      await repaint();
+    } catch (e) {
+      status.textContent = e.message;
+      go.disabled = false;
+    }
+  }, "ghost sm");
+  const list = pc.not_supported.length ? h("details", { class: "how" }, h("summary", null, `${plural(pc.not_supported.length, "skill")} whose pages were not confirmed`),
+    pc.not_supported.map((s) => h("div", { class: "near" },
+      h("span", null, s.text, s.pages.map((p) => h("small", { class: "block muted" }, ext(p.url, p.title), p.moved_to ? ` · now leads to ${p.moved_to}, which is not this address` : p.grade ? ` · graded ${p.grade}` : p.why ? ` · refused: ${p.why}` : ""))),
+      chip(s.verdict === "invalid" ? "pages refused" : "only partly", s.verdict === "invalid" ? "rose" : "amber")))) : null;
+  return h("div", { class: "pagecheck top" },
+    h("h3", null, "The two-model page check"),
+    pc.state === "done" ? h("p", { class: "small muted" }, `Every skill was checked${pc.finished ? ` on ${fmtDate(pc.finished)}` : ""}: ${pc.supported} confirmed, ${pc.weak} only partly, ${pc.invalid} refused. Nothing was changed.`)
+      : pc.state === "running" ? h("p", { class: "small muted" }, "A check is running. Open this page again in a few minutes.")
+      : [h("p", { class: "small muted" }, "Two model families read every page this course cites and say whether it teaches its skill, as they do for the pages Dojo's own search finds. It is a report: nothing is changed."),
+        h("div", { class: "actions" }, go), status],
+    list);
+}
+
+function courseCard(x, repaint) {
+  const attn = (x.attention || []).map((a) => h("div", { class: "attn-row" }, ATTN_CHIP[a.level] ? chip(ATTN_CHIP[a.level][0], ATTN_CHIP[a.level][1]) : h("i", { class: "attn-dot" }),
+    h("span", null, a.text, " ", a.link ? h("a", { class: "link", href: a.link }, a.link_text || "Open") : null)));
+  return h("section", { class: x.ready ? "panel course" : "panel course edge-amber" },
+    h("div", { class: "panel-h" }, eyebrow("course", `${x.exam} · ${x.title}`),
+      h("span", { class: "chips" }, chip(x.added ? "added by you" : "original course", "line"), x.ready ? chip("Ready to study", "sage") : chip("Not ready yet", "amber"))),
+    h("p", { class: "sub" }, `${plural(x.skills, "skill")}. ${x.verdict}`),
+    h("div", { class: "cov-grid" }, x.rows.map(covRow)),
+    pageCheckBlock(x, repaint),
+    attn.length ? [h("h3", { class: "top" }, "What to know"), h("div", { class: "attn" }, attn)] : null);
+}
+
+async function studioCourses() {
+  const host = h("div", { class: "courses" });
+  const paint = (c) => put(host, c.courses.map((x) => courseCard(x, repaint)),
+    h("p", { class: "note top" }, "“Ready to study” means every skill has an official page, a lesson and its Listen audio. ", NOT_A_PREDICTION,
+      ` Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. Open the page again for a new reading.`));
+  const repaint = async () => paint(await api("/api/studio/courses?fresh=true"));
+  paint(await api("/api/studio/courses"));
+  return host;
+}
+
+// Activity: what Dojo did, newest first, day by day.
+const FEED_KIND = { lesson: "Lesson", deep: "Deeper Listen", pages: "Official pages", page: "Source change", job: "Job", problem: "Problem" };
+const FEED_MANY = { lesson: "lessons", deep: "Deeper Listens", pages: "official pages", page: "source changes", job: "jobs", problem: "problems" };
+
+function feedRow(e) {
+  return h("div", { class: `feed-row ${e.tone}` },
+    h("span", { class: "tm" }, new Date(e.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })),
+    h("span", { class: "chips" }, chip(FEED_KIND[e.kind] || e.kind, e.tone === "bad" ? "rose" : e.tone === "warn" ? "amber" : "line"), e.course ? chip(e.course, "line") : null),
+    h("span", { class: "t" }, e.link ? h("a", { class: "link", href: e.link }, e.title) : e.title,
+      e.detail ? h("small", { class: "block muted" }, e.detail) : null));
+}
+
+// The events are grouped by the reader's own days, newest first.
+function feedDays(events) {
+  const days = [];
+  for (const e of events) {
+    const d = new Date(e.at);
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    if (!days.length || days[days.length - 1].key !== key) days.push({ key, at: e.at, events: [] });
+    days[days.length - 1].events.push(e);
+  }
+  return days;
+}
+
+function feedDay(d) {
+  const counts = {};
+  d.events.forEach((e) => { counts[e.kind] = (counts[e.kind] || 0) + 1; });
+  const line = Object.entries(counts).map(([k, n]) => `${n} ${n === 1 ? (FEED_KIND[k] || k).toLowerCase() : (FEED_MANY[k] || k)}`).join(" · ");
+  return h("section", { class: "panel feed-day" },
+    h("div", { class: "feed-day-h" }, h("h3", null, new Date(d.at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })),
+      h("span", { class: "small muted" }, line)),
+    d.events.map(feedRow));
+}
+
+function spendPanel(a) {
+  return panel(h("div", { class: "panel-h" }, eyebrow("scale", "What it cost"), chip("Metered", "amber")),
+    a.metered ? [a.spend.map((s) => h("div", { class: "now-row" }, h("b", null, fmtDay(s.day)), h("span", null, usd(s.usd)))),
+      h("p", { class: "small muted top" }, "What Dojo's own model and voice calls cost on each day (UTC), as it counted them. The bill in Azure Cost Management is the figure to trust.")]
+      : h("p", { class: "sub" }, "Spending is metered only in team mode. Costs shows list-price estimates."));
+}
+
+async function studioActivity() {
+  const a = await api("/api/studio/activity");
+  const feed = h("div", { class: "feed" });
+  let only = "all";
+  const kinds = [["all", "Everything"], ...Object.entries(FEED_KIND).filter(([k]) => a.events.some((e) => e.kind === k)).map(([k, label]) => [k, label])];
+  const filters = h("div", { class: "chips feed-filter", role: "group", "aria-label": "Show" });
+  const paint = () => {
+    const shown = only === "all" ? a.events : a.events.filter((e) => e.kind === only);
+    put(feed, shown.length ? feedDays(shown).map(feedDay) : h("p", { class: "sub top" }, a.events.length ? "Nothing of that kind in these days." : `Nothing happened in the last ${a.window_days} days.`));
+    put(filters, kinds.map(([k, label]) => h("button", { class: k === only ? "chip ink" : "chip line", type: "button", "aria-pressed": String(k === only),
+      onclick: () => { only = k; paint(); } }, label)));
+  };
+  paint();
+  return [
+    h("div", { class: "row stackable" },
+      panel(h("div", { class: "panel-h" }, eyebrow("refresh", "Right now")),
+        a.now.map((r) => h("div", { class: "now-row" }, h("b", null, r.what), h("span", { class: "muted" }, r.state)))),
+      h("div", { class: "col w430" }, spendPanel(a))),
+    h("div", { class: "top" }, filters),
+    feed,
+    h("p", { class: "note top" }, `The last ${a.window_days} days, newest first${a.cut ? " (the oldest events are left out)" : ""}. Times are yours.`)];
+}
+
+// Checks: how Dojo checks its own work (what Studio was before it had tabs).
+async function studioChecks() {
+  const [log, a, v, dr, dl, sr] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
+    api("/api/studio/voices").catch((e) => ({ error: e.message })),
     api("/api/studio/drift").catch((e) => ({ error: e.message })), api("/api/studio/deeper").catch((e) => ({ error: e.message })),
     api("/api/studio/sourcing").catch((e) => ({ error: e.message }))]);
   // During a timed exam the log is closed, because blocked sentences are still lesson text.
@@ -6042,9 +6190,8 @@ async function viewQuality() {
     h("span", { class: "num" }, num), h("b", null, icon(ic, "sm"), " ", name), h("small", null, note),
     who[num] ? h("div", { class: "who" }, chip(who[num], "line")) : null)));
   const blocked = q.filter((x) => x.text);
-  return [pageHead("Studio", "How your course is built, and everything the checker blocked on the way. Nothing is dropped silently.", null, helpQ("studio")),
-    pipe,
-    h("div", { class: "row stackable" }, voicesPanel(v), h("div", { class: "col w430" }, examsPanel(), costsPanel(c))),
+  return [pipe,
+    h("div", { class: "row stackable" }, voicesPanel(v)),
     driftRow(dr),
     deeperRow(dl),
     sourcingRow(sr),
@@ -6068,6 +6215,12 @@ async function viewQuality() {
           h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "A blocked claim never reaches you, so a thin lesson is honest, not broken.")),
           h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "Quotes are matched word for word by Dojo itself, not by a model.")),
           h("p", { class: "note top" }, NOT_A_PREDICTION))))];
+}
+
+// Costs: what building a course costs at list prices, and the way in to adding an exam.
+async function studioCosts() {
+  const c = await api("/api/studio/costs").catch((e) => ({ error: e.message }));
+  return [h("div", { class: "row stackable" }, h("div", { class: "col grow" }, costsPanel(c)), h("div", { class: "col w430" }, examsPanel()))];
 }
 
 // What Dojo's own voices actually said (EG-19): a background check writes down the Listen audio and a
@@ -6106,6 +6259,13 @@ function voiceCase(w) {
       h("span", null, w.heard.length ? voiceWords(w.heard, w.approved.findIndex(([, m]) => m)) : h("i", { class: "muted" }, "nothing"))));
 }
 
+// What the flagged pieces differ in: a name or term, a number, or a negation (a "not" lost or added).
+function voiceKinds(v) {
+  const sum = (k) => ["listen", "watch", "deep"].reduce((n, part) => n + (((v[part] || {}).flags || {})[k] || 0), 0);
+  const names = sum("name"), numbers = sum("number"), negations = sum("negation");
+  return `By what differs: ${names} ${names === 1 ? "name or term" : "names or terms"}, ${plural(numbers, "number")}, ${plural(negations, "negation")}${negations ? "" : " (no “not” was lost or added)"}.`;
+}
+
 function voicesPanel(v) {
   const head = (extra) => h("div", { class: "panel-h" }, eyebrow("listen", "What the voices actually said"), extra || null);
   if (!v || v.error) return h("section", { class: "panel grow" }, head(), h("p", { class: "sub" }, (v && v.error) || "The voice check could not be read."));
@@ -6120,9 +6280,10 @@ function voicesPanel(v) {
     h("div", { class: "vstats" },
       stat(`${L.lessons}`, "Lessons heard", `Listen audio, ${plural(L.slides, "slide")}`),
       stat(pct(L.median_wer), "Median WER", L.slides ? `per slide; ${pct(L.wer)} of all words` : "nothing measured yet"),
-      stat(`${flagged}`, "Meaning at risk", "slides, parts or turns where a number, name or negation differs"),
+      stat(`${flagged}`, "Worth a listen", "slides, parts or turns where a name or a number was said differently from the text"),
       stat(`${D.lessons}`, "Deeper Listen", D.parts ? `${plural(D.parts, "part")}, median WER ${pct(D.median_wer)}` : "none heard yet"),
       stat(`${W.lessons}`, "Watch sample", W.turns ? `${plural(W.turns, "turn")}, median WER ${pct(W.median_wer)}` : "no presenter video checked yet")),
+    flagged ? h("p", { class: "small ink2 top" }, voiceKinds(v), " The check transcribes the audio again and compares it with the approved text, so these say nothing about whether the lesson text is right. Many are technical terms the voice or the transcriber handles oddly, such as REGEXP_MATCHES, or “For” heard as “Four”. Listen to the piece to be sure.") : null,
     h("p", { class: "small muted top" },
       `At most ${v.daily.listen} Listen lessons, ${v.daily.deep} Deeper Listen lessons and ${v.daily.watch} Watch lesson a day, one at a time, never while your own work runs; `,
       `a failure goes to the log below and is tried again after ${v.retry_hours} hours. Today: ${v.today.listen} of ${v.daily.listen}, ${v.today.deep} of ${v.daily.deep} `,
@@ -9128,7 +9289,7 @@ const routes = [
   [/^#\/record$/, viewRecord],
   [/^#\/play$/, viewPlay],
   [/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, viewPlan],
-  [/^#\/quality$/, viewQuality],
+  [/^#\/quality(?:\/(courses|activity|checks|costs))?$/, viewQuality],
   [/^#\/phone$/, viewPhone],
   [/^#\/about$/, viewAbout],
   [HELP_ROUTE, viewHelp],

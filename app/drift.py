@@ -1133,6 +1133,18 @@ class DriftCheck:
                 "gone": sum(1 for h in heads if h and h.get("gone")),
                 "moved": sum(1 for h in heads if h and h.get("gone") and h.get("moved"))}
 
+    def recent_changes(self, since: Any) -> list[dict]:
+        """The pages that changed, moved or went since `since`, newest first, for Studio's activity: when it was seen,
+        what it is, and how many lessons were written from it. A change in formatting only is left out."""
+        out = []
+        for c in reversed(self._doc()["changes"]):
+            when = c.get("seen") or c.get("since")
+            if c.get("kind") == "formatting" or not when or parse_iso(when) < since:
+                continue
+            out.append({"at": when, "kind": c.get("kind"), "url": c.get("url"), "title": c.get("title") or c.get("url"),
+                        "lessons": len(c.get("lessons") or [])})
+        return out
+
     def summary(self) -> dict:
         """Studio: the pages read, the changes found and what they touched, and the films to approve."""
         self._films_soon()

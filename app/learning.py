@@ -1163,6 +1163,15 @@ Narration is a natural spoken conversation between two voices: "guide" explains,
             old = prev.get("upgrade_of")
         return None
 
+    def film_kind(self, lesson_id: str) -> str:
+        """What Watch plays for a lesson: "own" when every speaker turn of the lesson has its video, "earlier" when
+        only the film of an earlier version of the lesson does (it is shown with a note, as `lesson_view` does), and
+        "none" when there is no film at all."""
+        doc = self.lesson(lesson_id)
+        if _filmed(self.avatar.lesson_clips([self._slide_lines(sl) for sl in doc.get("slides", [])])):
+            return "own"
+        return "earlier" if self._earlier_film(dict(doc)) else "none"
+
     def lesson_index(self) -> list[dict]:
         """Metadata of every lesson. Lessons never change once written, so each file is read once."""
         names = self.store.names("content", "lessons")
