@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -43,14 +44,14 @@ from .verify import VERIFIER_VERSION, Verifier, read_page
 log = logging.getLogger("dojo.sourcing")
 
 ROUNDS = 4
-VERIFY_LIMIT = 20          # pages judged for a skill in one round
+VERIFY_LIMIT = 30          # pages judged for a skill in one round (the whole of what the searches add, see QUOTAS)
 SLICE = 5                  # pages judged in one step (one batch of the gate model)
 MAX_ACCEPTED = 3           # a skill cites at most this many pages (app/packages.py)
-KEEP_ACCEPTED = 10          # accepted pages kept in a skill's book; the best ones when there are more
-RANK_LIMIT = 8              # accepted pages the two models order and sift (the best by the plain order)
+KEEP_ACCEPTED = 14          # accepted pages kept in a skill's book; the best ones when there are more
+RANK_LIMIT = 12             # accepted pages the two models order and sift (the best by the plain order)
 APPEAL_LIMIT = 6
 APPEALABLE = ("other-task", "mention", "quote")
-QUOTAS = {"r1s": 5, "r1u": 5, "r2": 5, "r3": 5, "r4": 8, "r7": 10}
+QUOTAS = {"r1s": 4, "r1u": 4, "r2": 5, "r3": 5, "r4": 10, "r7": 10}   # Learn's own search brings the most noise, web search the least
 POOL_ADD = 40              # pages one round's searches add to a skill's pool, at most
 POOL_LIMIT = 200
 BATCH_SKILLS = 4           # skills of one group worked on together
@@ -66,6 +67,7 @@ REPLACE_PER_DAY = 3        # skills whose cited pages both models refused, put b
 CONFIRM_HOURS = 20         # a skill whose cited pages were refused is judged once more after this, before anything is replaced
 SEED_TOP = 3               # pages of each skill that grow the inventory
 WEB_CHECK_H = 24            # hours between two web search self-tests
+SUMMARY_S = 8               # seconds the exam page's numbers are kept
 
 
 class StepFailed(Exception):
@@ -138,11 +140,15 @@ def _plain(a: dict) -> tuple:
 
 def best(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
     """The accepted pages a skill cites. Once the two models have compared the pages (`_rank`) their order counts, the
-    pages both called direct come first, and the pages both dropped are left out (never all of them); a page accepted
-    after that comes after the compared ones."""
+    pages both called direct come first, and the pages both dropped are left out (never all of them). When some page is
+    direct, a page only one model dropped does not fill a place beside it. A page accepted after the comparison comes
+    after the compared ones."""
     ranked = doc.get("ranked") or {}
     drop, direct = set(ranked.get("drop") or []), set(ranked.get("direct") or [])
     pages = [a for a in doc["accepted"] if a["url"] not in drop] or list(doc["accepted"])
+    if direct:
+        one_dropped = {u for m in (ranked.get("models") or {}).values() for u in (m or {}).get("drop") or []}
+        pages = [a for a in pages if a["url"] in direct or a["url"] not in one_dropped] or pages
     place = {u: i for i, u in enumerate(ranked.get("order") or [])}
     return sorted(pages, key=lambda a: (a["url"] not in direct, place.get(a["url"], len(place)), _plain(a)))[:limit]
 
@@ -227,6 +233,7 @@ class Sourcer:
         self.mcp = McpClient(self.net)
         self.now = now
         self._leases: dict[str, Lease] = {}
+        self._summaries: dict[str, tuple[float, dict]] = {}   # the exam page's numbers, read at most every SUMMARY_S seconds
         self._lock = threading.Lock()
         self._package = threading.RLock()   # the package is read, changed and written here one at a time (never under the store's lock)
         self.state: dict[str, Any] = {"current": None, "last": None, "worked": 0, "note": ""}
@@ -306,6 +313,7 @@ class Sourcer:
                     run.lease.release()
                 except Exception:  # noqa: BLE001
                     log.info("could not release the sourcing lease for %s", pid)
+                self._summaries.clear()   # the books changed
                 self.state.update(current=None)
         return False
 
@@ -359,6 +367,7 @@ class Sourcer:
         next write (its lease is revoked)."""
         with self._lock:
             lease = self._leases.pop(pid, None)
+            self._summaries.pop(pid, None)
         if lease is not None:
             lease.revoke()
         for name in self.store.names("sourcing", pid):
@@ -425,6 +434,7 @@ class Sourcer:
         finally:
             run.flush()
             run.lease.release()
+            self._summaries.clear()
 
     def adopt(self, pid: str, raw: dict) -> None:
         """The exam was just added with the sources of its `covered` skills: note it in their books."""
@@ -439,6 +449,7 @@ class Sourcer:
                     run.books.save_skill(doc)
         finally:
             run.lease.release()
+            self._summaries.clear()
 
     # ------------------------------------------------------------ rounds
 
@@ -541,9 +552,9 @@ class Sourcer:
                 else:
                     if r == 1 and run.scope:
                         by["r1s"] = learn_api(self.net, queries[0], products=run.scope, top=SCOPED_TOP)
-                    by["r1u"] = interleave([learn_api(self.net, q, top=20) for q in queries[:3]])
+                    by["r1u"] = interleave([learn_api(self.net, q, top=20) for q in queries[:5]])
                     try:
-                        by["r2"] = interleave([self.mcp.search(q) for q in queries[:2]])
+                        by["r2"] = interleave([self.mcp.search(q) for q in queries[:3]])
                     except SourcingError as e:
                         problems.append(f"r2: {e}")
                     if run.inv.size():
@@ -557,24 +568,33 @@ class Sourcer:
         run.books.save_skill(doc)
 
     def _web(self, run: Run, ctx: dict, queries: list[str], r: int) -> list[dict]:
-        """Web search for the skill: only addresses come back, each judged like any other page."""
+        """Web search for the skill: only addresses come back, each judged like any other page. Round 4 asks with the
+        exam's wording and no domain filter; rounds 1 and 2 ask with the planner's phrase for the skill and with its
+        phrases for a product or deployment option (a skill that several products answer differently is not found by
+        one phrase: "troubleshoot an HA/DR solution" finds Azure SQL's pages, "... SQL Server on Azure VMs availability
+        groups" finds the troubleshooting guides of Always On)."""
         github = ctx["code"].startswith("GH-")
         if r == 4:
-            phrase = f"{ctx['title']} {ctx['text']} official documentation"
+            phrases = [f"{ctx['title']} {ctx['text']} official documentation"]
         else:
-            phrase = f"{ctx['title']} ({ctx['code']}) exam, domain {ctx['domain']}, group {ctx['group']}. Skill: {queries[0] if r == 1 else queries[-1]}"
+            asked = [queries[0] if r == 1 else queries[-1]]
+            asked += [q for q in queries[3:5] if q not in asked]
+            phrases = [f"{ctx['title']} ({ctx['code']}) exam, domain {ctx['domain']}, group {ctx['group']}. Skill: {q}" for q in asked]
         domains = ("docs.github.com",) if github else (() if r == 4 else ("learn.microsoft.com",))
-        run.count()
-        try:
-            found = self.dojo.ai.web_search(phrase, domains=domains, max_searches=2 if r == 4 else 1)
-        except AIError as e:
-            raise StepFailed(f"web search: {e}") from e
-        hits = []
-        for u in found["urls"]:
-            c = canon_url(u)
-            if c and not deny_url(c):
-                hits.append({"url": c, "title": title_of(c), "summary": ""})
-        return hits
+        lists: list[list[dict]] = []
+        for phrase in phrases:
+            run.count()
+            try:
+                found = self.dojo.ai.web_search(phrase, domains=domains, max_searches=2 if r == 4 else 1)
+            except AIError as e:
+                raise StepFailed(f"web search: {e}") from e
+            hits = []
+            for u in found["urls"]:
+                c = canon_url(u)
+                if c and not deny_url(c):
+                    hits.append({"url": c, "title": title_of(c), "summary": ""})
+            lists.append(hits)
+        return interleave(lists)   # every search's first hit, then every search's second, ...
 
     def _grow(self, run: Run, batch: list[dict]) -> None:
         """Pages the searches found grow the inventory: their tables of contents may hold what is still missing."""
@@ -979,9 +999,15 @@ class Sourcer:
         return best(doc)
 
     def summary(self, pid: str) -> dict:
-        """The numbers the exam page shows."""
+        """The numbers the exam page shows. Every skill's document is read to make them, and the page asks every few
+        seconds while the search runs, so they are kept for a few seconds."""
+        hit = self._summaries.get(pid)
+        if hit and time.monotonic() - hit[0] < SUMMARY_S:
+            return hit[1]
         s = self.status(pid)
-        return {k: s.get(k) for k in ("missing", "incomplete", "complete")} if s else {}
+        out = {k: s.get(k) for k in ("missing", "incomplete", "complete")} if s else {}
+        self._summaries[pid] = (time.monotonic(), out)
+        return out
 
     def wait_s(self) -> float:
         """Seconds until the search has work again, 15 to 1800: what the preparer sleeps when nothing was to do. A

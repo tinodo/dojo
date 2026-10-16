@@ -185,6 +185,25 @@ class BuildTests(SourcingCase):
             self.assertLessEqual(len(query), 600)
             self.assertNotRegex(query, r"local:dev|learner|owner|token|key", "no learner data can reach the search")
 
+    def test_web_search_asks_with_the_planners_phrase_for_every_product(self):
+        ai = Hooked()
+        planned = ai._plan_queries
+
+        def five(user):
+            out = planned(user)
+            for s in out["skills"]:
+                base = s["queries"][0]
+                s["queries"] = [base, f"{base} how to", f"{base} title", f"{base} on Contoso gadgets", f"{base} on Contoso cogs"]
+            return out
+
+        ai._plan_queries = five
+        self.build(ai=ai)
+        mine = [q for q, _, _ in ai.web_calls if "Skill: Implement widget backups" in q]
+        self.assertTrue(any(q.endswith("Skill: Implement widget backups") for q in mine))
+        self.assertTrue(any(q.endswith("Skill: Implement widget backups on Contoso gadgets") for q in mine), "and its phrase for a product")
+        self.assertTrue(any(q.endswith("Skill: Implement widget backups on Contoso cogs") for q in mine), "and for the other product")
+        self.assertFalse(any(q.endswith("how to") or q.endswith("title") for q in mine), "not for every phrase of the planner")
+
     def test_the_inventory_search_finds_a_page_by_its_title(self):
         self.build(r3=True)
         self.assertEqual(self.result["sourced"], 7)
@@ -334,6 +353,25 @@ class BuildTests(SourcingCase):
         self.assertEqual([r["url"].rsplit("/", 1)[-1] for r in self.skill(text)["sources"]][0], "widget-backup-gamma", "the direct page comes first")
         hints = [user for _, task, _, user in ai.prompts if task == "plan_queries" and "(only the same area)" in user]
         self.assertTrue(hints, "round 2's planner was told which accepted pages were only the same area")
+
+    def test_a_page_one_model_dropped_does_not_fill_a_place_beside_a_direct_page(self):
+        text = "Implement widget backups"
+        for direct, cited_alpha in ((True, False), (False, True)):
+            ai = Hooked()
+            ai.search_urls = lambda q: [LEARN + DOCS_AT + f"widget-backup-{w}" for w in ("alpha", "gamma")] if "backups" in q else []
+
+            def ranking(role, titles, direct=direct):
+                numbers = list(range(1, len(titles) + 1))
+                alpha = [n for n in numbers if "alpha" in titles[n - 1]]
+                gamma = [n for n in numbers if "gamma" in titles[n - 1]]
+                return numbers, (alpha if role == "gate" else []), (gamma if direct else [])
+
+            ai.ranking = ranking
+            self.build(ai=ai, code="xy-110")
+            cited = [r["url"].rsplit("/", 1)[-1] for r in self.skill(text)["sources"]]
+            self.assertEqual("widget-backup-alpha" in cited, cited_alpha, (direct, cited))
+            if direct:
+                self.assertEqual(cited[0], "widget-backup-gamma")
 
     def test_pages_both_models_drop_never_leave_a_skill_without_a_page(self):
         ai = Hooked()

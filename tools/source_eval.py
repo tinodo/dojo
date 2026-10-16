@@ -92,7 +92,8 @@ def count_tokens() -> None:
 def token_report() -> dict:
     out = {}
     for model, (calls, tokens_in, tokens_out) in sorted(TOKENS.items()):
-        price = next((v for k, v in LIST_PRICE.items() if model.startswith(k)), None)
+        # The Responses API (web search) names the deployment ("author"), the chat API the model's version.
+        price = next((v for k, v in LIST_PRICE.items() if model.startswith(k)), LIST_PRICE["gpt-5.5"] if model == "author" else None)
         out[model] = {"calls": calls, "input_tokens": tokens_in, "output_tokens": tokens_out,
                       "usd_at_list_price": round(tokens_in * price[0] / 1e6 + tokens_out * price[1] / 1e6, 2) if price else None}
     return out
