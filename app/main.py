@@ -302,6 +302,17 @@ class FilmRequest(BaseModel):
     offer: str = Field(pattern=r"^[0-9a-f]{16}$")   # the priced set of lessons the owner saw
 
 
+class MakeFilm(BaseModel):
+    package: str = Field(pattern=PKG)
+    offer: str = Field(pattern=r"^[0-9a-f]{16}$")   # the priced set of lessons of that course the owner saw
+
+
+class MakeRequest(BaseModel):
+    confirm: Literal["MAKE"]
+    films: list[MakeFilm] = Field(default_factory=list, max_length=20)
+    decks: bool = False   # draw the diagrams ahead of time too
+
+
 class RemoveExamRequest(BaseModel):
     confirm: Literal["REMOVE"]
 
@@ -1282,7 +1293,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @app.get("/api/lessons/{lesson_id}")
     def get_lesson(lesson_id: str, learner: Learner = Me) -> dict:
         _no_help_during_exam(learner, "Lessons are closed")
-        return dojo.lesson_view(_check_id(lesson_id))
+        view = dojo.lesson_view(_check_id(lesson_id))
+        if learner.key == owner.key:
+            view["film_price"] = studio.lesson_film_price(view["id"])   # the Film this lesson button shows what it costs (ADR 0020)
+        return view
 
     @app.post("/api/lessons/{lesson_id}/viewed")
     def lesson_viewed(lesson_id: str, body: ViewedRequest, learner: Learner = Me) -> dict:
@@ -1328,7 +1342,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         _no_help_during_exam(learner, "Lessons are closed")
         dojo.lesson(_check_id(lesson_id))
         running = dojo.jobs.existing(learner, "video", lesson_id)
-        return running or dojo.jobs.start(learner, "video", dojo.lesson_video, learner, lesson_id, ref=lesson_id)
+        return running or dojo.jobs.start(learner, "video", dojo.lesson_video, learner, lesson_id, ref=lesson_id,
+                                          busy_message="This lesson is already being filmed.")
 
     @app.get("/api/media/{media_id}")
     def media(media_id: str, learner: Learner = Me) -> Response:
@@ -1776,6 +1791,26 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         """How far the search for the official pages of every skill of the added exams has come (ADR 0018)."""
         _no_help_during_exam(learner, "The search for pages is closed")
         return newexams.sourcing_overview()
+
+    @app.post("/api/studio/film/{pid}")
+    def studio_film(pid: str, body: FilmRequest, learner: Learner = Admin) -> dict:
+        """A course's Film button on the Courses page: the owner approved filming the lessons the page named, at the
+        price it showed (ADR 0020). A set or a price that changed since is refused."""
+        _no_help_during_exam(learner, "Filming is closed")
+        return studio.film(learner, _check_id(pid, PKG), body.offer)
+
+    @app.post("/api/studio/film/{pid}/stop")
+    def studio_film_stop(pid: str, learner: Learner = Admin) -> dict:
+        """The owner stopped the films of a course that have not started (ADR 0020). One being made finishes."""
+        _no_help_during_exam(learner, "Filming is closed")
+        return studio.stop(_check_id(pid, PKG))
+
+    @app.post("/api/studio/make")
+    def studio_make(body: MakeRequest, learner: Learner = Admin) -> dict:
+        """The Courses page's one button: each course's films at the price the page showed for it, and the diagrams. Every
+        course is its own approval; the answer says what happened to each (ADR 0020)."""
+        _no_help_during_exam(learner, "Filming is closed")
+        return studio.make(learner, [f.model_dump() for f in body.films], body.decks)
 
     @app.post("/api/studio/decks/ahead")
     def studio_decks_ahead(body: DeckAheadRequest, learner: Learner = Admin) -> dict:

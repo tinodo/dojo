@@ -33,8 +33,9 @@ them. What a change means for the learner's own items and practice-exam question
 shown, so deleting the record leaves nothing of them here.
 
 Filming costs money, so nothing is filmed on its own. A lesson written again whose earlier version was
-filmed waits until the owner presses "Re-film" in Studio; its films are then filed one at a time
-through the ordinary video job. The learner's Record is never written here: an answer given before a
+filmed waits until the owner presses "Re-film" in Studio, and a lesson that was never filmed waits for the
+button on Studio's Courses page (ADR 0020); its films are then filed one at a time through the ordinary
+video job. The learner's Record is never written here: an answer given before a
 change stays as it was (EG-34), and the skill page says that the source changed after it.
 
 The hands-on labs cite official pages too, but they have no quotes to look for. A lab page is read once
@@ -53,7 +54,7 @@ from urllib.parse import urlparse
 from fastapi import HTTPException
 
 from . import items as exam_items
-from .avatar import lesson_turns, media_id_for
+from .avatar import FILM_STORAGE_SHARE, lesson_turns, media_id_for
 from .core import Learner, UserError, iso, one_line, parse_iso, sha256, utcnow
 from .costs import LABEL as PRICE_LABEL
 from .labs import LABS
@@ -937,14 +938,16 @@ class DriftCheck:
         """Where the owner's approval to film this lesson again stands: approved, filed, done, failed or None."""
         return (self._doc()["films"].get(lesson_id) or {}).get("state")
 
-    def refilm_candidates(self, doc: dict | None = None, by: dict | None = None) -> list[dict]:
+    def refilm_candidates(self, doc: dict | None = None, by: dict | None = None, only: str | None = None) -> list[dict]:
         """Lessons written again, after a page changed or on the deeper template, whose earlier version was
         filmed, that have no video of their own and are not already approved: what the Studio button would
-        film."""
+        film. `only` limits it to one package."""
         doc = doc or self._doc()
         by = self._by_skill() if by is None else by
         out = []
-        for pid in self.dojo.packages.ids():
+        for pid in ([only] if only else self.dojo.packages.ids()):
+            if self.dojo.packages.is_added(pid):
+                continue   # an added exam's films are kept with its build (app/newexam.py): no lesson is queued twice
             for sid, meta in sorted(self._latest(pid, by).items()):
                 if self.withheld(meta["id"]):
                     continue
@@ -960,6 +963,65 @@ class DriftCheck:
                             "replaces": prev["id"], "why": why, "characters": plan["chars"],
                             "error": film.get("error") if film.get("state") == "failed" else None})
         return out
+
+    def unfilmed_candidates(self, only: str, doc: dict | None = None, by: dict | None = None) -> list[dict]:
+        """The newest lessons of one package that were never filmed, in any version, and have no video of
+        their own: the lessons `refilm_candidates` leaves out because no earlier version was filmed. Not
+        the ones a changed page holds back, and not the ones already approved."""
+        if self.dojo.packages.is_added(only):
+            return []   # an added exam's films are kept with its build (app/newexam.py)
+        doc = doc or self._doc()
+        by = self._by_skill() if by is None else by
+        out = []
+        for sid, meta in sorted(self._latest(only, by).items()):
+            if self.withheld(meta["id"]) or self._replaced(meta, by, doc) or self._filmed(meta["id"]):
+                continue
+            film = doc["films"].get(meta["id"]) or {}
+            plan = self._film_plan(meta["id"])
+            if film.get("state") in ("approved", "filed") or not plan["films"]:
+                continue
+            out.append({"id": meta["id"], "title": meta.get("title"), "package": only, "skill": sid, "replaces": None,
+                        "why": "never", "characters": plan["chars"],
+                        "error": film.get("error") if film.get("state") == "failed" else None})
+        return out
+
+    def film_offer(self, only: str) -> list[dict]:
+        """What Studio's Courses page films for a package when the owner presses its button: every newest
+        lesson without a video of its own, the ones filmed before and the ones never filmed."""
+        doc, by = self._doc(), self._by_skill()
+        return self.refilm_candidates(doc, by, only) + self.unfilmed_candidates(only, doc, by)
+
+    @staticmethod
+    def offer_token(lessons: list[dict]) -> str:
+        """Names the priced set of lessons the owner saw, so a button never approves a different set."""
+        return sha256("|".join(sorted(x["id"] for x in lessons)))[:16]
+
+    def film_queue(self, only: str) -> dict:
+        """Approved films of one package that are still to be made: how many wait their turn, how many are
+        being filmed, and which lessons they are."""
+        waiting = filming = 0
+        ids = []
+        for lesson_id, film in self._doc()["films"].items():
+            if film.get("package") != only or film.get("state") not in ("approved", "filed") or self._filmed(lesson_id):
+                continue
+            ids.append(lesson_id)
+            filming += film.get("state") == "filed"
+            waiting += film.get("state") == "approved"
+        return {"waiting": waiting, "filming": filming, "ids": ids}
+
+    def cancel_films(self, only: str) -> int:
+        """The owner stopped the films of one package that have not started: they are forgotten, as if never
+        approved. A film that is being made is not touched. Returns how many were stopped."""
+        with self._films, self.dojo.store.lock:   # a film is filed under the same lock: one is either stopped or started
+            doc = self._doc()
+            stop = [k for k, f in doc["films"].items() if f.get("package") == only and f.get("state") == "approved"]
+            for k in stop:
+                del doc["films"][k]
+            if stop:
+                self._save(doc)
+        if stop:
+            log.info("drift check: the owner stopped %d approved film(s) that had not started", len(stop))
+        return len(stop)
 
     def estimate(self, lessons: list[dict]) -> dict:
         """What filming these lessons costs at list price: the video by the second and the presenters'
@@ -992,21 +1054,38 @@ class DriftCheck:
         chosen = [x for x in dict.fromkeys(lesson_ids or []) if x in waiting]
         if not chosen:
             raise HTTPException(409, "No changed lesson is waiting to be filmed again.")
-        est = self.estimate([waiting[x] for x in chosen])
+        self._approve([waiting[x] for x in chosen])
+        return self.summary()
+
+    def approve_offer(self, only: str, token: str, shown: float | None = None) -> dict:
+        """The owner pressed a package's button on Studio's Courses page: film exactly the set whose price
+        the page showed (`film_offer`). A set that changed since the page was drawn is not approved. `shown` is the price
+        the page showed for it: it is what is written down."""
+        offer = self.film_offer(only)
+        if not offer:
+            raise HTTPException(409, "There is nothing new to film: every lesson is filmed or already waiting.")
+        if token != self.offer_token(offer):
+            raise HTTPException(409, "The lessons to film changed since the page was drawn. Look at the new price and press again.")
+        return self._approve(offer, shown)
+
+    def _approve(self, lessons: list[dict], shown: float | None = None) -> dict:
+        est = self.estimate(lessons)
+        if shown is not None:
+            est = {**est, "usd": shown}
         now = iso(self.now())
+        chosen = [x["id"] for x in lessons]
         with self.dojo.store.lock:
             doc = self._doc()
-            for x in chosen:
-                c = waiting[x]
-                doc["films"][x] = {"state": "approved", "approved": now, "title": c["title"], "package": c["package"],
-                                   "skill": c["skill"], "replaces": c["replaces"], "job": None, "tries": 0, "error": None}
+            for c in lessons:
+                doc["films"][c["id"]] = {"state": "approved", "approved": now, "title": c["title"], "package": c["package"],
+                                         "skill": c["skill"], "replaces": c["replaces"], "job": None, "tries": 0, "error": None}
             doc["approvals"] = (doc["approvals"] + [{"at": now, "lessons": chosen, "usd": est["usd"],
                                                      "minutes": est["minutes"]}])[-20:]
             self._save(doc)
-        log.info("drift check: the owner approved filming %d lesson(s) again", len(chosen))
+        log.info("drift check: the owner approved filming %d lesson(s)", len(chosen))
         self._file_films()
         self._films_soon()
-        return self.summary()
+        return est
 
     def _set_film(self, lesson_id: str, **fields: Any) -> None:
         with self.dojo.store.lock:
@@ -1043,26 +1122,52 @@ class DriftCheck:
                 else:
                     self._set_film(lesson_id, state="failed", error=(job or {}).get("error") or "The film job was not found.")
 
+    def _current(self, lesson_id: str) -> bool:
+        """Whether a lesson is still what its skill teaches: the newest one, and not held back by a changed page."""
+        by = self._by_skill()
+        meta = self._meta(lesson_id, by)
+        if not meta:
+            return False
+        newest = (by.get((meta.get("package"), meta.get("skill"))) or [None])[0]
+        return bool(newest) and newest["id"] == lesson_id and not self.withheld(lesson_id)
+
+    def _forget_film(self, lesson_id: str) -> None:
+        with self.dojo.store.lock:
+            doc = self._doc()
+            if doc["films"].pop(lesson_id, None) is not None:
+                self._save(doc)
+        log.info("drift check: lesson %s was written again after it was approved: its film is not made", lesson_id)
+
+    def _storage_full(self) -> bool:
+        usage = self.dojo.avatar.usage()
+        return usage["bytes"] >= FILM_STORAGE_SHARE * usage["budget_bytes"]
+
     def _file_films(self) -> bool:
-        """Note which film jobs finished, then file the next approved film when none of ours is running
-        and the owner has nothing running. True while approved films are left."""
+        """Note which film jobs finished, then file the next approved film when none of ours is running and the owner has
+        nothing running, and while the presenter videos have room, as the Preparer waits for it too. A lesson that was
+        written again since the owner approved it is not filmed: its film is for a lesson nobody is taught, and the new
+        lesson waits for an approval of its own. True while approved films are left."""
         with self._films:
             self._settle_films()
             films = self._doc()["films"]
-            waiting = sorted((f.get("approved") or "", k) for k, f in films.items() if f.get("state") == "approved")
-            if waiting and not any(f.get("state") == "filed" for f in films.values()) and not self._owner_busy():
-                lesson_id = waiting[0][1]
-                try:
-                    self.dojo.lesson(lesson_id)
-                    job = (self.dojo.jobs.existing(self.owner, "video", lesson_id)
-                           or self.dojo.jobs.start(self.owner, "video", self.dojo.lesson_video, self.owner, lesson_id, ref=lesson_id))
-                except HTTPException as e:
-                    if e.status_code != 429:
-                        self._set_film(lesson_id, state="failed", error=str(e.detail))
-                else:
-                    self._set_film(lesson_id, state="filed", job=job["id"], filed=iso(self.now()),
-                                   tries=int(films[lesson_id].get("tries") or 0) + 1)
-                    log.info("drift check: filming lesson %s again, as approved", lesson_id)
+            if not any(f.get("state") == "filed" for f in films.values()) and not self._owner_busy() and not self._storage_full():
+                for _, lesson_id in sorted((f.get("approved") or "", k) for k, f in films.items() if f.get("state") == "approved"):
+                    if not self._current(lesson_id):
+                        self._forget_film(lesson_id)
+                        continue
+                    try:
+                        self.dojo.lesson(lesson_id)
+                        job = (self.dojo.jobs.existing(self.owner, "video", lesson_id)
+                               or self.dojo.jobs.start(self.owner, "video", self.dojo.lesson_video, self.owner, lesson_id, ref=lesson_id,
+                                                       busy_message="This lesson is already being filmed."))
+                    except HTTPException as e:
+                        if e.status_code not in (409, 429):
+                            self._set_film(lesson_id, state="failed", error=str(e.detail))
+                    else:
+                        self._set_film(lesson_id, state="filed", job=job["id"], filed=iso(self.now()),
+                                       tries=int(films[lesson_id].get("tries") or 0) + 1)
+                        log.info("drift check: filming lesson %s, as approved", lesson_id)
+                    break
             return any(f.get("state") in ("approved", "filed") for f in self._doc()["films"].values())
 
     def _films_soon(self) -> None:

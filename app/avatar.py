@@ -27,7 +27,7 @@ never written to the log.
 Size, measured: an 18.35 second clip with these settings is 2,503,286 bytes, about 8.2 MB per minute
 (VP9 with an alpha channel runs at roughly double its nominal bitrate). A seven-slide lesson with
 about a minute of narration per slide is therefore roughly 57 MB, and the BUDGET_BYTES cap holds
-about six hours of film. Videos are capped at BUDGET_BYTES in total and the least recently served
+about twelve hours of film. Videos are capped at BUDGET_BYTES in total and the least recently served
 one is deleted first, with its timing sidecar; audio and lessons are never touched.
 """
 from __future__ import annotations
@@ -87,7 +87,8 @@ RATE_WAIT_S = 60.0
 POLL_INTERVAL_S = 10.0
 RATE_LIMIT_STEP = "Waiting for the video service (limit: 2 per minute)"
 
-BUDGET_BYTES = 3 * 1024 * 1024 * 1024  # the data dir is a 10 GB share shared with lessons and audio
+BUDGET_BYTES = 6 * 1024 * 1024 * 1024  # of the 10 GB share, which also holds the lessons and about 2 GB of audio (ADR 0020)
+FILM_STORAGE_SHARE = 0.9   # approved filming stops at this share of the budget: more would clear away older videos
 MAX_SSML = 40000  # the whole job payload must stay well under the service limit of 500 KB
 RENDER_TIMEOUT_S = 1800  # one job now holds a whole lesson's worth of one speaker
 PROBE_TIMEOUT_S = 180  # the probe may have to wait its turn at the pacer first

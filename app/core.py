@@ -341,7 +341,8 @@ class Store:
                 return []
             out = []
             for x in folder.iterdir():
-                if not (x.is_file() and x.name.endswith(suffix) and not x.name.startswith(".")):
+                # the name first: the media folder holds thousands of audio files, and only the few videos are asked about
+                if not (x.name.endswith(suffix) and not x.name.startswith(".") and x.is_file()):
                     continue
                 try:
                     st = x.stat()

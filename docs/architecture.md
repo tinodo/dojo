@@ -196,8 +196,8 @@ batch at a time, only while two slots stay free for learners.
   copy it wrote itself.
 - **Presenter videos** are filmed only on an explicit request that shows the list price. Each lesson is
   two batch jobs, one per presenter, because of the 2-creates-a-minute quota. Videos are transparent
-  WebM, about 8.2 MB a minute; they are capped at 3 GB in total and the least recently watched is
-  deleted first. Lessons and audio are never deleted to make room.
+  WebM, about 8.2 MB a minute; they are capped at 6 GB in total (ADR 0020) and the least recently watched is
+  deleted first. Lessons and audio are never deleted to make room. Approved filming pauses at 90% of the cap.
 
 ## Podcast and calendar feeds
 
@@ -283,7 +283,8 @@ team/                      team mode: members.json, requests, audit.jsonl, tombs
 play/                      circles/, board.json, duels/ (team mode, social layer)
 ```
 
-The B1 plan's `/home` share is 10 GB. Presenter videos are capped at 3 GB of it. App Service takes
+The B1 plan's `/home` share is 10 GB. Presenter videos are capped at 6 GB of it; the rest of the data folder
+(lessons, audio, sources) was 3.4 GB with 1.95 GB of videos when the cap was raised. App Service takes
 automatic backups of `/home` (see [operations.md](operations.md#backups-and-restore)).
 
 ## Concurrency limits
