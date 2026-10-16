@@ -373,6 +373,19 @@ class RankTests(unittest.TestCase):
         self.assertEqual(self.names(out["order"]), ["widget-b", "widget-a", "widget-c"])
         self.assertEqual(out["drop"], [])
 
+    def test_a_page_is_direct_only_when_both_models_say_so(self):
+        self.ai.ranking = lambda role, titles: ([1, 2, 3], [], [1, 2] if role == "gate" else [2, 3])
+        out = self.verifier.rank_pages(CTX, self.pages("widget-a", "widget-b", "widget-c"))
+        self.assertEqual(self.names(out["direct"]), ["widget-b"])
+        self.assertEqual(self.names(out["models"]["gate"]["direct"]), ["widget-a", "widget-b"])
+
+    def test_a_dropped_page_is_never_direct_and_no_page_may_be_direct(self):
+        self.ai.ranking = lambda role, titles: ([1, 2, 3], [3], [1, 3])
+        out = self.verifier.rank_pages(CTX, self.pages("widget-a", "widget-b", "widget-c"))
+        self.assertEqual((self.names(out["drop"]), self.names(out["direct"])), (["widget-c"], ["widget-a"]))
+        self.ai.ranking = lambda role, titles: ([1, 2], [], [])
+        self.assertEqual(self.verifier.rank_pages(CTX, self.pages("widget-a", "widget-b"))["direct"], [])
+
     def test_the_pages_reach_the_models_as_data_with_their_addresses(self):
         self.verifier.rank_pages(CTX, self.pages("widget-a", "widget-b"))
         prompts = [(r, s, u) for r, t, s, u in self.ai.prompts if t == "rank_sources"]

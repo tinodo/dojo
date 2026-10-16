@@ -6427,7 +6427,7 @@ function sourcingExam(x) {
   return h("div", { class: "top" },
     h("h3", null, [x.exam, x.title].filter(Boolean).join(" · ")),
     h("div", { class: "chips" }, SRC_ORDER.filter((k) => x.counts[k]).map((k) => chip(`${x.counts[k]} ${SRC_STATE[k][0]}`, SRC_STATE[k][1]))),
-    h("p", { class: "small muted top" }, `${plural(x.skills, "skill")}: ${x.complete ? "every one is covered." : `${plural(x.incomplete, "skill")} not covered yet.`} ${x.calls_today} model calls today. ${x.note || ""}`),
+    h("p", { class: "small muted top" }, `${plural(x.skills, "skill")}: ${x.complete ? (x.settled ? `every one has its pages; ${plural(x.settled, "skill")} only partly covered, and the search can add no more.` : "every one is covered.") : `${plural(x.incomplete, "skill")} not covered yet.`} ${x.calls_today} model calls today. ${x.note || ""}`),
     open.length ? h("details", { class: "how" }, h("summary", null, `${plural(open.length, "skill")} not covered yet`), open.map(sourcingSkill)) : null,
     taught.length ? h("details", { class: "how" }, h("summary", null, `Pages accepted for ${plural(taught.length, "skill")}`), taught.map(sourcingSkill)) : null);
 }

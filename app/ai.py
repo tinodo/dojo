@@ -374,8 +374,9 @@ class StubAI:
         self.search_urls: Callable[[str], list[str]] = lambda query: []
         self.grades: Callable[[str, str, str], str] = lambda role, title, text: "teaches"
         self.set_answer: Callable[[str], str] = lambda role: "yes"
-        # The order and the drops a model gives accepted pages: (role, titles) -> (numbers best first, numbers dropped).
-        self.ranking: Callable[[str, list[str]], tuple[list[int], list[int]]] = lambda role, titles: (list(range(1, len(titles) + 1)), [])
+        # The order, the drops and the direct pages a model gives accepted pages: (role, titles) -> (numbers best first,
+        # numbers dropped[, numbers direct]); every page is direct unless a test says otherwise.
+        self.ranking: Callable[[str, list[str]], tuple] = lambda role, titles: (list(range(1, len(titles) + 1)), [])
 
     def web_search(self, query: str, domains: tuple[str, ...] = (), max_searches: int = 1) -> dict:
         self.calls.append(("author", "web_search"))
@@ -669,8 +670,9 @@ class StubAI:
     def _rank_sources(self, user: str, role: str) -> dict:
         """The order and the drops a test decides (`ranking`), from the titles of the sources."""
         titles = [t for _, t in sorted((int(n), t) for n, t in _TITLE.findall(user))]
-        order, drop = self.ranking(role, titles)
-        return {"order": order, "drop": drop, "reason": "stub"}
+        said = self.ranking(role, titles)
+        direct = said[2] if len(said) > 2 else list(range(1, len(titles) + 1))
+        return {"order": said[0], "drop": said[1], "direct": direct, "reason": "stub"}
 
     def _scan_titles(self, user: str) -> dict:
         """For each skill, up to two pages whose title shares a word of five letters or more with it."""

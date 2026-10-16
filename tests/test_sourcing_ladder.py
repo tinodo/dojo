@@ -320,6 +320,21 @@ class BuildTests(SourcingCase):
         self.assertEqual(row["state"], "partial")
         self.assertEqual(sum(1 for a in row["accepted"] if a["cited"]), 3, "Studio shows what the package cites")
 
+    def test_a_skill_with_no_page_that_explains_it_itself_is_not_covered_and_the_search_goes_on(self):
+        ai = Hooked()
+        text = "Implement widget backups"
+        base = [LEARN + DOCS_AT + "widget-backup-alpha", LEARN + DOCS_AT + "widget-backup-beta"]
+        later_round = lambda q: "Skill: Contoso" in q   # noqa: E731 - round 2 searches with the wording the planner chose after round 1
+        ai.search_urls = lambda q: ([LEARN + DOCS_AT + "widget-backup-gamma"] if later_round(q) else base) if "backups" in q else []
+        ai.set_answer = lambda role: "partly"
+        ai.ranking = lambda role, titles: (list(range(1, len(titles) + 1)), [], [n for n, t in enumerate(titles, 1) if "gamma" in t])
+        self.build(ai=ai)
+        book = self.book(text)
+        self.assertEqual((book["state"], book["round"]), ("covered", 2), "round 1 found no page that explains it itself, round 2 did")
+        self.assertEqual([r["url"].rsplit("/", 1)[-1] for r in self.skill(text)["sources"]][0], "widget-backup-gamma", "the direct page comes first")
+        hints = [user for _, task, _, user in ai.prompts if task == "plan_queries" and "(only the same area)" in user]
+        self.assertTrue(hints, "round 2's planner was told which accepted pages were only the same area")
+
     def test_pages_both_models_drop_never_leave_a_skill_without_a_page(self):
         ai = Hooked()
         ai.search_urls = lambda q: [LEARN + DOCS_AT + "widget-backup-alpha"] if "backups" in q else []
@@ -588,7 +603,9 @@ class AuditTests(SourcingCase):
             self.later(hours=21)
             self.steps()
         self.assertEqual(self.skill(UNSOURCED)["sources"], before)
-        self.assertTrue(self.book(UNSOURCED)["replacement_waits"])
+        book = self.book(UNSOURCED)
+        self.assertTrue(book["replacement_waits"])
+        self.assertEqual((book["state"], book["stuck"]), ("partial", True), "not covered by pages its package does not cite, and nothing more to do")
 
     def test_only_a_few_skills_a_day_go_back_to_the_search(self):
         self.build()

@@ -60,13 +60,20 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   and "troubleshoot", an Azure Pipelines task for "monitor and troubleshoot deployments", or Kusto's row-level security
   for an Azure SQL skill). With two or more accepted pages, both models then read them side by side, in address order,
   and each orders them by how directly they explain what the skill's verb and subject ask and names the pages that only
-  belong to the same area. The orders are added; a page is dropped only when both models drop it; the best page is never
-  dropped; nothing is ever added by this step. On those 13 skills with the owner's pages mixed in, both models put the
-  troubleshooting guides first and dropped the checklists, and put ARM's deployment history and common deployment
-  errors above the Azure Pipelines task.
+  belong to the same area, and names the pages a lesson on the skill can be written from mainly (`direct`: they explain
+  what the skill's verb asks about its subject itself). The orders are added; a page is dropped only when both models
+  drop it, and is direct only when both call it direct; the best page is never dropped; nothing is ever added by this
+  step. On those 13 skills with the owner's pages mixed in, both models put the troubleshooting guides first and dropped
+  the checklists, and put ARM's deployment history and common deployment errors above the Azure Pipelines task. The
+  second real run (before `direct` existed) still ended every one of the 13 skills `covered` in round 1, but for 4 of
+  them (monitoring and troubleshooting an HA/DR solution, monitoring and troubleshooting deployments) the cited pages
+  were neighbours and the pages the owner's search found were never retrieved: nothing told the search that the first
+  pages were not the right ones. That is what `direct` is for.
 - **Covered, partial, exhausted, blocked**: a skill is `covered` when a page it cites (the best three after that
-  comparison) has both grades `teaches`, or when both models, each listing the skill's obligations with a verified
-  sentence for each, say the cited pages together cover it. Otherwise it is `partial`: its pages are written only when
+  comparison) has both grades `teaches` and both models call it direct, or when both models, each listing the skill's
+  obligations with a verified sentence for each, say the cited pages together cover it. Accepted pages that were not
+  direct are told to the next round's planner like refused ones ("only the same area"), so the next phrases look for
+  what was missing instead of the same neighbours. Otherwise it is `partial`: its pages are written only when
   round 4 is done (the lesson checker refuses what a page does not support) and the search goes on. `exhausted` means
   every step of the four rounds ran and nothing was accepted: it says that the configured retrieval is exhausted, never
   that the documentation lacks a page. A step that fails three times makes the skill `blocked` for the day; a blocked
@@ -85,11 +92,15 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   checks the lease again afterwards. The removal of an exam revokes the lease, holds the package lock, and deletes what
   a step wrote meanwhile (only a document of that owner). The preparer sleeps only until the search is next due (15
   seconds to 30 minutes), so a step that failed is retried after its own pause.
-  **Accepted residual risk:** the files are on shared storage with no compare-and-swap, so a second process (the old
-  container for a few minutes while a deploy swaps) that stalls between its last disk read and its write can still write
-  one stale search document, and the package lock is held inside one process only. This cannot put a wrong page into a
-  package: pages reach a package only through `_activate`, which holds the lease check, reads the package again and
-  writes only what two models accepted. The worst case is one repeated paid step.
+  **Accepted residual risk:** the files are on shared storage with no compare-and-swap, and the package lock is held
+  inside one process. Production runs one container with one worker (App Service B1, `gunicorn --workers 1`), so the
+  removal of an exam and the search run in one process and the lock covers them; a second process exists only while a
+  restart overlaps. In that overlap a process that stalls between its last disk read and its write can write one stale
+  search document, and a removal that runs in the other process within the few microseconds between `_activate`'s
+  read of the package and its write would be undone: the removed exam comes back and the owner removes it again.
+  Neither can put a wrong page into a package: pages reach a package only through `_activate`, which checks the lease,
+  reads the package again and writes only what two models accepted. Closing it needs an incarnation id and removal
+  tombstones in the package catalog, which this change does not build.
 - **Nothing that exists is changed**: only skills without sources are written. A skill that has sources keeps them,
   and with them its lesson, narration and film. The exceptions are a skill whose cited pages both models refuse (found
   by the audit: both models read every cited page and each gave it no grade, not a failed quote and not a split; judged

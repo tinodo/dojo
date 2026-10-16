@@ -137,13 +137,14 @@ def _plain(a: dict) -> tuple:
 
 
 def best(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
-    """The accepted pages a skill cites. Once the two models have compared the pages (`_rank`) their order counts and
-    the pages both dropped are left out (never all of them); a page accepted after that comes after the compared ones."""
+    """The accepted pages a skill cites. Once the two models have compared the pages (`_rank`) their order counts, the
+    pages both called direct come first, and the pages both dropped are left out (never all of them); a page accepted
+    after that comes after the compared ones."""
     ranked = doc.get("ranked") or {}
-    drop = set(ranked.get("drop") or [])
+    drop, direct = set(ranked.get("drop") or []), set(ranked.get("direct") or [])
     pages = [a for a in doc["accepted"] if a["url"] not in drop] or list(doc["accepted"])
     place = {u: i for i, u in enumerate(ranked.get("order") or [])}
-    return sorted(pages, key=lambda a: (place.get(a["url"], len(place)), _plain(a)))[:limit]
+    return sorted(pages, key=lambda a: (a["url"] not in direct, place.get(a["url"], len(place)), _plain(a)))[:limit]
 
 
 def refs_of(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
@@ -458,8 +459,10 @@ class Sourcer:
         for w in todo:
             doc = w["doc"]
             tried = doc.get("tried", []) + [q for k in sorted(doc["plan"]) for q in doc["plan"][k]]
-            rejected = [{"title": e["title"], "why": e.get("why") or "other-task"}
-                        for e in sorted(doc["pool"].values(), key=lambda e: e["order"]) if e["verdict"] == "rejected"][-8:]
+            direct = set((doc.get("ranked") or {}).get("direct") or [])
+            rejected = ([{"title": e["title"], "why": e.get("why") or "other-task"}
+                         for e in sorted(doc["pool"].values(), key=lambda e: e["order"]) if e["verdict"] == "rejected"]
+                        + [{"title": a["title"], "why": "only the same area"} for a in doc["accepted"] if a["url"] not in direct])[-8:]
             fp = fingerprint("plan", r, w["text"], tried, rejected)
             try:
                 if begin(doc, "plan", fp):
@@ -644,14 +647,15 @@ class Sourcer:
         run.books.save_skill(doc)
 
     def _rank(self, run: Run, w: dict) -> None:
-        """Which of the accepted pages a lesson is written from. A page that two models accepted one by one can still
-        be a checklist of a wider topic, or another task's page: both models read the accepted pages side by side,
-        order them by how directly they explain the skill and name the ones that do not. Pages are only left out
-        here, never added, and the best one always stays."""
+        """Which of the accepted pages a lesson is written from, and whether any of them explains the skill itself. A page
+        that two models accepted one by one can still be a checklist of a wider topic, or another task's page: both
+        models read the accepted pages side by side, order them by how directly they explain the skill, name the ones
+        that do not, and name the ones a lesson can be written from mainly (`direct`). Pages are only left out here,
+        never added, and the best one always stays."""
         doc, ctx = w["doc"], w["ctx"]
-        for _ in range(2):   # a page that is gone or has moved out of the documentation is taken out, then once more with what is left
+        for _ in range(KEEP_ACCEPTED + 1):   # a page that is gone or has moved out of the documentation is taken out; each pass takes out at least one, so this ends
             pages = sorted(sorted(doc["accepted"], key=_plain)[:RANK_LIMIT], key=lambda a: a["url"])   # shown in address order: no place is favoured
-            if len(pages) < 2:
+            if not pages:
                 doc["ranked"] = None
                 return
             fp = fingerprint("rank", VERIFIER_VERSION, [(a["url"], a["sha256"]) for a in pages], self._models())
@@ -662,7 +666,8 @@ class Sourcer:
             if snapped is None:
                 continue
             result = run.verifier.rank_pages(ctx, snapped)
-            doc["ranked"] = {"fp": fp, "order": result["order"], "drop": result["drop"], "models": result["models"], "at": iso()}
+            doc["ranked"] = {"fp": fp, "order": result["order"], "drop": result["drop"], "direct": result["direct"],
+                             "models": result["models"], "at": iso()}
             finish(doc, "rank")
             run.books.save_skill(doc)
             return
@@ -692,13 +697,15 @@ class Sourcer:
         return None
 
     def _assess(self, run: Run, w: dict) -> None:
-        """`covered` when a page the skill cites has both grades `teaches`, or when both models say the cited pages
-        together cover the skill; otherwise `partial` (when there are accepted pages)."""
+        """`covered` when a page the skill cites has both grades `teaches` and both models call it direct (it explains the
+        skill itself, not only the topic around it), or when both models say the cited pages together cover the skill;
+        otherwise `partial` (when there are accepted pages), and the search goes on."""
         doc, ctx = w["doc"], w["ctx"]
         if not doc["accepted"]:
             return
         chosen = best(doc)
-        if any(a["grade"] == "teaches" for a in chosen):
+        direct = set((doc.get("ranked") or {}).get("direct") or [])
+        if any(a["grade"] == "teaches" and a["url"] in direct for a in chosen):
             doc["state"] = "covered"
             return
         fp = fingerprint("set", VERIFIER_VERSION, [(a["url"], a["sha256"]) for a in chosen], self._models())
@@ -825,7 +832,7 @@ class Sourcer:
             elif doc.get("replacing"):
                 if self._filmed(pid, skill["id"]):
                     doc["replacement_waits"] = True   # the film's lesson keeps its pages; the owner sees it in the audit
-                    return True
+                    return self._justified(doc, current)
                 skill["sources"] = fresh
                 doc["replacing"] = None
             elif doc.get("activated") and len(current) < MAX_ACCEPTED and not self._filmed(pid, skill["id"]):
@@ -850,11 +857,12 @@ class Sourcer:
 
     @staticmethod
     def _justified(doc: dict, cited: list[dict]) -> bool:
-        """Whether the pages the package cites are what made the skill `covered`: a both-`teaches` page among them, or,
-        when the models said the best pages together cover it, all of those pages."""
+        """Whether the pages the package cites are what made the skill `covered`: a direct both-`teaches` page among them,
+        or, when the models said the best pages together cover it, all of those pages."""
         chosen = best(doc)
+        direct = set((doc.get("ranked") or {}).get("direct") or [])
         has = lambda a: any(same_page(a["url"], c.get("url")) for c in cited)   # noqa: E731
-        if any(a["grade"] == "teaches" and has(a) for a in chosen):
+        if any(a["grade"] == "teaches" and a["url"] in direct and has(a) for a in chosen):
             return True
         return bool(doc.get("set") and doc["set"].get("complete")) and all(has(a) for a in chosen)
 
@@ -957,7 +965,7 @@ class Sourcer:
         missing = sum(1 for k in skills if k["sources"] == 0)
         incomplete = total - counts["covered"] - counts["legacy"] - settled
         return {"package": pid, "skills": total, "counts": dict(counts), "missing": missing, "incomplete": incomplete,
-                "complete": incomplete == 0, "calls_today": int((index.get("calls") or {}).get(utcnow().date().isoformat()) or 0),
+                "settled": settled, "complete": incomplete == 0, "calls_today": int((index.get("calls") or {}).get(utcnow().date().isoformat()) or 0),
                 "generation": int(index.get("generation") or 0), "note": self.state.get("note"), "details": skills}
 
     @staticmethod
