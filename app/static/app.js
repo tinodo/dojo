@@ -6190,9 +6190,10 @@ function makePanel(c, act) {
     return h("section", { class: "panel make-all" }, eyebrow("check", "Nothing is waiting for your go-ahead"),
       h("p", { class: "sub" }, "Every lesson has its videos and diagrams, or they are on their way. Lessons, Listen and Deeper Listen make themselves."));
   }
-  const toDraw = decksLeft && !d.ahead;
+  const deckPriced = decksLeft && d.usd !== null && d.complete;
+  const toDraw = deckPriced && !d.ahead;
   const doFilms = filmsLeft && f.fits && f.priced;
-  const total = (doFilms ? f.usd : 0) + (toDraw && d.usd ? d.usd : 0);
+  const total = (doFilms ? f.usd : 0) + (toDraw ? d.usd : 0);
   const lines = [];
   if (filmsLeft) {
     lines.push(h("div", { class: "make-line" }, h("b", null, "Videos"),
@@ -6209,18 +6210,18 @@ function makePanel(c, act) {
         return act(() => api("/api/studio/decks/ahead", { method: "POST", body: { on: false } }).then(() => api("/api/studio/courses?fresh=true")),
           () => ({ text: "Diagrams are no longer drawn ahead of time." }));
       }, "ghost sm")
-        : h("span", { class: "cost" }, d.usd === null ? "price not listed" : `${d.complete ? "about" : "at least"} ${usd(d.usd)}`)));
+        : h("span", { class: "cost" }, deckPriced ? `about ${usd(d.usd)}` : "price not available just now")));
   }
   const ask = () => {
     const rows = [];
     if (doFilms) rows.push("Videos", ...f.courses.map((k) => `  ${k.exam}: ${plural(k.lessons, "lesson")}, about ${usd(k.usd)}`));
-    if (toDraw) rows.push("Diagrams", `  ${plural(d.remaining, "lesson")}, ${d.usd === null ? "price not listed" : `${d.complete ? "about" : "at least"} ${usd(d.usd)}`}, up to ${d.per_day} a day. `
+    if (toDraw) rows.push("Diagrams", `  ${plural(d.remaining, "lesson")}, about ${usd(d.usd)}, up to ${d.per_day} a day. `
       + "Lessons written later get one too, until you stop it here.");
     return `${doFilms && toDraw ? "Make everything that is missing?" : doFilms ? "Film everything that is missing?" : "Draw the diagrams?"}\n\n${rows.join("\n")}\n\n`
       + `Together about ${usd(total)} at list price; the bill can differ a little. `
       + (doFilms ? `Videos are made one at a time, about ${howLong(f.eta_minutes)} in all. You can stop the ones that have not started.` : "");
   };
-  const go = (doFilms || toDraw) ? button([icon("video", "sm"), doFilms && toDraw ? `Make everything · about ${usd(total)}` : doFilms ? `Film everything · about ${usd(f.usd)}` : `Draw the diagrams · ${d.usd === null ? "price not listed" : `about ${usd(d.usd)}`}`], () => {
+  const go = (doFilms || toDraw) ? button([icon("video", "sm"), doFilms && toDraw ? `Make everything · about ${usd(total)}` : doFilms ? `Film everything · about ${usd(f.usd)}` : `Draw the diagrams · about ${usd(d.usd)}`], () => {
     if (!window.confirm(ask())) return;
     go.disabled = true;
     go.replaceChildren("Approving…");

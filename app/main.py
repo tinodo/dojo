@@ -1342,7 +1342,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         _no_help_during_exam(learner, "Lessons are closed")
         dojo.lesson(_check_id(lesson_id))
         running = dojo.jobs.existing(learner, "video", lesson_id)
-        return running or dojo.jobs.start(learner, "video", dojo.lesson_video, learner, lesson_id, ref=lesson_id)
+        return running or dojo.jobs.start(learner, "video", dojo.lesson_video, learner, lesson_id, ref=lesson_id,
+                                          busy_message="This lesson is already being filmed.")
 
     @app.get("/api/media/{media_id}")
     def media(media_id: str, learner: Learner = Me) -> Response:

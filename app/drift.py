@@ -1057,18 +1057,21 @@ class DriftCheck:
         self._approve([waiting[x] for x in chosen])
         return self.summary()
 
-    def approve_offer(self, only: str, token: str) -> dict:
+    def approve_offer(self, only: str, token: str, shown: float | None = None) -> dict:
         """The owner pressed a package's button on Studio's Courses page: film exactly the set whose price
-        the page showed (`film_offer`). A set that changed since the page was drawn is not approved."""
+        the page showed (`film_offer`). A set that changed since the page was drawn is not approved. `shown` is the price
+        the page showed for it: it is what is written down."""
         offer = self.film_offer(only)
         if not offer:
             raise HTTPException(409, "There is nothing new to film: every lesson is filmed or already waiting.")
         if token != self.offer_token(offer):
             raise HTTPException(409, "The lessons to film changed since the page was drawn. Look at the new price and press again.")
-        return self._approve(offer)
+        return self._approve(offer, shown)
 
-    def _approve(self, lessons: list[dict]) -> dict:
+    def _approve(self, lessons: list[dict], shown: float | None = None) -> dict:
         est = self.estimate(lessons)
+        if shown is not None:
+            est = {**est, "usd": shown}
         now = iso(self.now())
         chosen = [x["id"] for x in lessons]
         with self.dojo.store.lock:

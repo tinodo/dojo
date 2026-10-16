@@ -459,10 +459,20 @@ class NewExams:
             films = list(plan["films"].values())
             if films and all(f + ".webm" in media and f + ".json" in media for f in films):
                 filmed += 1
-            elif films:
+            elif films and not self._held(lesson):
                 unfilmed.append(lesson)
         return {"skills": len(pkg["skills"]), "teachable": len(teachable), "unsourced": len(pkg["skills"]) - len(teachable),
                 "ready": ready, "narrated": narrated, "filmed": filmed, "unfilmed": unfilmed}
+
+    def _held(self, lesson: str) -> bool:
+        """A lesson a changed source page holds back is written again first: nothing is offered or filmed for it (ADR 0006)."""
+        drift = getattr(self.dojo, "drift", None)
+        return bool(drift is not None and drift.withheld(lesson))
+
+    def filing(self) -> Any:
+        """The lock under which a film is chosen, its job started and written down, and under which Stop forgets the films that
+        wait: a film is stopped or started, never both."""
+        return self._lock
 
     def _settle(self, doc: dict) -> None:
         """Filming jobs that ended: done, or failed and waiting for a new approval."""
@@ -603,8 +613,9 @@ class NewExams:
                 exams.append({"exam": meta["exam"], "title": meta["title"], **self.sourcer.status(pid)})
         return {"exams": exams, "web_search": self.sourcer.web_state(), "search": self.sourcer.diag()}
 
-    def approve_film(self, learner: Learner, pid: str, token: str) -> dict:
-        """The owner's explicit approval of the spend shown on the page: exactly those lessons."""
+    def approve_film(self, learner: Learner, pid: str, token: str, shown: float | None = None) -> dict:
+        """The owner's explicit approval of the spend shown on the page: exactly those lessons. `shown` is the price the
+        page showed for them (Studio's Courses page prices only the presenters not filmed yet): it is what is written down."""
         if not self.packages.is_added(pid):
             raise HTTPException(404, "No such added exam.")
         with self._lock:
@@ -622,7 +633,7 @@ class NewExams:
             for x in offer:
                 film.setdefault("failed", {}).pop(x, None)
                 film.setdefault("filed", {}).pop(x, None)
-            film.setdefault("approvals", []).append({"at": iso(), "lessons": len(offer), "total": estimate.get("total"),
+            film.setdefault("approvals", []).append({"at": iso(), "lessons": len(offer), "total": estimate.get("total") if shown is None else shown,
                                                      "currency": estimate.get("currency")})
             self.store.write("package-builds", pid, value=doc)
         self.preparer.wake()
@@ -674,7 +685,7 @@ class NewExams:
                     newest[m.get("skill")] = (m.get("created") or "", m["id"])
             present = {v[1] for v in newest.values()}
             for lesson in film["approved"]:
-                if lesson in (film.get("filed") or {}) or lesson in (film.get("failed") or {}) or lesson not in present:
+                if lesson in (film.get("filed") or {}) or lesson in (film.get("failed") or {}) or lesson not in present or self._held(lesson):
                     continue
                 films = list(self.checker.plan(lesson)["films"].values())
                 if films and not all(self.dojo.avatar.exists(f) for f in films):

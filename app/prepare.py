@@ -560,8 +560,16 @@ class Preparer:
         return (utcnow() - max(beats)).total_seconds() if beats else float("inf")
 
     def _film(self) -> bool:
-        """File the filming job for one lesson the owner approved. False when there is nothing to file now."""
-        lesson = self.films.next_film() if self.films is not None else None
+        """File the filming job for one lesson the owner approved. False when there is nothing to file now. The lesson is
+        chosen, its job started and written down under the lock Stop takes, so a film is stopped or started, never both."""
+        if self.films is None:
+            self.state["film_note"] = ""
+            return False
+        with self.films.filing():
+            return self._film_next()
+
+    def _film_next(self) -> bool:
+        lesson = self.films.next_film()
         if not lesson:
             self.state["film_note"] = ""
             return False

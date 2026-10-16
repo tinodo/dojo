@@ -347,8 +347,9 @@ class Studio:
         are kept with its build (app/newexam.py), a built-in course's by the source-drift check (app/drift.py)."""
         if added:
             st = self.newexams.film_state(pid)
-            return {"offer": list(st["offer"]), "token": st["token"], "waiting": st["waiting"], "filming": st["filming"],
-                    "failed": st["failed"], "queued": list(st["queued"])}
+            old = self.drift.film_queue(pid) if self.drift is not None else {"waiting": 0, "filming": 0, "ids": []}   # approved on the Checks page before ADR 0020
+            return {"offer": list(st["offer"]), "token": st["token"], "waiting": st["waiting"] + old["waiting"], "filming": st["filming"] + old["filming"],
+                    "failed": st["failed"], "queued": list(st["queued"]) + list(old["ids"])}
         if self.drift is None:
             return {"offer": [], "token": None, "waiting": 0, "filming": 0, "failed": 0, "queued": []}
         offer, queue = self.drift.film_offer(pid), self.drift.film_queue(pid)
@@ -383,7 +384,7 @@ class Studio:
                     continue
                 if not self.checker.plan(lid)["films"]:
                     why["silent"] += 1
-                elif not added and self.drift is not None and self.drift.withheld(lid):
+                elif self.drift is not None and self.drift.withheld(lid):
                     why["held"] += 1
                 else:
                     why["other"] += 1
@@ -394,7 +395,7 @@ class Studio:
                 offer["eta_minutes"] = round(offer["lessons"] * cycle)
             return {"have": have, "of": lessons, "waiting": state["waiting"], "filming": state["filming"], "failed": state["failed"],
                     "later": dict(why), "offer": offer,
-                    "queued_bytes": sum(len(self.checker.plan(x)["films"]) for x in state["queued"]) * average,
+                    "queued_bytes": int(sum(len(self.checker.plan(x)["films"]) for x in state["queued"]) * average * FILM_MARGIN),
                     "eta_minutes": round(busy * cycle) if busy else None}
         except Exception:  # noqa: BLE001 - a course whose films cannot be read still shows everything else
             log.exception("studio: could not read the films of %s", pid)
@@ -478,14 +479,14 @@ class Studio:
             if token != offer["token"]:
                 raise HTTPException(409, "The lessons to film or their price changed since the page was drawn. Look at the new price and press again.")
             queued = sum(len(self.checker.plan(x)["films"]) for other in self.dojo.packages.ids() for x in self._queued(other))
-            free = max(0, storage["limit_bytes"] - storage["bytes"] - queued * storage["average_bytes"])
+            free = max(0, storage["limit_bytes"] - storage["bytes"] - int(queued * storage["average_bytes"] * FILM_MARGIN))
             if offer["bytes"] > free:
                 raise HTTPException(409, f"There is not room for these films: they need about {_gb(offer['bytes'])} and the presenter videos have "
                                          f"{_gb(free)} left before filming pauses at {FILM_STORAGE_SHARE:.0%} of their {_gb(storage['budget_bytes'])}.")
             if added:
-                self.newexams.approve_film(learner, pid, state["token"])
+                self.newexams.approve_film(learner, pid, state["token"], offer["usd"])
             elif self.drift is not None:
-                self.drift.approve_offer(pid, state["token"])
+                self.drift.approve_offer(pid, state["token"], offer["usd"])
             else:
                 raise HTTPException(409, "Filming is not available for this course.")
 
@@ -506,18 +507,25 @@ class Studio:
             except HTTPException as e:
                 results.append({"package": f["package"], "exam": self._exam(f["package"]), "what": "films", "ok": False, "error": str(e.detail)})
         if decks:
-            self.preparer.set_deck_ahead(True)
-            results.append({"package": None, "exam": None, "what": "diagrams", "ok": True, "error": None})
+            try:
+                every = self.costs.deck_view()["every_lesson"]
+                priced = every["per_lesson"] is not None and bool(every["complete"])
+            except Exception:  # noqa: BLE001 - no price, no switch
+                log.exception("studio: could not price the diagrams")
+                priced = False
+            if priced:
+                self.preparer.set_deck_ahead(True)
+            results.append({"package": None, "exam": None, "what": "diagrams", "ok": priced,
+                            "error": None if priced else "The price of the diagrams could not be worked out just now, so they are not switched on. Try again in a few minutes."})
         return {**self.courses(fresh=True), "results": results}
 
     def stop(self, pid: str) -> dict:
         """The owner stopped the films of a course that have not started. A film that is being made finishes."""
         if pid not in self.dojo.packages.ids():
             raise HTTPException(404, "No such course.")
+        stopped = self.drift.cancel_films(pid) if self.drift is not None else 0
         if self.dojo.packages.is_added(pid):
-            stopped = self.newexams.cancel_film(pid)
-        else:
-            stopped = self.drift.cancel_films(pid) if self.drift is not None else 0
+            stopped += self.newexams.cancel_film(pid)
         return {**self.courses(fresh=True), "stopped": stopped}
 
     # ------------------------------------------------------------ what Dojo did
