@@ -381,10 +381,15 @@ class AuditTests(SourcingCase):
     def test_pages_both_models_refuse_are_replaced_when_there_is_no_film(self):
         self.build()
         slug = self.legacy()
+        before = self.skill(UNSOURCED)["sources"]
         self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
         self.steps()
         row = next(d for d in self.sourcer.status("xy-110")["details"] if d["text"] == UNSOURCED)
         self.assertEqual(row["audit"]["verdict"], "invalid")
+        self.assertFalse(row["audit"].get("confirmed"), "refused once: nothing is changed on one look")
+        self.assertEqual(self.skill(UNSOURCED)["sources"], before)
+        self.later(hours=21)
+        self.steps()   # a day later the same refusal confirms it, and the skill goes back to the search
         urls = [s["url"] for s in self.skill(UNSOURCED)["sources"]]
         self.assertTrue(urls and not any(u.endswith("/" + slug) for u in urls), urls)
         self.assertEqual(self.book(UNSOURCED)["state"], "covered")
@@ -396,8 +401,26 @@ class AuditTests(SourcingCase):
         self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
         with mock.patch.object(self.sourcer, "_filmed", lambda pid, sid: True):
             self.steps()
+            self.later(hours=21)
+            self.steps()
         self.assertEqual(self.skill(UNSOURCED)["sources"], before)
         self.assertTrue(self.book(UNSOURCED)["replacement_waits"])
+
+    def test_only_a_few_skills_a_day_go_back_to_the_search(self):
+        self.build()
+        slug = self.legacy()
+        before = self.skill(UNSOURCED)["sources"]
+        self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
+        with mock.patch.object(ladder, "REPLACE_PER_DAY", 0):
+            self.steps()
+            self.later(hours=21)
+            self.steps()
+            row = next(d for d in self.sourcer.status("xy-110")["details"] if d["text"] == UNSOURCED)
+            self.assertFalse(row["audit"].get("confirmed"))
+            self.assertEqual(self.skill(UNSOURCED)["sources"], before)
+        self.later(hours=21)
+        self.steps()
+        self.assertNotEqual(self.skill(UNSOURCED)["sources"], before, "the next day's allowance puts it back")
 
 
 class ReadinessTests(unittest.TestCase):

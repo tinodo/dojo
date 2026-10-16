@@ -60,6 +60,8 @@ SCAN_PICKS = 10
 RETRY_DAYS = (1, 1, 1, 7)  # days until the next cycle of an `exhausted` or `partial` skill: three daily, then weekly
 BACKOFF_MIN = 5            # minutes after a failed step, doubled for each try
 AUDIT_PER_STEP = 4
+REPLACE_PER_DAY = 3        # skills whose cited pages both models refused, put back to the search, in a UTC day
+CONFIRM_HOURS = 20         # a skill whose cited pages were refused is judged once more after this, before anything is replaced
 SEED_TOP = 3               # pages of each skill that grow the inventory
 WEB_CHECK_H = 24            # hours between two web search self-tests
 
@@ -643,7 +645,7 @@ class Sourcer:
                 run.books.save_skill(w["doc"])
             return True
         skills = [{"key": w["key"], "text": w["text"]} for w in cohort]
-        skills_fp = fingerprint("scan", sorted(s["key"] for s in skills))
+        skills_fp = fingerprint("scan", sorted((w["key"], w["doc"]["cycle"]) for w in cohort))   # a new cycle reads the titles again
         side = run.books.side("scan", None)
         if not isinstance(side, dict) or side.get("skills_fp") != skills_fp:
             side = {"skills_fp": skills_fp, "windows": {}, "tries": {}}
@@ -776,8 +778,12 @@ class Sourcer:
         side = run.books.side("audit", None)
         if not isinstance(side, dict) or side.get("v") != VERIFIER_VERSION:
             side = {"v": VERIFIER_VERSION, "skills": {}}
-        todo = [s for s in self.skills_of(raw) if s["sources"] and s["key"] not in side["skills"]
-                and run.books.skill(s["key"])["state"] == "searching" and not run.books.skill(s["key"]).get("accepted")][:AUDIT_PER_STEP]
+        now = self.now()
+        legacy = [s for s in self.skills_of(raw) if s["sources"] and not run.books.skill(s["key"]).get("accepted")
+                  and run.books.skill(s["key"])["state"] == "searching"]
+        todo = [s for s in legacy if s["key"] not in side["skills"]
+                or (side["skills"][s["key"]].get("verdict") == "invalid" and not side["skills"][s["key"]].get("confirmed")
+                    and parse_iso(side["skills"][s["key"]]["wait_until"]) <= now)][:AUDIT_PER_STEP]
         if not todo:
             return False
         for s in todo:
@@ -793,11 +799,21 @@ class Sourcer:
                 verdict = "invalid"
             else:
                 verdict = "weak"
-            side["skills"][s["key"]] = {"verdict": verdict, "pages": verdicts, "at": iso()}
+            before = side["skills"].get(s["key"])
+            entry = {"verdict": verdict, "pages": verdicts, "at": iso()}
             if verdict == "invalid":
-                doc = run.books.skill(s["key"])
-                doc["replacing"] = [p["url"] for p in pages]
-                run.books.save_skill(doc)
+                entry["wait_until"] = iso(now + timedelta(hours=CONFIRM_HOURS))
+            if verdict == "invalid" and before and before.get("verdict") == "invalid":
+                # Refused twice, a day apart. Only now is the skill put back to the search, a few a day.
+                today = now.date().isoformat()
+                put_back = side.setdefault("put_back", {})
+                if put_back.get(today, 0) < REPLACE_PER_DAY:
+                    put_back[today] = put_back.get(today, 0) + 1
+                    entry["confirmed"] = True
+                    doc = run.books.skill(s["key"])
+                    doc["replacing"] = [p["url"] for p in pages]
+                    run.books.save_skill(doc)
+            side["skills"][s["key"]] = entry
             run.books.save_side("audit", side)
         return True
 

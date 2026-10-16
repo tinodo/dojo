@@ -56,6 +56,16 @@ def setup(models: bool) -> object:
     os.environ.setdefault("DOJO_LOCAL", "1")
     os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-source-eval-"))
     sys.path.insert(0, str(ROOT))
+    if models:
+        # `az` can take longer than the 10 seconds the credential allows it by default on a busy machine.
+        import azure.identity as identity  # noqa: PLC0415
+
+        class PatientCliCredential(identity.AzureCliCredential):
+            def __init__(self, *a, **k):
+                k.setdefault("process_timeout", int(os.environ.get("SOURCE_EVAL_AZ_TIMEOUT", "120")))
+                super().__init__(*a, **k)
+
+        identity.AzureCliCredential = PatientCliCredential
     import logging  # noqa: PLC0415
     logging.disable(logging.INFO)
     from app.main import create_app  # noqa: PLC0415

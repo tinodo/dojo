@@ -51,6 +51,7 @@ class Lease:
         self.clock = clock
         self.pause = pause
         self.epoch = 0
+        self._kept = 0.0
         self._lock = threading.Lock()
 
     def _read(self) -> dict | None:
@@ -102,7 +103,15 @@ class Lease:
     def renew(self) -> None:
         with self._lock:
             self.check()
-            self._write({"owner": self.owner, "epoch": self.epoch, "expires": self.clock() + self.ttl})
+            self._kept = self.clock()
+            self._write({"owner": self.owner, "epoch": self.epoch, "expires": self._kept + self.ttl})
+
+    def keep(self) -> None:
+        """Before a write: still the owner (else LeaseLost), and the lease is renewed once a minute, so a long step
+        never lets it expire under its own feet."""
+        self.check()
+        if self.clock() - self._kept >= 60:
+            self.renew()
 
     def release(self) -> None:
         with self._lock:
@@ -160,7 +169,7 @@ class Books:
 
     def save_index(self, doc: dict) -> None:
         with self._lock:
-            self.lease.check()
+            self.lease.keep()
             self._fenced(doc)
             self.store.write("sourcing", self.pid, value=doc)
 
@@ -173,7 +182,7 @@ class Books:
 
     def save_skill(self, doc: dict) -> None:
         with self._lock:
-            self.lease.check()
+            self.lease.keep()
             self._fenced(doc)
             doc["updated"] = iso()
             self.store.write("sourcing", self.pid, doc["key"], value=doc)
@@ -184,7 +193,7 @@ class Books:
 
     def save_side(self, name: str, value: Any) -> None:
         with self._lock:
-            self.lease.check()
+            self.lease.keep()
             self.store.write("sourcing", self.pid, f"side-{name}", value=value)
 
     def _fenced(self, doc: dict) -> None:
