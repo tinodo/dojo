@@ -153,8 +153,12 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
 - Per page (`verify` mode, 42 locked positives, 80 locked hard negatives): 38 of 42 positives accepted and 6 of 80
   negatives accepted, 20 of 20 skills with an accepted positive. The 6 are wrong-operation or overview pages that both
   models grade `teaches` or `covers`; the comparison step is what keeps them out of a lesson, and the number is reported, not tuned.
-- Real cost of the search, per skill: author 58,300 input and 6,400 output tokens (web search, phrases, the reading of
-  every page, the comparison), checker 67,700 and 15,700; about $0.5 a skill at list price (`costs.SOURCING_CALLS`).
+- A second run on the code that was merged (the last review rounds had raised the number of pages judged in a round
+  and changed the web search wording): again 13 of 13 `covered`, 317 model calls in 53 minutes, no hard negative cited
+  (8 accepted ones, all kept out of the cited pages), 7 of 13 skills cite a locked positive, 21 cited pages unlabelled.
+- Real cost of the search, per skill, in that run: author 64,900 input and 7,800 output tokens (web search, phrases,
+  the reading of every page, the comparison), checker 88,700 and 20,700; about $0.6 a skill at list price, and
+  `costs.SOURCING_CALLS` holds these numbers. The first run had measured 58,300 and 6,400, and 67,700 and 15,700.
 
 ## Evaluation and the merge gate
 
