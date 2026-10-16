@@ -88,6 +88,9 @@ The Courses page is the page to press buttons on, and it is short.
   was by the older buttons: a film made for it would be for a lesson nobody is taught afterwards. None is waiting today, and a
   film approved for a lesson that was already written again is not made. If the template changes or many pages are replaced,
   the offer should leave those lessons out until they are written again.
+- The older film buttons (**Film this lesson**, **Film again** in Checks, the exam page's **Film the lessons**) still approve by lesson
+  ids and do not check the room at the press; both keepers pause at the filing, while presenter videos are 90% full, and the lesson
+  page shows its price. Binding all of them to a priced offer would be a change to those pages, not to this one.
 - Stopping a film that is already being made, and a second film queue that runs two films at once.
 - Whether the page check of an original course should be able to replace a page. It only reports.
 

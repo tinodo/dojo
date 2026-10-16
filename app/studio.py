@@ -257,6 +257,10 @@ class Studio:
         """A lesson's film plan without the presenters that are filmed already: a lesson with one of its two films stored costs one."""
         return {**plan, "films": {sp: mid for sp, mid in plan["films"].items() if not (mid + ".webm" in media and mid + ".json" in media)}}
 
+    def _missing_films(self, lesson_ids: list[str], media: set[str]) -> int:
+        """How many presenter videos these lessons still need: the ones not stored yet, counted by lesson."""
+        return sum(len(self._to_film(self.checker.plan(x), media)["films"]) for x in lesson_ids)
+
     def _search(self, pid: str) -> dict | None:
         st = self.newexams.sourcer.status(pid)
         if not st:
@@ -395,7 +399,7 @@ class Studio:
                 offer["eta_minutes"] = round(offer["lessons"] * cycle)
             return {"have": have, "of": lessons, "waiting": state["waiting"], "filming": state["filming"], "failed": state["failed"],
                     "later": dict(why), "offer": offer,
-                    "queued_bytes": int(sum(len(self.checker.plan(x)["films"]) for x in state["queued"]) * average * FILM_MARGIN),
+                    "queued_bytes": int(self._missing_films(state["queued"], media) * average * FILM_MARGIN),
                     "eta_minutes": round(busy * cycle) if busy else None}
         except Exception:  # noqa: BLE001 - a course whose films cannot be read still shows everything else
             log.exception("studio: could not read the films of %s", pid)
@@ -470,15 +474,15 @@ class Studio:
             raise HTTPException(404, "No such course.")
         with self._approving:
             added = self.dojo.packages.is_added(pid)
-            state, storage = self._film_state(pid, added), self._storage()
-            offer = self._offer(state, self._media_set(), storage["average_bytes"])
+            state, storage, media = self._film_state(pid, added), self._storage(), self._media_set()
+            offer = self._offer(state, media, storage["average_bytes"])
             if offer is None:
                 raise HTTPException(409, "There is nothing new to film: every lesson is filmed or already waiting.")
             if offer["token"] is None:
                 raise HTTPException(409, "The price of these films could not be worked out just now, so they are not approved. Try again in a few minutes.")
             if token != offer["token"]:
                 raise HTTPException(409, "The lessons to film or their price changed since the page was drawn. Look at the new price and press again.")
-            queued = sum(len(self.checker.plan(x)["films"]) for other in self.dojo.packages.ids() for x in self._queued(other))
+            queued = sum(self._missing_films(self._queued(other), media) for other in self.dojo.packages.ids())
             free = max(0, storage["limit_bytes"] - storage["bytes"] - int(queued * storage["average_bytes"] * FILM_MARGIN))
             if offer["bytes"] > free:
                 raise HTTPException(409, f"There is not room for these films: they need about {_gb(offer['bytes'])} and the presenter videos have "

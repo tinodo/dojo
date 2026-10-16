@@ -281,6 +281,15 @@ class MakeTests(StudioCase):
         self.assertEqual(storage["queued_bytes"], int(4 * storage["average_bytes"] * studio_mod.FILM_MARGIN), "two lessons of two films each, with the margin offers get")
         self.assertEqual(storage["free_bytes"], storage["limit_bytes"] - storage["bytes"] - storage["queued_bytes"])
 
+    def test_a_queued_lesson_with_one_film_stored_takes_room_for_the_other_only(self):
+        lesson = self.ready(1)[0]
+        self.press(self.videos()["offer"]["token"])
+        self.assertEqual(self.read()["make"]["storage"]["queued_bytes"], int(2 * studio_mod.AVG_VIDEO_BYTES * studio_mod.FILM_MARGIN))
+        lines = [self.dojo._slide_lines(sl) for sl in self.dojo.lesson(lesson)["slides"]]
+        self.dojo.avatar.synthesize(*self.dojo.avatar.lesson_films(lines)[0])
+        storage = self.read()["make"]["storage"]
+        self.assertEqual(storage["queued_bytes"], int(1 * storage["average_bytes"] * studio_mod.FILM_MARGIN), "the film that is stored takes its room already")
+
     def test_stop_forgets_the_films_that_have_not_started_and_leaves_the_one_being_made(self):
         first = self.ready()[0]
         self.press(self.videos()["offer"]["token"])
