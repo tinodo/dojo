@@ -1,0 +1,2460 @@
+{
+  "_meta": {
+    "purpose": "Locked evaluation data for Source discovery v2 on DP-300.",
+    "protocol": "Silver rows keep the live package citations as cited covers pages. The 13 previously unsourced skills are gold13. The seven previously cited CASE skills are verified20; together gold13 plus verified20 are the 20 hand-read CASE skills from verifier v2. For gold13 and verified20, every positive and negative was read by hand, URLs were fetched live, and every adjudicated item carries a DeepSeek third opinion using the VERIFY_V2 prompt. When the third opinion disagreed, the note stays in why and the human label was kept only after rereading the page.",
+    "locked": "2026-10-15",
+    "kinds": [
+      "hub",
+      "news",
+      "other-product",
+      "other-task",
+      "wrong-operation",
+      "unrelated",
+      "overview-of-wrong-scope"
+    ]
+  },
+  "exam": {
+    "code": "DP-300",
+    "title": "Administering Microsoft Azure SQL Solutions"
+  },
+  "skills": [
+    {
+      "id": "d1.g1.s1.34451c",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Recommend a database offering based on specific requirements",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s2.ee991b",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Choose an automated deployment method",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s3.d443f7",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Identify use cases for Azure Arc-enabled SQL services",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/overview?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s4.fb2ac8",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Identify use cases for Azure SQL Database in Microsoft Fabric",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s5.6c127a",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Plan for table partitioning",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-index-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s6.5c98ae",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Recommend a database sharding solution",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-scale-introduction?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/sharding",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s7.baaf55",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Deploy database offerings on selected platforms",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer?view=azuresql-db",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g1.s8.aea529",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Deploy hybrid SQL Server solutions",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/overview?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Overview of Azure Arc-enabled SQL Server as a hybrid deployment and management option for SQL Server.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/managed-instance-link-feature-overview?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Overview of Managed Instance link for keeping SQL Server and Azure SQL Managed Instance connected in a hybrid setup. Third opinion said teaches.",
+          "third": "teaches"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/extended-security-updates?view=sql-server-ver17",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Covers Extended Security Updates licensing and billing, not deploying a hybrid SQL Server solution. Third opinion said covers.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/manage-configuration?view=sql-server-ver17",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Covers post-deployment configuration settings for Arc-enabled SQL Server, not solution deployment. Third opinion said teaches.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation guide for SQL docs; it is not a teaching page about hybrid SQL Server deployment.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "adjudicated",
+          "why": "Release notes page that only announces features and does not teach deployment steps or guidance.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d1.g1.s9.532d44",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "text": "Apply patches and updates for hybrid and infrastructure as a service (IaaS) deployment",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/virtual-machines/windows/servicing-updates-guidelines?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g2.s1.9fbe02",
+      "domain": "Plan and implement data platform resources",
+      "group": "Configure resources for scale and performance",
+      "text": "Configure Azure SQL Database for scale and performance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview?view=azuresql-db",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g2.s2.763e9f",
+      "domain": "Plan and implement data platform resources",
+      "group": "Configure resources for scale and performance",
+      "text": "Configure Azure SQL Managed Instance for scale and performance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/instance-create-quickstart?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g2.s3.d2b985",
+      "domain": "Plan and implement data platform resources",
+      "group": "Configure resources for scale and performance",
+      "text": "Configure SQL Server on Azure Virtual Machines for scale and performance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/virtual-machines/windows/doc-changes-updates-release-notes-whats-new?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g2.s4.6770ee",
+      "domain": "Plan and implement data platform resources",
+      "group": "Configure resources for scale and performance",
+      "text": "Configure table partitioning",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/partitions/create-partitioned-tables-and-indexes?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/partitions/partitioned-tables-and-indexes?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g2.s5.ddffb2",
+      "domain": "Plan and implement data platform resources",
+      "group": "Configure resources for scale and performance",
+      "text": "Configure data compression",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/data-compression/enable-compression-on-a-table-or-index?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/data-compression/data-compression?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/alter-index-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g3.s1.1b4f0a",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Evaluate requirements for a migration",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/migrate/migrate-services-overview?view=migrate",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Explains Azure Migrate as the service for planning, assessing, and choosing migration paths.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/migrate/tutorial-assess-sql?view=migrate",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Tutorial for creating an Azure Migrate SQL assessment, which is a concrete way to evaluate migration requirements. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Implements one migration mechanism, but does not evaluate requirements before choosing a path.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-import?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Import procedure executes a migration step rather than assessing what the migration needs.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/migration-guides/?view=azuresql",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Landing page collects migration resources but does not itself evaluate requirements.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Security filtering is unrelated to migration assessment requirements.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d1.g3.s2.c7f0f7",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Evaluate offline or online migration strategies",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/data-migration/sql-server/overview",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/dms/resource-scenario-status",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g3.s3.37fd29",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Implement an online migration strategy",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/migrate-to-azure-sql-managed-instance?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g3.s4.b4eb0d",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Implement an offline migration strategy",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/data-migration/sql-server/database/database-migration-service",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g3.s5.4f72f6",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Implement a migration to Azure",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/migrate/migrate-sql-server-azure-sql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/data-migration/sql-server/database/guide",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/data-migration/sql-server/managed-instance/guide",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d1.g3.s6.41714a",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Implement a migration between Azure SQL services",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Shows how to export an Azure SQL database or managed instance to BACPAC as one concrete migration path. Third opinion said teaches.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-import?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Shows how to import a BACPAC into Azure SQL Database or Azure SQL Managed Instance as the receiving side of that migration path. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/migration-guides/?view=azuresql",
+          "kind": "hub",
+          "source": "owner",
+          "why": "Landing page that lists migration guidance; it does not itself teach an Azure SQL-to-Azure SQL migration procedure. Third opinion said covers.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Explains elastic jobs automation, not migrating data between Azure SQL services.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/database-copy-move-how-to?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Teaches copy and move operations inside Azure SQL Managed Instance, not migration between Azure SQL services.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/active-geo-replication-configure-portal?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Teaches HA/DR geo-replication setup, not service-to-service migration.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d1.g3.s7.4dea10",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Implement Azure SQL Managed Instance database copy and move",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/database-copy-move-how-to?view=azuresql",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Step-by-step portal, PowerShell, and CLI procedures for copying or moving a database between managed instances. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "BACPAC export is a different migration method, not the managed-instance copy or move operation. Third opinion said covers.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-import?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "BACPAC import creates a database from export data, not a managed-instance copy or move workflow.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/migration-guides/?view=azuresql",
+          "kind": "hub",
+          "source": "owner",
+          "why": "Migration landing page only links out to guidance and does not teach the copy/move procedure.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/instance-create-quickstart?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Quickstart for creating a managed instance, not copying or moving databases between instances.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d1.g3.s8.e22e59",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "text": "Troubleshoot a migration",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/security/transfer-logins-passwords-between-instances",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g1.s1.b606cb",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Configure Microsoft Entra ID authentication for Azure SQL Database, Azure SQL Managed Instance, and SQL Server",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-overview?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Explains Microsoft Entra authentication concepts and platform differences across Azure SQL Database, Managed Instance, and SQL Server.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-configure?view=azuresql",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Provides the setup steps for Microsoft Entra authentication on Azure SQL Database and Azure SQL Managed Instance.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-microsoft-entra-connect-to-azure-sql?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Shows supported Entra connection methods after the feature is configured on Azure SQL resources.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/entra-authentication-setup-tutorial?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Tutorial for configuring Microsoft Entra authentication on SQL Server enabled by Azure Arc, covering the SQL Server portion of the skill. Third opinion said covers.",
+          "third": "covers"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-tde-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Covers encryption at rest, which is a different security feature from Microsoft Entra authentication.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "Covers row filtering inside the database, not identity configuration for sign-in.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "owner",
+          "why": "Release notes mention features but do not teach how to configure Microsoft Entra authentication.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "Elastic jobs automation is unrelated to configuring database authentication.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d2.g1.s2.5098a4",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Configure authentication for SQL on Azure VMs and Azure SQL Managed Instance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/virtual-machines/windows/configure-azure-ad-authentication-for-sql-vm?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g1.s3.aad10b",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Configure security principals",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/getting-started-with-database-engine-permissions?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-login-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-user-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g1.s4.79eeb0",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Create users from Microsoft Entra identities",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-user-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g1.s5.495714",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Configure database and object-level permissions using graphical tools",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/create-a-database-user?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g1.s6.366fa0",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Apply the principle of least privilege for all securables",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/permissions-database-engine?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Documents the permission model and the platform differences that matter when designing least-privilege access. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/getting-started-with-database-engine-permissions?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Walks through a typical permission implementation and security concepts for applying least privilege. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Row-level security filters rows after access is granted; it is not a least-privilege design guide for all securables.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/ledger/ledger-overview?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Ledger is about tamper evidence, not least-privilege permission design.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "adjudicated",
+          "why": "Release notes do not explain how to apply least privilege.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Elastic jobs automation is unrelated to designing least-privilege permissions.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d2.g1.s7.cffa83",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Troubleshoot authentication and authorization issues",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/failover-clusters/troubleshoot-orphaned-users-sql-server?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g1.s8.c9df7e",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "text": "Manage authentication and authorization by using T-SQL",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-login-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-user-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/grant-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g2.s1.d093a4",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "text": "Implement transparent data encryption (TDE)",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-tde-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g2.s2.e07fa3",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "text": "Implement object-level encryption",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/encryption/always-encrypted-database-engine?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/encryption/always-encrypted-tutorial-getting-started?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g2.s3.8a26f7",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "text": "Configure server- and database-level firewall rules",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/network-access-controls-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g2.s4.b0cd39",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "text": "Implement Always Encrypted",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/encryption/always-encrypted-tutorial-getting-started?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g2.s5.a9988b",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "text": "Implement Always Encrypted with secure enclaves",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/always-encrypted-enclaves-getting-started-vbs?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g2.s6.18d022",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "text": "Configure private links and service endpoints",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/private-endpoint-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Explains private endpoints for Azure SQL Database and how administrators approve and manage the connections. Third opinion said teaches.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/vnet-service-endpoint-rule-overview?view=azuresql",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Shows how to create service endpoints and virtual network rules for Azure SQL Database.",
+          "third": "teaches"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/transparent-data-encryption-tde-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Transparent Data Encryption protects data at rest, not private connectivity or service endpoints.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/auditing-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Auditing is a monitoring feature, not a private-link or service-endpoint configuration guide.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation tips page, not network-access configuration guidance.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/configmgr/update-management/wsus-automatic-maintenance",
+          "kind": "other-product",
+          "source": "adjudicated",
+          "why": "WSUS maintenance article is unrelated to Azure SQL private access settings.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d2.g3.s1.96f724",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "text": "Apply a data classification strategy",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/data/governance-security-baselines-purview-data-estate-unify-data-platform",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g3.s2.d93698",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "text": "Configure server and database audits",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/auditing-setup?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/auditing-configure?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g3.s3.b05dc4",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "text": "Implement change data tracking",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/track-changes/enable-and-disable-change-tracking-sql-server?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g3.s4.4fcc2c",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "text": "Implement dynamic data masking",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/dynamic-data-masking-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d2.g3.s5.219f51",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "text": "Implement ledger in Azure SQL",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/ledger/ledger-overview?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Explains the ledger feature, ledger tables, digests, and verification concepts for Azure SQL and SQL Server. Third opinion said teaches.",
+          "third": "teaches"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/ledger-landing?view=azuresql",
+          "kind": "hub",
+          "source": "owner",
+          "why": "Ledger landing page is a link hub, not a page that teaches the feature.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "Elastic jobs are automation features and do not teach ledger.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "BACPAC export is a migration task, not ledger implementation.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Row-level security is a different compliance control from ledger.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d2.g3.s6.6be159",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "text": "Implement row-level security",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Explains row-level security and shows the T-SQL objects and policies used to implement it. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/ledger/ledger-overview?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Ledger is a tamper-evidence feature, not row-level access filtering.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/permissions-database-engine?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Permission catalog covers grants and roles broadly, not RLS predicates and policies.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/fabric/data-warehouse/tutorial-row-level-security",
+          "kind": "other-product",
+          "source": "owner",
+          "why": "Teaches row-level security in Microsoft Fabric Data Warehouse, which is a different product. Third opinion said teaches.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/configmgr/update-management/wsus-automatic-maintenance",
+          "kind": "other-product",
+          "source": "owner",
+          "why": "WSUS maintenance guidance is unrelated to Azure SQL or SQL Server row-level security.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d3.g1.s1.8822b6",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor resource activity and performance",
+      "text": "Prepare an operational performance baseline",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitor-and-tune-for-performance?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "cited",
+          "why": "Explains continuous monitoring, snapshots, and trend tracking needed to establish a performance baseline.",
+          "third": "teaches"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/update-statistics-transact-sql?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "UPDATE STATISTICS is a maintenance operation, not guidance for preparing a baseline.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/indexes/reorganize-and-rebuild-indexes?view=sql-server-ver17",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Index maintenance improves performance but does not teach how to establish an operational baseline.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Database export is unrelated to performance baseline work.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "adjudicated",
+          "why": "Release notes do not teach baseline preparation.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d3.g1.s2.bf22d6",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor resource activity and performance",
+      "text": "Determine sources for performance metrics",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/analyze-metrics",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g1.s3.de6774",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor resource activity and performance",
+      "text": "Interpret performance metrics",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/analyze-metrics",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g1.s4.60fbfc",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor resource activity and performance",
+      "text": "Configure and monitor activity and performance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g1.s5.db02c7",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor resource activity and performance",
+      "text": "Monitor by using database watcher",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database-watcher-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g1.s6.e09706",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor resource activity and performance",
+      "text": "Monitor by using Extended Events",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/extended-events/monitor-system-activity-using-extended-events?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/extended-events/quick-start-extended-events-in-sql-server?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/xevent-db-diff-from-svr?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s1.dbf4a5",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Configure Query Store",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s2.18bafb",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Monitor by using Query Store",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s3.0e4ef9",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Identify and resolve session blocking",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/understand-resolve-blocking?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/understand-resolve-blocking",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s4.49b7d1",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Identify performance issues using dynamic management views (DMVs)",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/monitoring-with-dmvs?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s5.ccfca0",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Identify and implement index changes for queries",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-index-design-guide?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-index-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s6.1ae93f",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Recommend query construct modifications based on resource usage",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/performance/troubleshoot-high-cpu-usage-issues",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s7.cfb431",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Review execution plans",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g2.s8.7679d7",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Monitor and optimize query performance",
+      "text": "Monitor by using Intelligent Insights",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/intelligent-insights-troubleshoot-performance?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/intelligent-insights-use-diagnostics-log?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s1.980a68",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Implement index maintenance tasks",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/indexes/reorganize-and-rebuild-indexes?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s2.736142",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Implement statistics maintenance tasks",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/statistics/statistics?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "adjudicated",
+          "why": "Explains what SQL statistics are and when they matter for query optimization. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/update-statistics-transact-sql?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Reference page that explains the UPDATE STATISTICS command and its options for statistics maintenance. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/configmgr/update-management/wsus-automatic-maintenance",
+          "kind": "other-product",
+          "source": "cited",
+          "why": "WSUS database maintenance is a different product and not SQL statistics maintenance.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/indexes/reorganize-and-rebuild-indexes?view=sql-server-ver17",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Index rebuild/reorganize guidance is maintenance for indexes, not statistics tasks.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitor-and-tune-for-performance?view=sql-server-ver17",
+          "kind": "overview-of-wrong-scope",
+          "source": "adjudicated",
+          "why": "Performance monitoring overview is broader than statistics maintenance and does not teach the maintenance task itself.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation page is not a statistics-maintenance teaching page.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d3.g3.s3.360f69",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Implement database integrity checks",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/database-console-commands/dbcc-checkdb-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s4.fc749d",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Configure database automatic tuning",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/automatic-tuning-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s5.e7e6d3",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Configure server settings for performance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/configure-the-max-degree-of-parallelism-server-configuration-option?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s6.3fe10c",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Configure Resource Governor for performance",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/resource-governor/view-resource-governor-properties?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s7.cd7801",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Implement database-scoped configuration",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/alter-database-scoped-configuration-transact-sql?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/configure-max-degree-of-parallelism?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s8.5d037a",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Configure compute and storage resources for scaling",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/single-database-scale?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-pool-scale?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/scripts/monitor-and-scale-database-powershell?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d3.g3.s9.bac98b",
+      "domain": "Monitor, configure, and optimize database resources",
+      "group": "Configure database solutions for optimal performance",
+      "text": "Identify use cases for intelligent query processing (IQP) features",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g1.s1.92e492",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage SQL Server Agent jobs",
+      "text": "Manage schedules for regular maintenance jobs",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/schedule-a-job",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/create-and-attach-schedules-to-jobs",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/new-job-schedule-job-schedule-properties",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g1.s2.ddc7d7",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage SQL Server Agent jobs",
+      "text": "Configure job alerts and notifications",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/notify-an-operator-of-job-status",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g1.s3.31258d",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage SQL Server Agent jobs",
+      "text": "Troubleshoot SQL Server Agent jobs",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/sql-server-agent",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Explains the SQL Server Agent service, job execution history, and operator/alert surfaces that matter during troubleshooting. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/agent/job-failed-error-258",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Troubleshooting article with concrete checks for failed Agent jobs and timeout symptoms.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/startup-shutdown/gmsa-sql-server-agent-job-failures",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Troubleshooting article for a specific SQL Server Agent job failure pattern after switching to gMSA.",
+          "third": "teaches"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/operators",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "Explains operators for notifications, not diagnosing why Agent jobs fail.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/notify-an-operator-of-job-status",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "Teaches notification setup after job execution, not troubleshooting failed jobs.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation help page, not SQL Server Agent troubleshooting guidance.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "BACPAC export has nothing to do with SQL Server Agent job failures.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d4.g2.s1.79ed7b",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Automate deployment of database resources",
+      "text": "Automate deployment by using Azure Resource Manager (ARM) and Bicep templates",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.sql/servers",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g2.s2.7f9091",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Automate deployment of database resources",
+      "text": "Automate deployment by using Azure PowerShell",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/single-database-create-quickstart?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g2.s3.e946c4",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Automate deployment of database resources",
+      "text": "Automate deployment by using Azure CLI",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/single-database-create-quickstart?view=azuresql",
+          "grade": "teaches",
+          "source": "cited",
+          "why": "Shows Azure CLI commands for creating an Azure SQL Database resource. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "BACPAC export is a migration task, not Azure CLI deployment automation.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Firewall configuration is a different administrative task than automating deployment with Azure CLI.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation page with no deployment automation content.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "adjudicated",
+          "why": "Release notes do not teach Azure CLI deployment automation.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d4.g2.s4.0c529f",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Automate deployment of database resources",
+      "text": "Monitor and troubleshoot deployments",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/common-deployment-errors",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Teaches how to diagnose Azure Resource Manager and Bicep deployment errors, which matches this deployment-focused skill.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/deployment-history",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Shows how to inspect deployment history and operations in portal, CLI, PowerShell, and REST. Third opinion said covers.",
+          "third": "covers"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/monitoring-sql-database-azure-monitor?view=azuresql",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "Covers runtime monitoring of Azure SQL Database, not ARM/Bicep/CLI deployment monitoring.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database-watcher-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "Database watcher monitors running workloads after deployment, not deployment operations.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/troubleshoot-common-errors-issues?view=azuresql",
+          "kind": "other-task",
+          "source": "owner",
+          "why": "Troubleshoots database runtime issues rather than database resource deployments.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation page with no deployment monitoring or troubleshooting guidance.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d4.g3.s1.bb3769",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage database tasks in Azure",
+      "text": "Create and configure elastic jobs",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-tutorial?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g3.s2.48af4c",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage database tasks in Azure",
+      "text": "Create and configure database tasks by using automation",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/create-a-job",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d4.g3.s3.69eb7d",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage database tasks in Azure",
+      "text": "Configure alerts and notifications on database tasks",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/alerts-create?view=azuresql",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Shows how to create Azure portal alerts that notify or automate on Azure SQL task conditions.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/monitoring-metrics-alerts?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Explains Azure SQL metric alerts and how alerting fits Azure SQL monitoring.",
+          "third": "covers"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/notify-an-operator-of-job-status",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Step-by-step setup for notifying an operator when a SQL Agent job succeeds, fails, or completes.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/assign-alerts-to-an-operator",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Shows how to route SQL Server Agent alerts to operators for notifications. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/database-mail/configure-sql-server-agent-mail-to-use-database-mail?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Covers the mail plumbing needed before SQL Server Agent can send notifications. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/monitoring-sql-database-azure-monitor?view=azuresql",
+          "kind": "overview-of-wrong-scope",
+          "source": "adjudicated",
+          "why": "Monitoring overview page is broader runtime observability and does not teach configuring alerts or notifications.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/sql-server-agent",
+          "kind": "overview-of-wrong-scope",
+          "source": "owner",
+          "why": "General SQL Server Agent overview, not a how-to for alerts and notifications.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Row-level security is unrelated to alert or notification configuration.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation page only explains the SQL docs layout.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d4.g3.s4.4e13dc",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage database tasks in Azure",
+      "text": "Troubleshoot automated database tasks",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Explains elastic job status logging, retries, and common operational patterns that a learner uses when troubleshooting automated tasks. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-tsql-create-manage?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Shows job execution, monitoring, and job database views that help investigate automated task behavior. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-tutorial?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "Tutorial for creating and configuring elastic jobs, not troubleshooting when they misbehave.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-powershell-create?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "adjudicated",
+          "why": "PowerShell how-to for creating jobs, not diagnosing failures or odd execution.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "unrelated",
+          "source": "owner",
+          "why": "Database row-filtering has nothing to do with automated task troubleshooting.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "owner",
+          "why": "Release notes do not teach how to troubleshoot automated database tasks.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d5.g1.s1.d2377e",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan an HA/DR strategy for database solutions",
+      "text": "Recommend HA/DR strategy based on Recovery Point Objective/Recovery Time Objective (RPO/RTO) requirements",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/business-continuity-high-availability-disaster-recover-hadr-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/database-engine/sql-server-business-continuity-dr?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g1.s2.7f0cfb",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan an HA/DR strategy for database solutions",
+      "text": "Evaluate HA/DR for hybrid deployments",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/managed-instance-link-feature-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g1.s3.8bf04e",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan an HA/DR strategy for database solutions",
+      "text": "Evaluate Azure-specific HA/DR solutions",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/business-continuity-high-availability-disaster-recover-hadr-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-sql-db?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g1.s4.19464f",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan an HA/DR strategy for database solutions",
+      "text": "Plan a testing procedure for an HA/DR solution",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/disaster-recovery-drills?view=azuresql",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Guidance page for planning and running Azure SQL Database disaster recovery drills.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/disaster-recovery-drills?view=azuresql",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Guidance page for planning and running Azure SQL Managed Instance disaster recovery drills.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-configure-sql-db?view=azuresql",
+          "grade": "covers",
+          "source": "owner",
+          "why": "Shows one concrete HA/DR exercise—configuring and failing over a failover group—which can be part of a test plan. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-sql-db?view=azuresql",
+          "kind": "overview-of-wrong-scope",
+          "source": "adjudicated",
+          "why": "Best-practices overview explains the feature but not how to plan a test procedure.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/failover-group-sql-mi?view=azuresql",
+          "kind": "overview-of-wrong-scope",
+          "source": "adjudicated",
+          "why": "Managed Instance failover-group overview is feature guidance, not a testing procedure.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "RLS is unrelated to HA/DR testing.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Elastic jobs automation is not HA/DR test planning.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d5.g2.s1.18c485",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Recommend a database backup and restore strategy",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/automated-backups-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g2.s2.3fb822",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Perform a database backup by using native tools",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/quickstart-backup-restore-database?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g2.s3.525812",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Perform a database restore by using native tools",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/quickstart-backup-restore-database?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g2.s4.9b0637",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Perform a database restore to a point in time",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/automated-backups-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g2.s5.551331",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Configure long-term backup retention",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/long-term-backup-retention-configure?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g2.s6.e94dc9",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Backup and restore a database by using T-SQL",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/quickstart-backup-restore-database?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g2.s7.45c5f8",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Plan and perform backup and restore of a database",
+      "text": "Backup to and restore from cloud storage",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/sql-server-backup-to-url?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g3.s1.5c6477",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Configure active geo-replication",
+      "set": "verified20",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/active-geo-replication-overview?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Explains the active geo-replication feature, its scope, failover behavior, and key concepts. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/active-geo-replication-configure-portal?view=azuresql",
+          "grade": "teaches",
+          "source": "adjudicated",
+          "why": "Tutorial with portal, CLI, and failover steps for configuring active geo-replication. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-sql-db?view=azuresql",
+          "kind": "overview-of-wrong-scope",
+          "source": "adjudicated",
+          "why": "Failover groups manage a broader grouping abstraction than configuring active geo-replication for a database.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/automated-backups-overview?view=azuresql",
+          "kind": "other-task",
+          "source": "adjudicated",
+          "why": "Automated backups are business continuity features, but not active geo-replication configuration.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/sql-docs-navigation-guide?view=sql-server-ver17",
+          "kind": "hub",
+          "source": "adjudicated",
+          "why": "Navigation guide, not geo-replication guidance.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17",
+          "kind": "news",
+          "source": "adjudicated",
+          "why": "Release notes page; it does not teach active geo-replication.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d5.g3.s2.27e2a7",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Configure Always On availability groups on SQL Managed Instance and Azure virtual machines",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/virtual-machines/windows/availability-group-manually-configure-tutorial-single-subnet?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g3.s3.f31726",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Configure failover groups",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-configure-sql-db?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g3.s4.76c209",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Configure Always On Failover Cluster Instances on Azure virtual machines",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/virtual-machines/windows/hadr-cluster-best-practices?view=azuresql",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g3.s5.675bc6",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Configure log shipping",
+      "set": "silver",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/database-engine/log-shipping/configure-log-shipping-sql-server?view=sql-server-ver17",
+          "grade": "covers",
+          "source": "cited",
+          "why": "Existing live package citation kept as a silver covers page."
+        }
+      ],
+      "negatives": []
+    },
+    {
+      "id": "d5.g3.s6.70764a",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Monitor an HA/DR solution",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/always-on-availability-groups-troubleshooting-and-monitoring-guide?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Monitoring guide for availability groups that directly teaches health checks, issue patterns, and monitoring paths for HA/DR.",
+          "third": "teaches"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-configure-sql-db?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "Configuration how-to teaches setup and failover actions, not ongoing HA/DR monitoring.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-sql-db?view=azuresql",
+          "kind": "overview-of-wrong-scope",
+          "source": "owner",
+          "why": "Failover-group overview explains the feature and best practices, but not how to monitor the HA/DR solution.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/failover-group-sql-mi?view=azuresql",
+          "kind": "overview-of-wrong-scope",
+          "source": "owner",
+          "why": "Managed Instance failover-group overview is about feature behavior and setup, not monitoring operations.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Database export is a migration task and does not monitor HA/DR.",
+          "third": "no"
+        }
+      ]
+    },
+    {
+      "id": "d5.g3.s7.33a99b",
+      "domain": "Plan and configure a high availability and disaster recovery (HA/DR) environment",
+      "group": "Configure HA/DR for database solutions",
+      "text": "Troubleshoot an HA/DR solution",
+      "set": "gold13",
+      "positives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/availability-groups/troubleshooting-alwayson-issues",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Troubleshooting article for common Always On problems in HA/DR deployments. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/troubleshoot/sql/database-engine/availability-groups/troubleshooting-availability-group-failover",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Troubleshooting article focused on failed or unexpected availability-group failovers. Third opinion said no.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/troubleshoot-always-on-availability-groups-configuration-sql-server?view=sql-server-ver17",
+          "grade": "teaches",
+          "source": "owner",
+          "why": "Troubleshooting guide for common availability-group configuration problems that break HA/DR. Third opinion said no.",
+          "third": "no"
+        }
+      ],
+      "negatives": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/failover-group-configure-sql-db?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "Configuration tutorial helps set up a failover group, but it does not troubleshoot HA/DR failures.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/disaster-recovery-drills?view=azuresql",
+          "kind": "wrong-operation",
+          "source": "owner",
+          "why": "Drill planning guidance is about testing readiness, not diagnosing HA/DR issues. Third opinion said teaches.",
+          "third": "teaches"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/row-level-security?view=sql-server-ver17",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "RLS is unrelated to HA/DR troubleshooting.",
+          "third": "no"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-jobs-overview?view=azuresql",
+          "kind": "unrelated",
+          "source": "adjudicated",
+          "why": "Elastic jobs automation does not troubleshoot HA/DR solutions.",
+          "third": "no"
+        }
+      ]
+    }
+  ]
+}

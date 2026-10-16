@@ -77,6 +77,8 @@ class Preparer:
                             "filmed": 0, "film_note": "", "upgraded": 0, "deepened": 0, "decked": 0}
         self.films: Any = None             # set at startup: the approved filming of added exams (app/newexam.py)
         self.deeper: Any = None            # set at startup: lessons written again on the deeper template (app/deeper.py)
+        self.sourcing: Any = None          # set at startup: finds the official pages of added exams' skills (app/sourcing)
+        self._after_sourcing = False       # the last step searched for pages: the next one writes lessons first
         self._started = False
         self._narrated: set[str] = set()   # lessons known to be fully narrated; narration audio is never deleted
         self._last_pid: str | None = None  # the exam the last new lesson or narration was for
@@ -101,8 +103,17 @@ class Preparer:
             except Exception:  # noqa: BLE001 - never let the background loop die
                 log.exception("preparation step crashed")
                 worked = False
-            self._wake.wait(15 if worked else 1800)
+            self._wake.wait(self.wait_after(worked))
             self._wake.clear()
+
+    def wait_after(self, worked: bool) -> float:
+        """Seconds until the next step: soon after work, else no later than the search for pages is due again."""
+        if worked:
+            return 15
+        try:
+            return max(15.0, min(1800.0, float(self.sourcing.wait_s()))) if self.sourcing is not None else 1800
+        except Exception:  # noqa: BLE001 - the pause is only a preference
+            return 1800
 
     def order(self) -> list[str]:
         """The exams in turn, for new lessons and narration: the owner's active exam first, then the
@@ -212,11 +223,21 @@ class Preparer:
         return None
 
     def step(self) -> bool:
-        """Write one lesson, write one lesson again on the deeper template, narrate one lesson that has no
-        audio, write one Deeper Listen, draw one visual deck, or file one approved filming job. True when
-        there may be more soon."""
+        """Search for the official pages of an added exam's skills, write one lesson, write one lesson again on the
+        deeper template, narrate one lesson that has no audio, write one Deeper Listen, draw one visual deck, or
+        file one approved filming job. True when there may be more soon.
+
+        The search for pages (app/sourcing) takes every other turn while it has work: lessons for the skills it
+        has already found pages for are written between its steps, never after all of them."""
         if self._learner_busy():
             return True
+        if self.sourcing is not None and not self._after_sourcing and self.sourcing.step():
+            self._after_sourcing = True
+            return True
+        skipped, self._after_sourcing = self._after_sourcing, False
+        return self._lessons_step() or skipped
+
+    def _lessons_step(self) -> bool:
         skill = self.next_skill()
         upgrade = None if skill else self.next_upgrade()
         if upgrade:

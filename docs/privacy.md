@@ -69,6 +69,7 @@ below in writing (a decision taken by the build lead under the owner's standing 
 | Lab tables a learner creates | Azure SQL Database in the same region, private endpoint, the learner's own schemas. The schema names use a random part stored by Dojo, never a directory id or the learner key, because every database user can list schema names | Reset (own schemas only, nothing else in the database), or deleted with the learner: on leave, or 30 days after removal, the lab schemas and the learner's database users are dropped at the next sync with the database. Each learner's SQL runs as their own database user, which can reach only their own schema for that lab. The owner (as operator) can read every schema. The database's automatic backups keep a copy for up to 7 days **(confirm the retention)** |
 | The owner's random lab name part | /home, `team/owner.json`, written at the owner's first lab use. Not tied to any account id; if the file is lost Dojo reads it back from the owner's database user | Kept, so the owner's labs survive a lost account |
 | Shared content: lessons, deep lessons, questions' sources, narration, films, podcast episodes, exam packages, and a frozen summary (title, skills, scoring) of a removed exam so old attempts still show | /home | Not personal; kept |
+| The search for the official pages of an added exam's skills (ADR 0018): per skill the phrases tried, the pages found, each model's grade and the sentence it quoted, the steps made and the day's count of model calls; the exam's table-of-contents inventory; a lease file; the last web search self-test. Public pages and public exam wording only | /home, `sourcing/` and `inventory/` | Not personal. Removed with the exam; the inventory is read again after a day |
 | Application logs | /home/LogFiles | 7 days or 35 MB. In Azure, Dojo logs only warnings and errors, in both modes. It writes **no line per request**. An unexpected error writes one line with the method, the route pattern (for example `POST /api/items/{item_id}/grade`) and the error type, never the concrete path, a learner key, an item, attempt, job or session id, a token, a name or an email. A filter removes any such id that slips through. The web server (gunicorn) is started without an access log |
 | App Service automatic backups of /home | Taken hourly by the platform (Basic plan and higher); they include all of /home: every record, membership, request and meter file | 30 days. A backup larger than 30 GB cannot be restored |
 
@@ -98,7 +99,16 @@ choice for the reviewer (see the end of this sheet); it may change the models or
 | Speech | Azure AI Speech | Text to speech: lesson text and check questions. Speech to text: the learner's spoken answer (audio). Avatar: lesson text only |
 
 - Dojo uses stateless chat completions. It uses no stored responses, threads, files, vector stores, batch,
-  evaluations or fine-tuning.
+  evaluations or fine-tuning. The one exception is web search (below), which uses the Responses API without storing
+  anything: no agent, thread or file is created.
+- **Web search (ADR 0018).** To find the official pages of an added exam's skills, Dojo sends Foundry's web search
+  tool (the author model with Grounding with Bing Search) **public text only**: the exam's code and title, the
+  domain, group and skill wording of its study guide, and product names. No learner key, name, answer, question,
+  history or rejection text can reach it; a test pins the shape of what is sent. Microsoft's terms for Grounding with
+  Bing Search say that **the Data Protection Addendum does not apply to data sent to it and that the data may leave
+  Azure's compliance and geographic boundary**. What comes back is only addresses: Dojo drops the model's own words,
+  reads each page itself, and keeps a page only when two model families accept it. Each search costs a fee on top of
+  the tokens, reserved and settled like every paid call.
 - **What Dojo adds, and what it does not.** Dojo adds no name, email, tenant id, object id or learner key
   to a prompt. But **anything a learner types or says** (answers, questions to the coach, spoken answers,
   dispute reasons, lab SQL) goes to the models as written, and may contain anything, including names.

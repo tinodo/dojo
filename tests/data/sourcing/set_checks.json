@@ -1,0 +1,241 @@
+{
+  "_meta": {
+    "purpose": "Locked set-completeness cases for DP-300 Source discovery v2.",
+    "protocol": "Each case is a hand-read set of real documentation pages. Quotes were checked live against the page text after normal whitespace and punctuation normalization. Complete means the set together teaches the whole skill; incomplete means the set only teaches part of a multi-part skill.",
+    "locked": "2026-10-15"
+  },
+  "cases": [
+    {
+      "skill_id": "d1.g1.s8.aea529",
+      "text": "Deploy hybrid SQL Server solutions",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/overview?view=sql-server-ver17",
+          "grade": "covers",
+          "quote": "SQL Server enabled by Azure Arc extends Azure services to SQL Server instances hosted outside of Azure:"
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/managed-instance-link-feature-overview?view=azuresql",
+          "grade": "covers",
+          "quote": "It replicates data in near real-time from SQL Server hosted anywhere to Azure SQL Managed Instance, or from Azure SQL Managed Instance to SQL Server 2022 or later hosted anywhere."
+        }
+      ],
+      "label": "complete",
+      "gap": "",
+      "why": "Together the two pages cover both hybrid patterns named in the locked positives: Arc-enabled SQL Server and Managed Instance link."
+    },
+    {
+      "skill_id": "d1.g1.s8.aea529",
+      "text": "Deploy hybrid SQL Server solutions",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and deploy Azure SQL solutions",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/overview?view=sql-server-ver17",
+          "grade": "covers",
+          "quote": "SQL Server enabled by Azure Arc extends Azure services to SQL Server instances hosted outside of Azure:"
+        }
+      ],
+      "label": "incomplete",
+      "gap": "Missing the Managed Instance link path; this set only teaches Arc-enabled SQL Server.",
+      "why": "One hybrid option alone is not enough for this skill wording."
+    },
+    {
+      "skill_id": "d1.g3.s6.41714a",
+      "text": "Implement a migration between Azure SQL services",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "grade": "covers",
+          "quote": "A BACPAC file can be stored in Azure Blob storage or in local storage in an on-premises location and later imported back into Azure SQL Database, Azure SQL Managed Instance, or a SQL Server instance."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-import?view=azuresql",
+          "grade": "covers",
+          "quote": "You can import the data from a BACPAC file stored in Azure Blob storage (standard storage only) or from local storage in an on-premises location."
+        }
+      ],
+      "label": "complete",
+      "gap": "",
+      "why": "Export plus import together provide a full BACPAC-based migration path between Azure SQL services."
+    },
+    {
+      "skill_id": "d1.g3.s6.41714a",
+      "text": "Implement a migration between Azure SQL services",
+      "domain": "Plan and implement data platform resources",
+      "group": "Plan and implement a migration strategy",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/database-export?view=azuresql",
+          "grade": "covers",
+          "quote": "A BACPAC file can be stored in Azure Blob storage or in local storage in an on-premises location and later imported back into Azure SQL Database, Azure SQL Managed Instance, or a SQL Server instance."
+        }
+      ],
+      "label": "incomplete",
+      "gap": "Missing the import side of the move into the target Azure SQL service.",
+      "why": "Export alone does not complete the migration procedure."
+    },
+    {
+      "skill_id": "d2.g1.s1.b606cb",
+      "text": "Configure Microsoft Entra ID authentication for Azure SQL Database, Azure SQL Managed Instance, and SQL Server",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-configure?view=azuresql",
+          "grade": "teaches",
+          "quote": "This article shows you how to use Microsoft Entra ID for authentication with Azure SQL Database and Azure SQL Managed Instance."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/sql-server/azure-arc/entra-authentication-setup-tutorial?view=sql-server-ver17",
+          "grade": "teaches",
+          "quote": "This article describes a step-by-step process to set up authentication with Microsoft Entra ID with app registration, and demonstrates how to use different Microsoft Entra authentication methods."
+        }
+      ],
+      "label": "complete",
+      "gap": "",
+      "why": "One page teaches Azure SQL Database and Managed Instance, and the other teaches the SQL Server path."
+    },
+    {
+      "skill_id": "d2.g1.s1.b606cb",
+      "text": "Configure Microsoft Entra ID authentication for Azure SQL Database, Azure SQL Managed Instance, and SQL Server",
+      "domain": "Implement a secure environment",
+      "group": "Configure database authentication and authorization",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-configure?view=azuresql",
+          "grade": "teaches",
+          "quote": "This article shows you how to use Microsoft Entra ID for authentication with Azure SQL Database and Azure SQL Managed Instance."
+        }
+      ],
+      "label": "incomplete",
+      "gap": "Missing the SQL Server portion of the skill.",
+      "why": "Azure SQL Database and Managed Instance are covered, but SQL Server is not."
+    },
+    {
+      "skill_id": "d2.g3.s5.219f51",
+      "text": "Implement ledger in Azure SQL",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/ledger/ledger-overview?view=sql-server-ver17",
+          "grade": "covers",
+          "quote": "The ledger feature provides tamper-evidence capabilities in your database."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/ledger/ledger-how-to-updatable-ledger-tables?view=sql-server-ver17",
+          "grade": "teaches",
+          "quote": "This article shows you how to create an updatable ledger table."
+        }
+      ],
+      "label": "complete",
+      "gap": "",
+      "why": "The overview explains the feature and the how-to page shows how to create and use a ledger table."
+    },
+    {
+      "skill_id": "d2.g3.s5.219f51",
+      "text": "Implement ledger in Azure SQL",
+      "domain": "Implement a secure environment",
+      "group": "Implement compliance controls for sensitive data",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/sql/relational-databases/security/ledger/ledger-overview?view=sql-server-ver17",
+          "grade": "covers",
+          "quote": "The ledger feature provides tamper-evidence capabilities in your database."
+        }
+      ],
+      "label": "incomplete",
+      "gap": "Missing the procedural page that shows how to create and use ledger tables.",
+      "why": "The feature overview alone does not teach implementation steps."
+    },
+    {
+      "skill_id": "d4.g3.s3.69eb7d",
+      "text": "Configure alerts and notifications on database tasks",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage database tasks in Azure",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/alerts-create?view=azuresql",
+          "grade": "teaches",
+          "quote": "Alerts can send you an email or call a webhook when some metric (for example, database size or CPU usage) reaches the threshold."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/notify-an-operator-of-job-status",
+          "grade": "teaches",
+          "quote": "This article describes how to set notification options in SQL Server by using SQL Server Management Studio, Transact-SQL, or SQL Server Management Objects, so SQL Server Agent can send notifications to operators about jobs."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/assign-alerts-to-an-operator",
+          "grade": "teaches",
+          "quote": "This topic describes how to assign Microsoft SQL Server Agent alerts to operators so they can receive notifications about jobs in SQL Server by using SQL Server Management Studio or Transact-SQL."
+        }
+      ],
+      "label": "complete",
+      "gap": "",
+      "why": "The set covers Azure SQL alert creation plus SQL Server Agent job and alert notifications."
+    },
+    {
+      "skill_id": "d4.g3.s3.69eb7d",
+      "text": "Configure alerts and notifications on database tasks",
+      "domain": "Configure and manage automation of tasks",
+      "group": "Create and manage database tasks in Azure",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/notify-an-operator-of-job-status",
+          "grade": "teaches",
+          "quote": "This article describes how to set notification options in SQL Server by using SQL Server Management Studio, Transact-SQL, or SQL Server Management Objects, so SQL Server Agent can send notifications to operators about jobs."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/ssms/agent/assign-alerts-to-an-operator",
+          "grade": "teaches",
+          "quote": "This topic describes how to assign Microsoft SQL Server Agent alerts to operators so they can receive notifications about jobs in SQL Server by using SQL Server Management Studio or Transact-SQL."
+        }
+      ],
+      "label": "incomplete",
+      "gap": "Missing the Azure SQL alerting side; the set only covers SQL Server Agent notifications.",
+      "why": "Operator pages alone do not teach Azure SQL alerts."
+    },
+    {
+      "skill_id": "d2.g2.s6.18d022",
+      "text": "Configure private links and service endpoints",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/private-endpoint-overview?view=azuresql",
+          "grade": "covers",
+          "quote": "A private endpoint is a private IP address within a specific VNet and subnet."
+        },
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/vnet-service-endpoint-rule-overview?view=azuresql",
+          "grade": "teaches",
+          "quote": "To create a virtual network rule, there must first be a virtual network service endpoint for the rule to reference."
+        }
+      ],
+      "label": "complete",
+      "gap": "",
+      "why": "One page covers private endpoints and the other teaches the service-endpoint rule path."
+    },
+    {
+      "skill_id": "d2.g2.s6.18d022",
+      "text": "Configure private links and service endpoints",
+      "domain": "Implement a secure environment",
+      "group": "Implement security for data at rest and data in transit",
+      "pages": [
+        {
+          "url": "https://learn.microsoft.com/en-us/azure/azure-sql/database/private-endpoint-overview?view=azuresql",
+          "grade": "covers",
+          "quote": "A private endpoint is a private IP address within a specific VNet and subnet."
+        }
+      ],
+      "label": "incomplete",
+      "gap": "Missing the service-endpoint and virtual-network-rule path.",
+      "why": "Private Link alone is only one of the two network options named in the skill."
+    }
+  ]
+}

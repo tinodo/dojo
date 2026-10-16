@@ -330,12 +330,17 @@ def reasons(rules: list[dict], evidence: dict[str, dict], package: dict) -> list
     return out
 
 
-def verdict(rules: list[dict], sure: dict) -> dict:
-    """Dojo says what the evidence supports. It never refuses to advise, and it never predicts."""
+def verdict(rules: list[dict], sure: dict, untaught: int = 0) -> dict:
+    """Dojo says what the evidence supports. It never refuses to advise, and it never predicts. `untaught`: skills of an
+    added exam that have no official page yet, so Dojo neither teaches nor asks about them: the advice cannot be "book"."""
     r1, r2, r3, r4 = rules
     core = [r1, r2] + ([r3] if r3["measured"] else [])
     met = [r for r in core if r["met"]]
-    if len(met) == len(core):
+    if len(met) == len(core) and untaught:
+        say, head = "close", "You are close, but this exam is not fully covered yet."
+        why = (f"Every rule Dojo can measure is met, but Dojo is still finding official pages for {untaught} of the exam's skills, "
+               "so it neither teaches nor asks about them yet.")
+    elif len(met) == len(core):
         say, head = "book", "The evidence supports booking the exam."
         why = "Every rule Dojo can measure is met."
     elif r1["met"] or r2["met"]:
@@ -387,7 +392,7 @@ def advise(dojo: Any, room: Any, learner: Learner, pid: str) -> dict:
         "package": pid, "exam": package["meta"]["exam"], "title": package["meta"]["title"], "at": iso(),
         "rules": rules, "moves": moves(package, rules, evidence, dojo.lesson_skills(pid)),
         "later_hours": later_hours, "attempts": len(current), "earlier_attempts": len(attempts) - len(current),
-        **verdict(rules, sure), "reasons": reasons(rules, evidence, package),
+        **verdict(rules, sure, sum(1 for s in package["skills"].values() if not s["sources"])), "reasons": reasons(rules, evidence, package),
     }
     out["fingerprint"] = sha256(canonical([out["say"], [r["value"] for r in rules], sure["level"]]))[:16]
     return out

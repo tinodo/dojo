@@ -95,6 +95,17 @@ COURSE_CALLS = (
     ("write", "Writing the lessons", "author", 10000, 10000, LESSON_ROUNDS),
     ("check", "Checking the lessons", "gate", 31000, 9000, LESSON_ROUNDS),   # every sentence, in parts that each see the pages
 )
+# What finding the official pages of one skill takes with source discovery (ADR 0018), measured with
+# tools/source_eval.py (e2e) on 16 October 2026: the 13 DP-300 skills the earlier search had left without a page,
+# searched by the real models and the real web search: 265 model calls, 758,136 input and 83,579 output tokens for the
+# author (the web search, the phrases, its reading of every page, the comparison of the accepted pages) and 879,847
+# input and 204,368 output tokens for the checker, which is 58,300 and 6,400, and 67,700 and 15,700 a skill. The output
+# includes the models' reasoning. Used for an added exam's course; deeper lessons (ADR 0008) still search once, with
+# the first two lines of COURSE_CALLS.
+SOURCING_CALLS = (
+    ("pick", "Finding official pages", "author", 58300, 6400, 1.0),
+    ("verify", "Checking the pages with a second model", "gate", 67700, 15700, 1.0),
+)
 NARRATION_CHARS = 3000       # characters narrated per lesson, until three lessons have been narrated
 SPEAKING_CPS = 14.0          # characters a presenter says per second, until a minute of video is filmed
 # Deeper Listen (ADR 0007), per round of one lesson: (key, what, role, input tokens, output tokens). The
@@ -635,14 +646,15 @@ class Costs:
         All of it runs on its own once the owner confirms. Filming is priced apart (film_estimate)."""
         prices, usage = self.prices(), self.usage()
         chars, measured = self._narration(usage)
+        calls_of = SOURCING_CALLS + COURSE_CALLS[2:]
         lines = [self._model_line(prices, key, what, role, tokens_in, tokens_out, skills * calls)
-                 for key, what, role, tokens_in, tokens_out, calls in COURSE_CALLS]
+                 for key, what, role, tokens_in, tokens_out, calls in calls_of]
         lines.append(self._narration_line(prices, "Narrating the lessons for Listen", skills * chars))
         total, complete = self._summed(lines)
         models = self.dojo.models("author", "gate")
         deployment = DEPLOYMENTS.get(self.deployment, self.deployment)
         per_call = ", ".join(f"{what.lower()} {tokens_in:,} input and {tokens_out:,} output"
-                             for _, what, _, tokens_in, tokens_out, _ in COURSE_CALLS)
+                             for _, what, _, tokens_in, tokens_out, _ in calls_of)
         deep_chars, _ = self._deep_chars(usage)
         deep, deep_complete = self._summed(self._deep_lines(prices, DEEP_ROUNDS * skills, deep_chars * skills,
                                                             deep_chars / SPEAKING_CPS * skills))
@@ -651,10 +663,12 @@ class Costs:
             "left_out": left_out(lines), "fetched": prices.get("fetched"), "stale": bool(prices.get("stale")),
             "assumptions": [
                 f"One lesson for each of the {skills} skills. A skill with no verified official page gets no lesson.",
-                f"The author ({model_name(models['author'])}) picks the pages and writes the lessons; the checker "
-                f"({model_name(models['gate'])}) checks both.",
-                f"Tokens for each skill and call, from the size of Dojo's prompts: {per_call}. These are "
-                "assumptions: Dojo does not count model tokens yet.",
+                f"The author ({model_name(models['author'])}) finds the pages, with a web search, and writes the lessons; the "
+                f"checker ({model_name(models['gate'])}) checks both. Every page is read by both models, and what they accept "
+                "is compared side by side.",
+                f"Tokens for each skill and call: {per_call}. The pages were measured on skills that need several rounds of "
+                "searching; the lessons are assumptions from the size of Dojo's prompts: Dojo does not count model tokens yet. "
+                "Web searches are billed apart, by the search (Dojo reserves at most $0.04 for each), and are not in this total.",
                 "The models' reasoning is billed as output tokens, so it is counted in the output.",
                 f"A lesson is written {LESSON_ROUNDS:g} times on average, because a draft that fails the check is "
                 f"written again, so writing and checking count {LESSON_ROUNDS:g} times.",

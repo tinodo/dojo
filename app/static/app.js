@@ -875,7 +875,7 @@ async function viewToday() {
 
 // An added exam can hold a skill for which no official page passed the checks. Dojo keeps it in the
 // list, so the blueprint stays whole, but never teaches it or asks about it.
-const NO_SOURCE = "No verified official source yet. Dojo does not teach this skill or ask about it, and it counts as not shown.";
+const NO_SOURCE = "Dojo is still finding an official page for this skill. It does not teach it or ask about it until it has one.";
 
 // Skill ids of an added exam end in a short hash of the skill's words; the position alone reads better.
 const skillTag = (id) => String(id).replace(/\.[0-9a-f]{6}$/, "");
@@ -6031,9 +6031,10 @@ const PIPE = [
 
 async function viewQuality() {
   if (!isAdmin()) return viewStudioLog();
-  const [log, a, v, c, dr, dl] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
+  const [log, a, v, c, dr, dl, sr] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
     api("/api/studio/voices").catch((e) => ({ error: e.message })), api("/api/studio/costs").catch((e) => ({ error: e.message })),
-    api("/api/studio/drift").catch((e) => ({ error: e.message })), api("/api/studio/deeper").catch((e) => ({ error: e.message }))]);
+    api("/api/studio/drift").catch((e) => ({ error: e.message })), api("/api/studio/deeper").catch((e) => ({ error: e.message })),
+    api("/api/studio/sourcing").catch((e) => ({ error: e.message }))]);
   // During a timed exam the log is closed, because blocked sentences are still lesson text.
   const q = Array.isArray(log) ? log : [];
   const who = { "02": a && a.models.author, "03": a && a.models.gate, "05": a && a.models.grader };
@@ -6046,6 +6047,7 @@ async function viewQuality() {
     h("div", { class: "row stackable" }, voicesPanel(v), h("div", { class: "col w430" }, examsPanel(), costsPanel(c))),
     driftRow(dr),
     deeperRow(dl),
+    sourcingRow(sr),
     h("div", { class: "row stackable grow studio-log" },
       h("section", { class: "panel grow stack scroll" },
         h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
@@ -6399,6 +6401,47 @@ function refilmPanel(d, paint) {
           chip(label, kind)); })] : null,
     R.approvals.length ? h("p", { class: "small muted top" }, "Approved: ", R.approvals.map((a) =>
       `${fmtDate(a.at)}, ${plural(a.lessons.length, "lesson")}, ${a.usd === null || a.usd === undefined ? "price not listed" : "about " + dollars(a.usd)}`).join(" · ")) : null);
+}
+
+// ---------------------------------------------------------------- Studio: official pages for every skill (ADR 0018)
+// Dojo finds the pages of an added exam by itself. This shows how far it is, skill by skill: nothing is hidden.
+const SRC_STATE = { covered: ["covered", "sage"], partial: ["partly covered", "amber"], searching: ["searching", "amber"],
+  exhausted: ["retrieval exhausted", "rose"], blocked: ["blocked", "rose"], legacy: ["pages from before", "line"] };
+const SRC_ORDER = ["covered", "partial", "searching", "exhausted", "blocked", "legacy"];
+
+function sourcingRow(s) {
+  if (!s || s.error) return h("div", { class: "row stackable" }, h("section", { class: "panel grow" }, eyebrow("search", "Official pages for every skill"),
+    h("p", { class: "sub top" }, (s && s.error) || "The search for pages could not be read.")));
+  const web = s.web_search;
+  const webChip = !web ? chip("web search not tried yet", "line") : web.ok ? chip("web search works", "sage") : chip("web search unavailable", "rose");
+  return h("div", { class: "row stackable" }, h("section", { class: "panel grow stack" },
+    h("div", { class: "panel-h" }, eyebrow("search", "Official pages for every skill"), webChip),
+    h("p", { class: "sub" }, "Dojo finds the pages by itself. Learn's search, Learn's own tables of contents and web search propose them; a page is used only when two different model families both accept it and quote a sentence from it that Dojo finds there word for word."),
+    web && !web.ok ? h("p", { class: "small bad" }, `Web search: ${web.reason || "no page came back"}.`) : null,
+    s.exams.length ? s.exams.map(sourcingExam) : h("p", { class: "sub top" }, "No added exam yet.")));
+}
+
+function sourcingExam(x) {
+  const open = x.details.filter((d) => d.state !== "covered" && d.state !== "legacy");
+  const taught = x.details.filter((d) => d.accepted.length);
+  return h("div", { class: "top" },
+    h("h3", null, [x.exam, x.title].filter(Boolean).join(" · ")),
+    h("div", { class: "chips" }, SRC_ORDER.filter((k) => x.counts[k]).map((k) => chip(`${x.counts[k]} ${SRC_STATE[k][0]}`, SRC_STATE[k][1]))),
+    h("p", { class: "small muted top" }, `${plural(x.skills, "skill")}: ${x.complete ? (x.settled ? `every one has its pages; ${plural(x.settled, "skill")} only partly covered, and the search can add no more.` : "every one is covered.") : `${plural(x.incomplete, "skill")} not covered yet.`} ${x.calls_today} model calls today. ${x.note || ""}`),
+    open.length ? h("details", { class: "how" }, h("summary", null, `${plural(open.length, "skill")} not covered yet`), open.map(sourcingSkill)) : null,
+    taught.length ? h("details", { class: "how" }, h("summary", null, `Pages accepted for ${plural(taught.length, "skill")}`), taught.map(sourcingSkill)) : null);
+}
+
+function sourcingSkill(d) {
+  const [label, kind] = SRC_STATE[d.state] || [d.state, "line"];
+  return h("div", { class: "near" },
+    h("span", null, d.text, h("small", { class: "block muted" }, `${d.domain} · ${d.group}`),
+      d.accepted.map((a) => h("small", { class: a.cited ? "block" : "block muted" }, chip(a.grade, a.grade === "teaches" ? "sage" : "line"), " ", ext(a.url, a.title),
+        a.cited ? null : " (accepted, not used: pages that explain the skill more directly were chosen)")),
+      d.failure ? h("small", { class: "block bad" }, d.failure) : null,
+      d.blocked ? h("small", { class: "block bad" }, `Blocked at ${d.blocked.step}: ${d.blocked.error}`) : null,
+      d.next ? h("small", { class: "block muted" }, `Next search ${fmtWhen(d.next)}`) : null),
+    h("span", { class: "chips" }, chip(label, kind), d.audit ? chip(`audit: ${d.audit.verdict}`, d.audit.verdict === "supported" ? "sage" : "amber") : null));
 }
 
 // ---------------------------------------------------------------- Studio: deeper lessons (ADR 0008)
@@ -8097,7 +8140,7 @@ function buildPanel(f, date, kept, token) {
       tile("narration", "for Listen and your podcast"),
       tile("exams", minutes ? `timed, ${minutes} minutes, weighted like the blueprint` : "untimed: no exam duration found"),
       tile("checks", "three questions in three minutes")),
-    h("p", { class: "note top" }, "Checking the official pages takes a few minutes. Then the lessons are written, checked and narrated in the background, one at a time, taking turns with your other exams. A skill with no verified official page is marked, not faked."),
+    h("p", { class: "note top" }, "Finding and checking the official pages of a whole exam takes a while, an hour or more: Dojo reads many pages and two different models check each one. You can leave this page. Dojo then goes on by itself until every skill has its pages, and the lessons are written, checked and narrated in the background, one at a time, taking turns with your other exams. A skill that has no verified official page yet is marked, not faked."),
     f.resume && kept ? clearBuild(kept, `An earlier build stopped after ${f.resume.checked} of ${plural(f.resume.skills || 0, "skill")}${f.resume.error ? `: ${f.resume.error}` : "."} Building again keeps the pages already checked.`) : null,
     h("h3", { class: "top" }, "What it costs"),
     h("p", { class: "small muted" }, "Writing and narration run by themselves once you confirm. Presenter videos are not in this price: they are filmed only when you press Film the lessons, which shows its own price."),
@@ -8228,58 +8271,20 @@ function matchingPanel(st) {
       wide(h("i", { class: "amber" }), `${skills ? Math.round((100 * checked) / skills) : 0}%`)),
     h("p", { class: "small muted top" }, (st.job && st.job.step) || "Starting…"),
     m.sourced ? h("p", { class: "small muted" }, `${plural(m.sourced, "skill")} with a verified official page so far.`) : null,
-    h("p", { class: "note top" }, "For each skill, one AI picks official pages from Microsoft Learn or GitHub Docs, and a second AI must quote a sentence from the page that Dojo then finds there word for word. You can leave this page: the build goes on, and the exam appears in the exam switcher when it is ready."));
-}
-
-const REPAIR_NOTE = "Dojo searches again for every skill without a verified page, among the products the exam's documentation is about, and a second model checks each page it finds. It takes a few minutes for each group of skills, up to half an hour for a whole course. You can leave this page: the work goes on in Dojo, and this exam's page shows how far it got.";
-
-function repairQuestion(R, n) {
-  const lines = [`Look again for official pages for ${plural(n, "skill")} that have none?`, ""];
-  if (R && R.complete) {
-    lines.push(`Searching and checking pages: about ${usd(R.search)} at list price, whether or not it finds anything.`,
-      `For each skill that gets a page, Dojo then writes and narrates its lesson in the background: about ${usd(R.lesson)} each, so up to ${usd(R.most - R.search)} more if all ${n} get one.`,
-      `At most about ${usd(R.most)} in total.`);
-  } else {
-    lines.push("Dojo could not read the price list, so it cannot say what this costs. Every skill that gets a page has its lesson written and narrated.");
-  }
-  lines.push("", "Nothing is filmed by this: presenter videos stay yours to approve. Deeper Listen is written later, within its daily limit, and is not included.");
-  return lines.join("\n");
+    h("p", { class: "note top" }, "For each skill, Dojo finds candidate pages with Learn's search, Learn's own tables of contents and web search. Two different AI models must both accept a page and quote a sentence from it that Dojo then finds there word for word. You can leave this page: the build goes on, and the exam appears in the exam switcher when it is ready."));
 }
 
 function lessonsPanel(st) {
   const L = st.lessons, P = st.preparing;
   const all = L.ready >= L.teachable;
   const mine = P.current && P.current.startsWith(`${st.package}/`);
-  let asking = false;
-  const repair = async () => {
-    if (asking) return;   // a second click, while the first is being answered, asks nothing more
-    asking = true;
-    const token = state.nav;
-    try {
-      // This page may be old: the search may have started or finished since it was drawn, and the count and the price with it.
-      const now = await api(`/api/exam-packages/${st.package}`);
-      if (token !== state.nav) return;
-      if (now.repairing || !now.repair) { route(); return; }
-      if (!window.confirm(repairQuestion(now.repair, now.lessons.unsourced))) return;
-      const started = await api(`/api/exam-packages/${st.package}/repair-sources`, { method: "POST" });
-      await withProgress("Checking official pages again", Promise.resolve(started.job), REPAIR_NOTE);
-      if (token === state.nav) route();
-    } catch (e) {
-      if (token === state.nav) put($view(), errorPanel(e));
-    } finally {
-      asking = false;
-    }
-  };
   const now = all ? "Every lesson is written."
     : !P.running ? "Lesson preparation does not run in this copy of Dojo. A lesson is written when you open its skill."
     : mine ? "Writing one of its lessons now."
     : P.failed ? `${plural(P.failed, "lesson")} did not pass preparation and will be tried again later. You can use the lessons that are ready now.`
     : "Lessons are written and narrated in the background, one at a time, taking turns with your other exams.";
-  const partial = L.unsourced ? `Only ${L.teachable} of ${plural(L.skills, "skill")} have a verified official page.` : "";
-  const last = st.last_repair;
-  const searching = st.repairing
-    ? `Dojo is looking for official pages now: ${st.repairing.step || "starting"}. This page updates by itself.`
-    : last ? `Last search for missing pages, ${fmtWhen(last.at)}: pages found for ${last.sourced} of ${plural(last.searched, "skill")}.` : "";
+  const S = st.sourcing || {};
+  const finding = S.incomplete ? `Dojo is finding official pages for ${plural(S.incomplete, "skill")} of ${L.skills}. It does this by itself and adds them as soon as they pass the checks.` : "";
   return h("section", { class: "panel hero" },
     h("div", { class: "panel-h" }, eyebrow("course", "The course"), chip(all ? "all teachable lessons ready" : "preparing", all ? "sage" : "amber")),
     h("p", { class: "bigline" }, all ? `All ${plural(L.teachable, "lesson")} ready` : `${L.ready} of ${L.teachable} lessons ready`),
@@ -8288,13 +8293,11 @@ function lessonsPanel(st) {
     h("ul", { class: "facts top" },
       h("li", null, L.ready ? `${L.narrated} of ${L.ready} narrated for Listen and your podcast` : "Each lesson is narrated for Listen and your podcast once it is written"),
       h("li", null, `${L.filmed} filmed with presenters`),
-      L.unsourced ? h("li", null, `${plural(L.unsourced, "skill")} of ${L.skills} without a verified official page: not taught, not asked, counted as not shown`) : null),
-    partial ? h("p", { class: "note top" }, partial) : null,
-    searching ? h("p", { class: "note top", role: "status" }, searching) : null,
+      L.unsourced ? h("li", null, `${plural(L.unsourced, "skill")} of ${L.skills} not taught yet: their official pages are still being found`) : null),
+    finding ? h("p", { class: "note top", role: "status" }, finding) : null,
     st.no_exam ? h("p", { class: "note top" }, st.no_exam) : null,
     h("p", { class: "small muted top" }, now),
-    h("div", { class: "actions top" }, button("Open the course", () => openExam(st.package), "sm"),
-      L.unsourced && !st.repairing ? button("Find sources for missing skills", repair, "ghost sm") : null));
+    h("div", { class: "actions top" }, button("Open the course", () => openExam(st.package), "sm")));
 }
 
 function sourcePanel(st) {
@@ -8415,7 +8418,7 @@ function examProgress(st) {
   let filmKey = "";
   let following = false;
   const busy = (s) => (s.preparing.running && (s.lessons.ready < s.lessons.teachable || s.lessons.narrated < s.lessons.ready))
-    || s.film.waiting > 0 || s.film.filming > 0 || !!s.repairing;
+    || s.film.waiting > 0 || s.film.filming > 0 || !!(s.sourcing && !s.sourcing.complete);
   const show = (s, note) => {
     put(lessonsBox, lessonsPanel(s));
     const key = JSON.stringify([s.film, s.lessons]);

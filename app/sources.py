@@ -527,18 +527,29 @@ class Sources:
             raise e
         return (response.text.strip() if read is _article else html_to_text(response.text)), final
 
-    def page(self, url: str) -> tuple[str, str]:
+    def page(self, url: str, docs: bool = False) -> tuple[str, str]:
         """A page read for its structure (a study guide or a certification page): the address it ended
-        at after redirects, and its HTML. Nothing is stored. A missing page raises httpx.HTTPStatusError."""
-        response = self._request(url)
+        at after redirects, and its HTML. Nothing is stored. A missing page raises httpx.HTTPStatusError.
+        With `docs`, only documentation is read: the address and every redirect must pass `docs_url`
+        (a page that leads into training is refused with NotDocs before training is asked for, EG-39)."""
+        response = self._request(url, docs_url if docs else None)
         return str(response.url), response.text
 
-    def data(self, url: str) -> Any:
-        """The JSON answer of a search on one of the two hosts."""
+    def data(self, url: str, docs: bool = False) -> Any:
+        """The JSON answer of a search on one of the two hosts. With `docs`, the address and every redirect must
+        pass `docs_url` (a table of contents, which belongs to documentation, never leads into training, EG-39)."""
         try:
-            return self._request(url).json()
+            return self._request(url, docs_url if docs else None).json()
         except ValueError as e:
             raise UserError("The search answered with something Dojo cannot read.") from e
+
+    def post(self, url: str, body: Any, headers: dict | None = None) -> httpx.Response:
+        """POST JSON within the two hosts, never following redirects."""
+        check_url(url)
+        response = self.http.post(url, json=body, headers=headers or {})
+        if len(response.content) > MAX_BYTES:
+            raise UserError("The source page is too large.")
+        return response
 
     def _request(self, url: str, docs: Callable[[str], str | None] | None = None) -> httpx.Response:
         """GET within the two hosts, following up to five redirects. With `docs`, every address,
