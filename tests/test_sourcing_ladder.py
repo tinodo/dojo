@@ -26,6 +26,7 @@ from app.learning import LESSON_TEMPLATE  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from app.sourcing.inventory import Inventory  # noqa: E402
 from app.sourcing.state import LeaseLost, new_skill, skill_key  # noqa: E402
+from app.sourcing.verify import Verifier  # noqa: E402
 from tests.test_api import POST  # noqa: E402
 from tests.test_newexam import DOCS_AT, LEARN, Web, done, html, make_app, post, skills_of  # noqa: E402
 
@@ -610,6 +611,34 @@ class BackgroundTests(SourcingCase):
         self.assertIn(e["verdict"], ("accepted", "rejected"), "judged, not left as unread")
         self.assertEqual(e["verdict"], "accepted", e)
         self.assertEqual(self.book("Implement widget backups")["round"], 4)
+
+    def test_a_restart_in_the_second_pass_of_the_last_round_judges_the_page_it_was_retrying(self):
+        ai = Hooked()
+        ai.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "covers"
+        ai.set_answer = lambda role: "partly"
+        late = LEARN + DOCS_AT + "widget-backup-late"
+        ai.search_urls = lambda q: [late] if "backups" in q and q.endswith("official documentation") else []
+        web = TocWeb()
+        web.flaky["widget-backup-late"] = 1   # unread in the first pass of the last round
+        asked = []
+        real = Verifier.grade_pages
+
+        def grade(verifier, ctx, cands, **kw):
+            if any(c["url"] == late for c in cands):
+                asked.append(1)
+                if len(asked) == 2:
+                    raise AIError("the models are down while the page is tried again")   # the second pass stops half way
+            return real(verifier, ctx, cands, **kw)
+
+        with mock.patch.object(Verifier, "grade_pages", grade):
+            self.build(web=web, ai=ai)
+            for _ in range(5):
+                self.steps()
+                self.later(minutes=6)
+        e = self.book("Implement widget backups")["pool"][late]
+        self.assertEqual(e["verdict"], "accepted", e)
+        self.assertGreaterEqual(len(asked), 3, "read once and not read, stopped in the retry, judged after the restart")
+        self.assertNotEqual(e.get("why"), "repeat", "what was done before the restart is not mistaken for the retry that stopped")
 
     def test_the_last_round_judges_every_page_that_is_left(self):
         ai = Hooked()

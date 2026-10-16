@@ -624,7 +624,9 @@ class Sourcer:
         """Judge the new pages of the pool, VERIFY_LIMIT in a round; the pages left over are judged in the next round. The
         last round of a cycle (`drain`) judges every one that is left, and tries once more, at its end, what failed in it
         (a page that could not be read, a quote that was not on the page), so a transient failure does not cost a page when
-        the skill is written."""
+        the skill is written. What a step is called depends only on what the books say (the pages of the batch and how
+        often each was judged), never on where this call is in its loops: a restart in the middle of the second pass
+        finds the batch under the same name and does it, and does not take it for the first pass that is done."""
         doc, ctx = w["doc"], w["ctx"]
         limit = POOL_LIMIT if drain else VERIFY_LIMIT
         for again in range(2 if drain else 1):
@@ -640,7 +642,7 @@ class Sourcer:
                 new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
                 if not new:
                     break
-                step = "verify." + fingerprint("batch", sorted(new), again)[:10]   # the pages name the step: a batch that fails again is this step with one more try
+                step = "verify." + fingerprint("batch", [(u, doc["pool"][u].get("judged", 0)) for u in sorted(new)])[:10]   # a batch that fails again is this step with one more try
                 if not begin(doc, step, fingerprint("verify", VERIFIER_VERSION, new, self._models())):
                     for u in new:
                         doc["pool"][u]["verdict"] = "rejected"
@@ -650,6 +652,7 @@ class Sourcer:
                 results = run.verifier.grade_pages(ctx, [{"url": u, "title": doc["pool"][u]["title"]} for u in new])
                 for u, res in zip(new, results):
                     apply_result(doc, u, res)
+                    doc["pool"][u]["judged"] = doc["pool"][u].get("judged", 0) + 1
                 finish(doc, step)
                 run.books.save_skill(doc)
                 done += len(new)
