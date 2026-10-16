@@ -6,8 +6,13 @@ asks, as a report. Each skill gets a verdict: `supported` (a page both models ac
 refused) or `invalid` (both models refuse every page). It changes nothing: no source, no lesson, no film, no question.
 
 It runs when the owner asks, with the price shown, as a job. What was judged is written after every skill, so a run that
-stops (a restart, a failed call, the limit) loses nothing and the next run goes on with the skills left. A page that could
-not be read is not judged either way: its skill is left to the next run."""
+stops (a restart, a failed call, the limit) loses nothing and the next run goes on with the skills left. A verdict is kept
+with the skill's words and pages it was made for: when either changes, the skill has no verdict again. A page that could
+not be read is not judged either way (its skill is left to the next run, unless another page of it was accepted). A page
+that now leads to another page is not credited to the address the course cites: the report says where it went.
+
+Reading a page refreshes Dojo's stored copy of it, as every read of a cited page does (the lessons and the drift check read
+them too); nothing else of the course is written."""
 from __future__ import annotations
 
 import logging
@@ -15,7 +20,8 @@ import threading
 from collections import Counter
 from typing import Any
 
-from .core import UserError, iso
+from .core import UserError, iso, sha256
+from .sources import same_page
 from .sourcing.ladder import audit_verdicts
 from .sourcing.verify import VERIFIER_VERSION, Verifier
 
@@ -53,11 +59,20 @@ class PageCheck:
     def _skills(self, pid: str) -> list[dict]:
         return [s for s in self.dojo.packages.get(pid)["skills"].values() if s["sources"]]
 
+    @staticmethod
+    def _sig(skill: dict) -> str:
+        """What a verdict was made for: the skill's words and the addresses of the pages it cites."""
+        return sha256("|".join([skill["text"], *sorted(r["url"] for r in skill["sources"])]))[:16]
+
+    def _judged(self, skills: list[dict], doc: dict) -> dict[str, dict]:
+        """The verdicts that are still those of the skills as they are now."""
+        return {s["id"]: doc["skills"][s["id"]] for s in skills if doc["skills"].get(s["id"], {}).get("sig") == self._sig(s)}
+
     def view(self, pid: str) -> dict:
         """For Studio: how far the check is and what it found. The price is that of the pages still to check."""
         skills = self._skills(pid)
         doc = self._doc(pid)
-        judged = {s["id"]: doc["skills"][s["id"]] for s in skills if s["id"] in doc["skills"]}
+        judged = self._judged(skills, doc)
         todo = [s for s in skills if s["id"] not in judged]
         counts = Counter(v.get("verdict") for v in judged.values())
         running = bool(self.dojo.jobs.existing(self.owner, KIND, pid))
@@ -78,7 +93,7 @@ class PageCheck:
                 "finished": doc.get("finished"), "price": price,
                 "not_supported": [{"id": s["id"], "text": s["text"], "verdict": v["verdict"], "at": v.get("at"),
                                    "pages": [{"url": p["url"], "title": titles.get(p["url"], p["url"]), "grade": p.get("grade"),
-                                              "why": p.get("why")} for p in v.get("pages") or []]}
+                                              "why": p.get("why"), "moved_to": p.get("moved_to")} for p in v.get("pages") or []]}
                                   for s, v in weak[:SHOWN]]}
 
     def start(self, learner: Any, pid: str) -> dict:
@@ -97,7 +112,7 @@ class PageCheck:
         meta, skills = pkg["meta"], self._skills(pid)
         with self._lock:
             doc = self._doc(pid)
-        todo = [s for s in skills if s["id"] not in doc["skills"]]
+        todo = [s for s in skills if s["id"] not in self._judged(skills, doc)]
         doc["started"] = doc.get("started") or iso()
         verifier = Verifier(self.dojo, count=_Calls(MAX_CALLS))
         unread = 0
@@ -105,13 +120,17 @@ class PageCheck:
             progress(f"Checking the pages of skill {k} of {len(todo)}")
             ctx = {"code": meta["exam"], "title": meta["title"], "domain": s.get("domain_title") or "", "group": s.get("group") or "", "text": s["text"]}
             pages = [{"url": r["url"], "title": r.get("title") or r["url"]} for r in s["sources"]]
-            verdicts, verdict = audit_verdicts(pages, verifier.grade_pages(ctx, pages, both_all=True))
+            results = verifier.grade_pages(ctx, pages, both_all=True)
+            for i, (page, res) in enumerate(zip(pages, results)):
+                if res.get("url") and not same_page(page["url"], res["url"]):   # it now leads to another page: that page was judged, not this address
+                    results[i] = {"state": "rejected", "grade": None, "why": "moved", "gate": None, "author": None, "moved_to": res["url"]}
+            verdicts, verdict = audit_verdicts(pages, results)
             if verdict != "supported" and any(v["state"] == "unread" for v in verdicts):
                 unread += 1   # a page that could not be read says nothing about the skill: it is judged on the next run
                 continue
-            doc["skills"][s["id"]] = {"verdict": verdict, "pages": verdicts, "at": iso()}
+            doc["skills"][s["id"]] = {"verdict": verdict, "pages": verdicts, "at": iso(), "sig": self._sig(s)}
             self._save(pid, doc)
-        if all(s["id"] in doc["skills"] for s in skills):
+        if len(self._judged(skills, doc)) == len(skills):
             doc["finished"] = iso()
             self._save(pid, doc)
         return {"package": pid, "checked": len(todo) - unread, "unread": unread}

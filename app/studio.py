@@ -326,14 +326,15 @@ class Studio:
     def _lesson_events(self, since: Any) -> list[dict]:
         out = []
         index = self.dojo.lesson_index()
-        first: dict[tuple[Any, Any], str] = {}   # the oldest lesson of each skill: a later one was written again, after a changed page or a deeper template
-        for m in sorted(index, key=lambda m: (m.get("created") or "", m["id"])):
-            first.setdefault((m.get("package"), m.get("skill")), m["id"])
+        first: dict[tuple[Any, Any], str] = {}   # when the oldest lesson of each skill was written: a lesson made later was written again
+        for m in index:
+            key, at = (m.get("package"), m.get("skill")), m.get("created") or ""
+            first[key] = min(first.get(key, at), at)   # to the second, so two lessons made in the same second are both first writes
         for m in index:
             at = m.get("created")
             if not at or parse_iso(at) < since:
                 continue
-            again = bool(m.get("upgrade_of")) or first.get((m.get("package"), m.get("skill"))) != m["id"]
+            again = bool(m.get("upgrade_of")) or at > first[(m.get("package"), m.get("skill"))]
             out.append({"at": at, "kind": "lesson", "tone": "info", "course": self._exam(m.get("package")),
                         "title": f"Wrote the lesson “{m.get('title')}”" + (" again" if again else ""),
                         "detail": self._skill(m.get("package"), m.get("skill")), "link": f"#/lesson/{m['id']}"})

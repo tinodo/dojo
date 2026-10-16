@@ -174,7 +174,8 @@ def _refused(res: dict) -> bool:
 def audit_verdicts(pages: list[dict], results: list[dict]) -> tuple[list[dict], str]:
     """How both models judged the pages a skill cites: one line for each page, and the skill's verdict. `supported`: a
     page both accepted. `invalid`: both models read every page and gave each no grade. `weak`: anything between."""
-    verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res)}
+    verdicts = [{"url": p["url"], "state": res["state"], "grade": res.get("grade"), "why": res.get("why"), "refused": _refused(res),
+                 **({"moved_to": res["moved_to"]} if res.get("moved_to") else {})}
                 for p, res in zip(pages, results)]
     if any(v["state"] == "accepted" for v in verdicts):
         return verdicts, "supported"

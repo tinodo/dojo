@@ -468,7 +468,7 @@ function renderSide() {
     navLink("#/plan", "plan", "Plan"),
     h("div", { class: "sep" }),
     navLink("#/quality", "studio", isAdmin() ? "Studio" : "Studio log"),
-    h("p", { class: "cap" }, isAdmin() ? "how your course is built" : "what the checker removed"),
+    h("p", { class: "cap" }, isAdmin() ? "is each course complete?" : "what the checker removed"),
     isAdmin() && state.me.team ? navLink("#/members", "shield", "Members") : null,
     exams,
     h("div", { class: "foot" }, h("a", { href: "#/help" }, "Help"), h("a", { href: "#/phone" }, "On your phone"), h("a", { href: "#/about" }, "How Dojo works"),
@@ -6068,7 +6068,7 @@ function pageCheckBlock(x, repaint) {
   const status = h("p", { class: "small muted" });
   const price = pc.price && pc.price.complete && pc.price.total !== null && pc.price.total !== undefined ? `about ${usd(pc.price.total)} at list price` : "price not listed";
   const go = button(pc.state === "partial" ? `Check the rest (${price})` : `Check these pages (${price})`, async () => {
-    if (!window.confirm(`Check the ${plural(pc.price.pages, "page")} of ${x.exam}?\n\nTwo model families read every page and say whether it teaches its skill. This costs ${price} and changes nothing: no page, lesson or film.`)) return;
+    if (!window.confirm(`Check the ${plural(pc.price ? pc.price.pages : 0, "page")} of ${x.exam}?\n\nTwo model families read every page and say whether it teaches its skill. This costs ${price} and changes nothing: no page, lesson or film.`)) return;
     go.disabled = true;
     try {
       await runJob(api(`/api/studio/pagecheck/${x.package}`, { method: "POST", body: {} }), (s, secs) => { status.textContent = `${s} · ${secs}s`; });
@@ -6080,7 +6080,7 @@ function pageCheckBlock(x, repaint) {
   }, "ghost sm");
   const list = pc.not_supported.length ? h("details", { class: "how" }, h("summary", null, `${plural(pc.not_supported.length, "skill")} whose pages were not confirmed`),
     pc.not_supported.map((s) => h("div", { class: "near" },
-      h("span", null, s.text, s.pages.map((p) => h("small", { class: "block muted" }, ext(p.url, p.title), p.grade ? ` · graded ${p.grade}` : p.why ? ` · refused: ${p.why}` : ""))),
+      h("span", null, s.text, s.pages.map((p) => h("small", { class: "block muted" }, ext(p.url, p.title), p.moved_to ? ` · now leads to ${p.moved_to}, which is not this address` : p.grade ? ` · graded ${p.grade}` : p.why ? ` · refused: ${p.why}` : ""))),
       chip(s.verdict === "invalid" ? "pages refused" : "only partly", s.verdict === "invalid" ? "rose" : "amber")))) : null;
   return h("div", { class: "pagecheck top" },
     h("h3", null, "The two-model page check"),

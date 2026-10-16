@@ -36,8 +36,12 @@ class FlakyWeb(Web):
     def __init__(self) -> None:
         super().__init__()
         self.flaky: dict[str, int] = {}
+        self.redirect: dict[str, str] = {}   # a word of a page's path -> the documentation page it now leads to
 
     def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+        for word, target in self.redirect.items():
+            if word in path:
+                return httpx.Response(302, headers={"location": target})
         for word, left in list(self.flaky.items()):
             if left > 0 and word in path:
                 self.flaky[word] -= 1
@@ -132,6 +136,34 @@ class VerdictTests(PageCheckCase):
             self.run_check()
         self.assertEqual(len(asked), len(self.skills) - judged, "only the skills without a verdict are asked again")
         self.assertEqual(self.view()["state"], "done")
+
+    def test_a_page_that_now_leads_elsewhere_is_not_credited_to_the_address_the_course_cites(self):
+        self.good["sources"] = [self.page(self.good, "old-home")]
+        self.dojo.packages.add(self.raw)
+        self.web.redirect["old-home"] = f"{DOCS_AT}new-home"   # a page that teaches
+        self.run_check()
+        entry = next(x for x in self.view()["not_supported"] if x["id"] == self.good["id"])
+        self.assertEqual(entry["verdict"], "weak", "the page it moved to teaches, but that is not the page the course cites")
+        self.assertTrue(entry["pages"][0]["moved_to"].endswith("/new-home"), entry)
+
+    def test_a_verdict_belongs_to_the_pages_it_was_made_for(self):
+        self.run_check()
+        self.assertEqual((self.view()["checked"], self.view()["invalid"]), (len(self.skills), 1))
+        self.hub["sources"] = self.hub["sources"] + [self.page(self.hub, "widget-backups")]   # a page added to the skill since
+        self.dojo.packages.add(self.raw)
+        v = self.view()
+        self.assertEqual((v["state"], v["unchecked"], v["checked"]), ("partial", 1, len(self.skills) - 1))
+        self.run_check()
+        v = self.view()
+        self.assertEqual((v["state"], v["invalid"], v["unchecked"]), ("done", 0, 0), "the added page teaches the skill")
+
+    def test_a_course_whose_every_skill_has_a_verdict_is_done_even_if_the_run_stopped_before_it_said_so(self):
+        self.run_check()
+        doc = self.dojo.store.read("page-check", PID)
+        doc["finished"] = None
+        self.dojo.store.write("page-check", PID, value=doc)
+        v = self.view()
+        self.assertEqual((v["state"], v["price"], v["unchecked"]), ("done", None, 0))
 
     def test_a_verdict_of_an_older_checker_counts_as_not_made(self):
         self.run_check()

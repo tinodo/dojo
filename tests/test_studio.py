@@ -204,6 +204,19 @@ class ActivityTests(StudioCase):
         titles = [e["title"] for e in self.read("activity")["events"] if e["kind"] == "lesson"]
         self.assertEqual(sum(1 for t in titles if t.endswith(" again")), 1)
 
+    def test_two_lessons_made_in_the_same_second_are_both_first_writes(self):
+        # `created` is to the second and an id says nothing about order: a tie is not a rewrite, whichever id sorts first
+        ids = [self.write(self.skills[2]), self.write(self.skills[2], tag="other")]
+        for lesson in ids:
+            doc = self.dojo.lesson(lesson)
+            doc["created"] = "2026-10-16T10:00:00+00:00"
+            self.dojo.store.write("content", "lessons", lesson, value=doc)
+            self.dojo._lesson_meta.pop(lesson, None)
+        with mock.patch("app.studio.utcnow", lambda: utcnow()), mock.patch("app.studio.FEED_DAYS", 3650):
+            titles = [e["title"] for e in self.read("activity")["events"] if e["kind"] == "lesson" and e["link"] in {f"#/lesson/{i}" for i in ids}]
+        self.assertEqual(len(titles), 2)
+        self.assertFalse([t for t in titles if t.endswith(" again")])
+
     def test_a_lesson_written_after_a_page_changed_or_by_hand_is_again_too(self):
         # no `upgrade_of`: what the drift check and the owner's own rewrite make
         first = self.write(self.skills[1])
