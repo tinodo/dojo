@@ -32,6 +32,10 @@ from tests.test_newexam import DOCS_AT, LEARN, Web, done, html, make_app, post, 
 UNSOURCED = "Compare widget sizes for a workload"   # the mock's search finds nothing for a skill with "sizes" in it
 
 
+def word_in(word: str, path: str) -> bool:
+    return path.startswith(DOCS_AT) and word in path
+
+
 class TocWeb(Web):
     """The mock site, with a table of contents that holds a page no search finds."""
 
@@ -39,8 +43,12 @@ class TocWeb(Web):
         super().__init__()
         self.toc = [("Dimensioning guide", "dimensioning-guide")]
         self.versioned: set[str] = set()   # pages with one of these words now redirect to the old versions of the documentation
+        self.flaky: dict[str, int] = {}    # a word of a page's address -> how many times it answers 503 before it answers
 
     def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+        for word in [w for w, left in self.flaky.items() if left > 0 and word_in(w, path)]:
+            self.flaky[word] -= 1
+            return httpx.Response(503)
         if path.startswith(DOCS_AT) and any(word in path for word in self.versioned):
             return httpx.Response(302, headers={"location": "/en-us/previous-versions/contoso/widgets/" + path.rsplit("/", 1)[-1]})
         if path.startswith("/en-us/previous-versions/"):
@@ -587,6 +595,21 @@ class BackgroundTests(SourcingCase):
         self.build()
         with mock.patch.object(ladder, "DAY_CALLS", 1):
             self.assertEqual(self.sourcer.wait_s(), 1800.0)
+
+    def test_the_last_round_tries_again_a_page_that_failed_in_it(self):
+        ai = Hooked()
+        ai.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "covers"
+        ai.set_answer = lambda role: "partly"
+        late = LEARN + DOCS_AT + "widget-backup-late"
+        ai.search_urls = lambda q: [late] if "backups" in q and q.endswith("official documentation") else []   # only the last round's web search finds it
+        web = TocWeb()
+        web.flaky["widget-backup-late"] = 1   # the page cannot be read the first time it is asked for
+        self.build(web=web, ai=ai)
+        self.steps()
+        e = self.book("Implement widget backups")["pool"][late]
+        self.assertIn(e["verdict"], ("accepted", "rejected"), "judged, not left as unread")
+        self.assertEqual(e["verdict"], "accepted", e)
+        self.assertEqual(self.book("Implement widget backups")["round"], 4)
 
     def test_the_last_round_judges_every_page_that_is_left(self):
         ai = Hooked()

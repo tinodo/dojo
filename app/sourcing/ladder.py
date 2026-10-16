@@ -622,33 +622,37 @@ class Sourcer:
 
     def _verify(self, run: Run, w: dict, r: int, drain: bool = False) -> None:
         """Judge the new pages of the pool, VERIFY_LIMIT in a round; the pages left over are judged in the next round. The
-        last round of a cycle (`drain`) judges every one that is left, so no page is missed when the skill is settled."""
+        last round of a cycle (`drain`) judges every one that is left, and tries once more, at its end, what failed in it
+        (a page that could not be read, a quote that was not on the page), so a transient failure does not cost a page when
+        the skill is written."""
         doc, ctx = w["doc"], w["ctx"]
-        for e in doc["pool"].values():
-            if e.get("round", 0) >= r:
-                continue
-            if e["verdict"] == "unread" and e.get("tries", 0) < 3:
-                e["verdict"] = "new"
-            elif e["verdict"] == "rejected" and e.get("why") == "quote" and not e.get("quote_tries"):
-                e["verdict"], e["quote_tries"] = "new", 1   # no valid quote is a failure of the models, not a verdict on the page: once more
-        done = 0
-        while done < (POOL_LIMIT if drain else VERIFY_LIMIT):   # the whole round's pool: the best pages are chosen among what was accepted, not the first three
-            new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
-            if not new:
-                break
-            step = "verify." + fingerprint("batch", sorted(new))[:10]   # the pages name the step: a batch that fails again is this step with one more try
-            if not begin(doc, step, fingerprint("verify", VERIFIER_VERSION, new, self._models())):
-                for u in new:
-                    doc["pool"][u]["verdict"] = "rejected"
-                    doc["pool"][u]["why"] = "repeat"
-                continue
-            run.books.save_skill(doc)
-            results = run.verifier.grade_pages(ctx, [{"url": u, "title": doc["pool"][u]["title"]} for u in new])
-            for u, res in zip(new, results):
-                apply_result(doc, u, res)
-            finish(doc, step)
-            run.books.save_skill(doc)
-            done += len(new)
+        limit = POOL_LIMIT if drain else VERIFY_LIMIT
+        for again in range(2 if drain else 1):
+            for e in doc["pool"].values():
+                if e.get("round", 0) >= r and not again:
+                    continue   # what the searches of this round found is judged now, and not tried again at once
+                if e["verdict"] == "unread" and e.get("tries", 0) < 3:
+                    e["verdict"] = "new"
+                elif e["verdict"] == "rejected" and e.get("why") == "quote" and not e.get("quote_tries"):
+                    e["verdict"], e["quote_tries"] = "new", 1   # no valid quote is a failure of the models, not a verdict on the page: once more
+            done = 0
+            while done < limit:   # the whole round's pool: the best pages are chosen among what was accepted, not the first three
+                new = sorted((u for u, e in doc["pool"].items() if e["verdict"] == "new"), key=lambda u: doc["pool"][u]["order"])[:SLICE]
+                if not new:
+                    break
+                step = "verify." + fingerprint("batch", sorted(new), again)[:10]   # the pages name the step: a batch that fails again is this step with one more try
+                if not begin(doc, step, fingerprint("verify", VERIFIER_VERSION, new, self._models())):
+                    for u in new:
+                        doc["pool"][u]["verdict"] = "rejected"
+                        doc["pool"][u]["why"] = "repeat"
+                    continue
+                run.books.save_skill(doc)
+                results = run.verifier.grade_pages(ctx, [{"url": u, "title": doc["pool"][u]["title"]} for u in new])
+                for u, res in zip(new, results):
+                    apply_result(doc, u, res)
+                finish(doc, step)
+                run.books.save_skill(doc)
+                done += len(new)
 
     def _appeal(self, run: Run, w: dict, r: int) -> None:
         """Pages one model refused that several searches agree on are judged by both models once more, with more of
