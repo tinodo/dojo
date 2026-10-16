@@ -29,6 +29,7 @@ from app import exam  # noqa: E402
 from app.ai import StubAI  # noqa: E402
 from app.checks import pick  # noqa: E402
 from app.core import APP_DIR, Store, UserError, iso, new_id, parse_iso, sha256, utcnow  # noqa: E402
+from app.costs import SOURCING_CALLS  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.newexam import github_hits, groundable, learn_hits  # noqa: E402
 from app.packages import Packages, validate  # noqa: E402
@@ -1722,6 +1723,18 @@ class GitHubExamTests(unittest.TestCase):
         self.assertEqual(room.pool(keeper.owner, "gh-990"), [])
 
 
+def sourcing_prices(skills: int) -> dict[str, tuple[int, int, float]]:
+    """What finding and checking the pages of `skills` skills is priced at: (input tokens, output tokens, USD) for each
+    line of SOURCING_CALLS, at gpt-5.5 ($5 and $30 per million tokens) and Grok 4.1 Fast ($0.20 and $0.50). The
+    tokens of that search are measured (tools/source_eval.py), so the tests follow the constants instead of copying them."""
+    rates = {"author": (5.0, 30.0), "gate": (0.2, 0.5)}
+    out = {}
+    for key, _, role, tokens_in, tokens_out, calls in SOURCING_CALLS:
+        tin, tout = round(skills * calls * tokens_in), round(skills * calls * tokens_out)
+        out[key] = (tin, tout, round((tin * rates[role][0] + tout * rates[role][1]) / 1e6, 2))
+    return out
+
+
 class CostEstimateTests(unittest.TestCase):
     """The prices the page shows before the owner confirms: list prices for the models and deployment
     type Dojo runs, or a plain "not included", never a guess."""
@@ -1740,12 +1753,13 @@ class CostEstimateTests(unittest.TestCase):
         est = self.costs(PRICES).course_estimate(20)
         lines = {line["key"]: line for line in est["lines"]}
         self.assertEqual(list(lines), ["pick", "verify", "write", "check", "narration"])
-        # 20 skills: picking (3100 in, 800 out) and checking the pages (10000 in, 1000 out) once per skill;
-        # writing a lesson on the deeper template (10000, 10000) and its check (31000, 9000) 1.5 times per
+        # 20 skills: finding the pages and checking them with the second model (SOURCING_CALLS, measured) once per
+        # skill; writing a lesson on the deeper template (10000, 10000) and its check (31000, 9000) 1.5 times per
         # skill (ADR 0008); 3000 characters of narration each. gpt-5.5 at $5 and $30 per million, Grok 4.1
         # Fast at $0.20 and $0.50.
-        expected = {"pick": ("author", "gpt-5.5", 62_000, 16_000, 0.79, (5.0, 30.0)),
-                    "verify": ("gate", "grok-4-1-fast-reasoning", 200_000, 20_000, 0.05, (0.2, 0.5)),
+        want = sourcing_prices(20)
+        expected = {"pick": ("author", "gpt-5.5", *want["pick"], (5.0, 30.0)),
+                    "verify": ("gate", "grok-4-1-fast-reasoning", *want["verify"], (0.2, 0.5)),
                     "write": ("author", "gpt-5.5", 300_000, 300_000, 10.5, (5.0, 30.0)),
                     "check": ("gate", "grok-4-1-fast-reasoning", 930_000, 270_000, 0.32, (0.2, 0.5))}
         for key, (role, model, tokens_in, tokens_out, cost, per_million) in expected.items():
@@ -1756,9 +1770,11 @@ class CostEstimateTests(unittest.TestCase):
             self.assertEqual((line["cost"], line["found"], line["note"]), (cost, True, None), key)
             self.assertEqual((line["per_million"]["input"], line["per_million"]["output"]), per_million, key)
         self.assertEqual((lines["narration"]["quantity"], lines["narration"]["cost"]), (60_000, 0.9))
-        self.assertEqual((est["total"], est["complete"], est["currency"], est["left_out"]), (12.56, True, "USD", []))
+        self.assertEqual((est["total"], est["complete"], est["currency"], est["left_out"]),
+                         (round(want["pick"][2] + want["verify"][2] + 10.5 + 0.32 + 0.9, 2), True, "USD", []))
         said = " ".join(est["assumptions"])
-        for part in ("picking official pages 3,100 input and 800 output", "checking the lessons 31,000 input and 9,000 output",
+        for part in (f"finding official pages {SOURCING_CALLS[0][3]:,} input and {SOURCING_CALLS[0][4]:,} output",
+                     "checking the lessons 31,000 input and 9,000 output",
                      "reasoning is billed as output", "1.5 times", "Global Standard deployments in swedencentral",
                      "short-context price", "cached is cheaper", "The author (gpt-5.5)", "the checker (grok-4-1-fast-reasoning)"):
             self.assertIn(part, said)
@@ -1767,26 +1783,29 @@ class CostEstimateTests(unittest.TestCase):
         # Live, the settings pin each model to a version ("gpt-5.5@2026-04-24"); the lookup used the whole
         # string and found no price for any model (build b0e00ea).
         est = self.costs(PRICES, models=self.LIVE).course_estimate(20)
-        self.assertEqual((est["total"], est["complete"]), (12.56, True))
+        want = sourcing_prices(20)
+        self.assertEqual((est["total"], est["complete"]), (round(want["pick"][2] + want["verify"][2] + 10.5 + 0.32 + 0.9, 2), True))
         self.assertEqual({line["model"] for line in est["lines"][:4]}, {"gpt-5.5", "grok-4-1-fast-reasoning"})
         # An exam the size of AZ-900: 57 skills.
         az900 = self.costs(PRICES, models=self.LIVE).course_estimate(57)
+        want = sourcing_prices(57)
         self.assertEqual([(line["input_tokens"], line["output_tokens"], line["cost"]) for line in az900["lines"][:4]],
-                         [(176_700, 45_600, 2.25), (570_000, 57_000, 0.14), (855_000, 855_000, 29.93), (2_650_500, 769_500, 0.91)])
+                         [want["pick"], want["verify"], (855_000, 855_000, 29.93), (2_650_500, 769_500, 0.91)])
         self.assertTrue(az900["complete"])
 
     def test_a_model_with_no_public_list_price_is_named_and_left_out(self):
         est = self.costs(PRICES, models={**self.LIVE, "gate": "grok-9-imaginary@1"}).course_estimate(20)
+        want = sourcing_prices(20)
         lines = {line["key"]: line for line in est["lines"]}
         for key in ("verify", "check"):
             self.assertEqual((lines[key]["cost"], lines[key]["found"], lines[key]["per_million"], lines[key]["model"]),
                              (None, False, None, "grok-9-imaginary"))
             self.assertEqual(lines[key]["note"], "no public list price for grok-9-imaginary; not included")
-        self.assertEqual((lines["verify"]["input_tokens"], lines["check"]["output_tokens"]), (200_000, 270_000),
+        self.assertEqual((lines["verify"]["input_tokens"], lines["check"]["output_tokens"]), (want["verify"][0], 270_000),
                          "the tokens are still shown")
-        self.assertEqual([lines[k]["cost"] for k in ("pick", "write", "narration")], [0.79, 10.5, 0.9])
-        self.assertEqual((est["total"], est["complete"]), (12.19, False))
-        self.assertEqual(est["left_out"], ["Checking the picked pages and Checking the lessons: "
+        self.assertEqual([lines[k]["cost"] for k in ("pick", "write", "narration")], [want["pick"][2], 10.5, 0.9])
+        self.assertEqual((est["total"], est["complete"]), (round(want["pick"][2] + 10.5 + 0.9, 2), False))
+        self.assertEqual(est["left_out"], [f"{SOURCING_CALLS[1][1]} and Checking the lessons: "
                                            "no public list price for grok-9-imaginary; not included"])
 
     def test_a_price_that_is_not_found_is_not_guessed(self):
@@ -1802,8 +1821,9 @@ class CostEstimateTests(unittest.TestCase):
     def test_complete_only_when_every_line_has_a_price(self):
         without_voice = [i for i in PRICES if i["meterName"] != "S1 Neural Text To Speech Characters"]
         est = self.costs(without_voice).course_estimate(20)
+        want = sourcing_prices(20)
         self.assertEqual([line["found"] for line in est["lines"]], [True, True, True, True, False])
-        self.assertEqual((est["total"], est["complete"]), (11.66, False))
+        self.assertEqual((est["total"], est["complete"]), (round(want["pick"][2] + want["verify"][2] + 10.5 + 0.32, 2), False))
         self.assertEqual(est["left_out"], ["Narrating the lessons for Listen: price not found"])
         without_output = [i for i in PRICES if i["meterName"] != "5.5 ShortCo opt Gl 1M Tokens"]
         est = self.costs(without_output).course_estimate(20)
