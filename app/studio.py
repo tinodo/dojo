@@ -449,7 +449,7 @@ class Studio:
             missing = {sp: mid for sp, mid in plan["films"].items() if not self.dojo.avatar.exists(mid)}
             if not missing:
                 return None
-            est = self.costs.film_estimate([{**plan, "films": missing}])
+            est = self.costs.film_estimate([{**plan, "films": missing}], kept=True)   # a lesson is shown without waiting for the network
             return {"usd": est["total"], "complete": bool(est["complete"])}
         except Exception:  # noqa: BLE001 - the price is a word on a button, never a reason to lose the lesson
             log.info("studio: the price of filming a lesson could not be worked out")

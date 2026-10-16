@@ -347,6 +347,12 @@ class Costs:
                      sum(1 for d in doc["models"].values() for v in d.values() if v), sum(len(d) for d in MODEL_METERS.values()))
             return doc
 
+    def kept_prices(self) -> dict:
+        """The price list already kept, whatever its age, or none: nothing is fetched, so a page that must not wait for the
+        network (a lesson) can still show a price once any other page has read the list."""
+        cached = self.dojo.store.read("content", "prices", default=None)
+        return {**cached, "stale": not self._fresh(cached)} if self._ours(cached) else self._nothing()
+
     def _nothing(self) -> dict:
         return {"version": PRICES_VERSION, "fetched": None, "region": self.region, "source": PRICES_URL,
                 "filter": retail_filter(self.region), "meters": {key: None for key in METERS},
@@ -766,10 +772,11 @@ class Costs:
             ],
         }
 
-    def film_estimate(self, plans: list[dict]) -> dict:
+    def film_estimate(self, plans: list[dict], kept: bool = False) -> dict:
         """What filming these lessons' presenter videos should cost at list prices: the seconds of video and
-        the presenters' voices, counted the way `view` counts them once they are made."""
-        prices, usage = self.prices(), self.usage()
+        the presenters' voices, counted the way `view` counts them once they are made. `kept` prices them from
+        the list already kept, without fetching one."""
+        prices, usage = self.kept_prices() if kept else self.prices(), self.usage()
         meters = prices.get("meters") or {}
         measured = usage["video_seconds"] >= 60 and usage["watch_characters"] > 0
         cps = usage["watch_characters"] / usage["video_seconds"] if measured else SPEAKING_CPS

@@ -330,6 +330,20 @@ class MakeTests(StudioCase):
             self.assertEqual(r.status_code, 409, path)
             self.assertIn("timed practice exam", r.json()["detail"])
 
+    def test_the_lesson_page_shows_what_filming_it_costs_without_going_to_the_network(self):
+        lesson = self.ready(1)[0]
+        self.dojo.store.delete("content", "prices")
+        with mock.patch.object(self.app.state.costs, "_fetch", side_effect=AssertionError("a lesson went to the network")):
+            self.assertEqual(self.c.get(f"/api/lessons/{lesson}").json()["film_price"], {"usd": 0.0, "complete": False},
+                             "no price list has been kept yet: no price, and no fetch")
+        self.read()   # the Courses page reads the price list
+        shown = self.c.get(f"/api/lessons/{lesson}").json()["film_price"]
+        self.assertTrue(shown["complete"])
+        self.assertGreater(shown["usd"], 0)
+        self.assertLess(shown["usd"], self.videos()["offer"]["usd"] + 0.01, "one lesson of the two that are offered")
+        self.film(lesson)
+        self.assertIsNone(self.c.get(f"/api/lessons/{lesson}").json()["film_price"], "filmed: nothing to price")
+
     def test_a_lesson_with_one_of_its_two_films_is_priced_for_the_other(self):
         lesson = self.ready(1)[0]
         whole = self.videos()["offer"]
