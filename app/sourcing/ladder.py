@@ -1010,6 +1010,20 @@ class Sourcer:
             return [a for a in doc["accepted"] if any(same_page(a["url"], r.get("url")) for r in s["sources"])]
         return best(doc)
 
+    def activations(self, pid: str, since: Any) -> list[dict]:
+        """When the search gave skills their pages since `since`, newest first, for Studio's activity: the skill, how
+        far it got (covered or partly), and how many pages its package cites now."""
+        raw = self.store.read("packages", pid, default=None)
+        if not isinstance(raw, dict):
+            return []
+        out = []
+        for s in self.skills_of(raw):
+            doc = self.store.read("sourcing", pid, s["key"], default=None)
+            at = ((doc or {}).get("activated") or {}).get("at") if isinstance(doc, dict) and doc.get("key") == s["key"] else None
+            if at and parse_iso(at) >= since:
+                out.append({"at": at, "skill": s["text"], "state": doc["state"], "pages": len(s["sources"])})
+        return sorted(out, key=lambda x: x["at"], reverse=True)
+
     def summary(self, pid: str) -> dict:
         """The numbers the exam page shows. Every skill's document is read to make them, and the page asks every few
         seconds while the search runs, so they are kept for a few seconds."""

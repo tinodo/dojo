@@ -828,6 +828,23 @@ class Budget:
         return {"today": {k: round(float(v), 4) for k, v in day.items()},
                 "month": {k: round(float(v), 4) for k, v in month.items()}}
 
+    def spend_days(self, days: int) -> dict[str, float]:
+        """What the metered calls cost on each of the last `days` UTC days, newest first: every bucket that was
+        written, pooled (the same sums `totals` reads). A day nothing was metered on is not in it."""
+        doc = self.store.read("team", "meter", default=None) or {}
+        sums = doc.get("days") if isinstance(doc.get("days"), dict) else {}
+        oldest = _day(utcnow() - timedelta(days=max(0, days - 1)))
+        out: dict[str, float] = {}
+        for day in sorted(sums, reverse=True):
+            buckets = sums[day] if isinstance(sums[day], dict) else {}
+            if day < oldest or not buckets:
+                continue
+            pooled = buckets.get("total")
+            if pooled is None:   # five or more members: the sums are kept apart, and these three do not overlap
+                pooled = sum(float(buckets.get(k) or 0.0) for k in ("content", "owner", "members"))
+            out[day] = round(float(pooled), 4)
+        return out
+
     def admin_view(self) -> dict:
         limits = self.limits()
         return {"team": self.active, "cap_usd": limits["cap"],

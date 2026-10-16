@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import Counter
 from datetime import timedelta
 from typing import Any
 
@@ -403,6 +404,8 @@ class DeliveryCheck:
                            "median_wer": median([u["wer"] for _, u in units]),
                            "wer": round(errors / words, 4) if words else None,
                            "flagged": sum(1 for _, u in units if u["flags"]),
+                           # What differs in the flagged units: a unit with a name and a number in it counts for both.
+                           "flags": dict(Counter(f for _, u in units for f in set(u["flags"]))),
                            "minutes": round(float(doc["seconds"].get(kind) or 0) / 60, 1)}
             for r, u in units:
                 if u["errors"]:
