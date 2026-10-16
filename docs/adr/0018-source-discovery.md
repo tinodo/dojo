@@ -78,13 +78,18 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   Exhausted and partial skills come back three days in a row, then weekly, with new wording.
 - **Running it**: stage 0 of the background preparation, taking every other turn so lessons for the pages already
   found are written between its steps. The build job runs rounds 1 and 2 with progress as before and hands over.
-  Per exam: a lease file with an epoch (a process that lost it writes nothing more; the lease is checked again after
-  every write, and the removal of an exam revokes it, holds the package lock, and deletes what a step wrote meanwhile),
-  a ledger of steps keyed by cycle, round and step with an input fingerprint, at most 4 skills at once, 4,000 model
-  calls a day (a cap pauses the work, it never ends a skill), the author's web searches one at a time with back-off.
-  The preparer sleeps only until the search is next due (15 seconds to 30 minutes), so a step that failed is retried
-  after its own pause. One residual window is left and accepted: a process that stalls for longer than the lease's ten
-  minutes between its check and its write can still write once; the check after the write then stops it.
+  Per exam: a lease file with an epoch (a process that lost it writes nothing more), a ledger of steps keyed by cycle,
+  round and step with an input fingerprint, at most 4 skills at once, 4,000 model calls a day (a cap pauses the work,
+  it never ends a skill), the author's web searches one at a time with back-off. Every document carries its owner and
+  epoch; a write checks the lease, reads the document on disk (a newer owner's document is never written over) and
+  checks the lease again afterwards. The removal of an exam revokes the lease, holds the package lock, and deletes what
+  a step wrote meanwhile (only a document of that owner). The preparer sleeps only until the search is next due (15
+  seconds to 30 minutes), so a step that failed is retried after its own pause.
+  **Accepted residual risk:** the files are on shared storage with no compare-and-swap, so a second process (the old
+  container for a few minutes while a deploy swaps) that stalls between its last disk read and its write can still write
+  one stale search document, and the package lock is held inside one process only. This cannot put a wrong page into a
+  package: pages reach a package only through `_activate`, which holds the lease check, reads the package again and
+  writes only what two models accepted. The worst case is one repeated paid step.
 - **Nothing that exists is changed**: only skills without sources are written. A skill that has sources keeps them,
   and with them its lesson, narration and film. The exceptions are a skill whose cited pages both models refuse (found
   by the audit: both models read every cited page and each gave it no grade, not a failed quote and not a split; judged
@@ -97,8 +102,14 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
   start-up).
 - **Documentation only (EG-39)**: tables of contents are read documentation-only (the address and every redirect must
   pass `docs_url`, and a table of contents a page names outside the documentation is never asked for); a page that
-  leads to `/previous-versions/` is refused after the redirect, before any model reads it; the exam's title, which comes
-  from the study guide, stands inside `<data>` in every prompt like everything else read from the web.
+  leads to `/previous-versions/` is refused after the redirect, before any model reads it, and the accepted pages read
+  again for the comparison and the set check go through the same check (a page that moved or is gone is no longer
+  accepted); the exam's title, which comes from the study guide, stands inside `<data>` in every prompt like everything
+  else read from the web.
+- **Covered means cited**: a skill is `covered` only by pages its package cites (`_activate` says whether it does).
+  A `partial` skill that was written with pages can gain pages up to three while its lesson has no film; when it cites
+  three already, or its lesson has a film, it is `settled`: Studio shows it as partly covered, the exam page no longer
+  counts it as still being searched, and it is not searched again. Studio marks which accepted pages the package cites.
 - **Privacy**: web search receives public text only; `docs/privacy.md` says that Grounding with Bing is outside the
   Data Protection Addendum.
 

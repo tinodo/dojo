@@ -38,7 +38,7 @@ from .plan import plan_group
 from .retrieve import McpClient, canon_url, deny_url, fuse, github_search, learn_api
 from .scan import scan_window
 from .state import Books, DeadStep, Lease, LeaseLost, begin, due, finish, fingerprint, skill_key
-from .verify import VERIFIER_VERSION, Verifier
+from .verify import VERIFIER_VERSION, Verifier, read_page
 
 log = logging.getLogger("dojo.sourcing")
 
@@ -164,9 +164,10 @@ def _refused(res: dict) -> bool:
 
 def needs_work(doc: dict, has_sources: bool, now: Any) -> bool:
     """Whether a skill is worked on now. A skill with sources is worked on only when its cited pages were refused
-    (`replacing`) or it is `partial` and a later cycle looks for more pages (`growing`)."""
+    (`replacing`) or it is `partial` and a later cycle looks for more pages (`growing`); a `partial` skill that
+    cannot gain a page (its package cites three already, or its lesson has a film) is `stuck` and is left as it is."""
     state = doc["state"]
-    if state == "covered":
+    if state == "covered" or (state == "partial" and doc.get("stuck")):
         return False
     if state == "searching":
         return (not has_sources or bool(doc.get("replacing")) or bool(doc.get("growing"))) and due(doc, now)
@@ -365,7 +366,7 @@ class Sourcer:
         try:
             self.store.path("sourcing", f"{pid}.lease").unlink(missing_ok=True)   # a re-added exam is not kept waiting for a lease nobody holds
         except OSError:
-            log.info("could not remove the sourcing lease of %s", pid)
+            log.info("could not remove the sourcing lease of a removed exam")
 
     def _work(self, run: Run, raw: dict) -> bool:
         raw = self._tidy(run, raw)
@@ -489,9 +490,9 @@ class Sourcer:
             self._assess(run, w)
             doc["round"] = r
             doc["failure"] = None
-            if doc["state"] == "covered":
-                self._activate(run, w)
-            elif r >= ROUNDS:
+            if doc["state"] == "covered" and not self._activate(run, w):
+                doc["state"], doc["partial"] = "searching", True   # its package keeps other pages: not covered by what it cites
+            if doc["state"] != "covered" and r >= ROUNDS:
                 self._close(run, w)
             run.books.save_skill(doc)
         except DeadStep as e:
@@ -648,23 +649,47 @@ class Sourcer:
         order them by how directly they explain the skill and name the ones that do not. Pages are only left out
         here, never added, and the best one always stays."""
         doc, ctx = w["doc"], w["ctx"]
-        pages = sorted(sorted(doc["accepted"], key=_plain)[:RANK_LIMIT], key=lambda a: a["url"])   # shown in address order: no place is favoured
-        if len(pages) < 2:
-            doc["ranked"] = None
+        for _ in range(2):   # a page that is gone or has moved out of the documentation is taken out, then once more with what is left
+            pages = sorted(sorted(doc["accepted"], key=_plain)[:RANK_LIMIT], key=lambda a: a["url"])   # shown in address order: no place is favoured
+            if len(pages) < 2:
+                doc["ranked"] = None
+                return
+            fp = fingerprint("rank", VERIFIER_VERSION, [(a["url"], a["sha256"]) for a in pages], self._models())
+            if (doc.get("ranked") or {}).get("fp") == fp or not begin(doc, "rank", fp):
+                return
+            run.books.save_skill(doc)
+            snapped = self._snaps(doc, pages)
+            if snapped is None:
+                continue
+            result = run.verifier.rank_pages(ctx, snapped)
+            doc["ranked"] = {"fp": fp, "order": result["order"], "drop": result["drop"], "models": result["models"], "at": iso()}
+            finish(doc, "rank")
+            run.books.save_skill(doc)
             return
-        fp = fingerprint("rank", VERIFIER_VERSION, [(a["url"], a["sha256"]) for a in pages], self._models())
-        if (doc.get("ranked") or {}).get("fp") == fp or not begin(doc, "rank", fp):
-            return
-        run.books.save_skill(doc)
-        try:
-            snapped = [{"url": a["url"], "title": a["title"], "grade": a["grade"], "snap": self.dojo.sources.candidate(a["url"])}
-                       for a in pages]
-        except UserError as e:
-            raise StepFailed(f"a page cannot be read again: {e}") from e
-        result = run.verifier.rank_pages(ctx, snapped)
-        doc["ranked"] = {"fp": fp, "order": result["order"], "drop": result["drop"], "models": result["models"], "at": iso()}
-        finish(doc, "rank")
-        run.books.save_skill(doc)
+
+    def _snaps(self, doc: dict, pages: list[dict]) -> list[dict] | None:
+        """Accepted pages read again for the rank step and the set check, through the checks of a candidate: a page that
+        now leads out of the documentation (`/previous-versions/`, training) or is gone reaches no model and is accepted
+        no longer. None when such a page was taken out: the caller goes on with what is left."""
+        snapped, lost = [], []
+        for a in pages:
+            snap, why = read_page(self.dojo.sources, a["url"])
+            if snap is not None:
+                snapped.append({"url": a["url"], "title": a["title"], "grade": a["grade"], "snap": snap})
+            elif why == "unread":
+                raise StepFailed("a page cannot be read again")
+            else:
+                lost.append((a, why))
+        if not lost:
+            return snapped
+        gone = {id(a) for a, _ in lost}
+        doc["accepted"] = [a for a in doc["accepted"] if id(a) not in gone]
+        for a, why in lost:
+            entry = doc["pool"].get(canon_url(a["url"]) or "")
+            if entry:
+                entry["verdict"], entry["why"] = "rejected", why
+        doc["ranked"] = doc["set"] = None
+        return None
 
     def _assess(self, run: Run, w: dict) -> None:
         """`covered` when a page the skill cites has both grades `teaches`, or when both models say the cited pages
@@ -680,11 +705,9 @@ class Sourcer:
         if not (doc.get("set") and doc["set"].get("fp") == fp):
             if begin(doc, "set", fp):
                 run.books.save_skill(doc)
-                try:
-                    pages = [{"url": a["url"], "title": a["title"], "grade": a["grade"], "snap": self.dojo.sources.candidate(a["url"])}
-                             for a in chosen]
-                except UserError as e:
-                    raise StepFailed(f"a page cannot be read again: {e}") from e
+                pages = self._snaps(doc, chosen)
+                if pages is None:
+                    return self._assess(run, w)   # a page was taken out: judged again on what is left (the accepted pages only shrink)
                 result = run.verifier.complete_set(ctx, pages)
                 doc["set"] = {"fp": fp, "complete": result["complete"], "at": iso(),
                               "gate": {k: result["gate"][k] for k in ("answer", "unsupported", "model")},
@@ -753,8 +776,8 @@ class Sourcer:
             self._assess(run, w)
             doc["round"] = 3
             doc["failure"] = None
-            if doc["state"] == "covered":
-                self._activate(run, w)
+            if doc["state"] == "covered" and not self._activate(run, w):
+                doc["state"], doc["partial"] = "searching", True
             run.books.save_skill(doc)
         except DeadStep as e:
             self._block(run, w, str(e))
@@ -775,10 +798,11 @@ class Sourcer:
         except Exception:  # noqa: BLE001
             return True
 
-    def _activate(self, run: Run, w: dict, partial: bool = False) -> None:
+    def _activate(self, run: Run, w: dict, partial: bool = False) -> bool:
         """Write the accepted pages into the package: for a skill without sources; or, for a skill whose cited
         pages both models refuse, in their place; or, for a `partial` skill that was written before, as further
-        pages (at most three). A skill whose lesson has a film is never changed."""
+        pages (at most three). A skill whose lesson has a film is never changed. True unless the package keeps
+        pages that do not make the skill `covered`: a skill is covered only by what its package cites."""
         doc = w["doc"]
         pid = run.pid
         store = self.store
@@ -786,39 +810,53 @@ class Sourcer:
             run.lease.check()   # an exam removed meanwhile (`forget`) is never written back
             raw = store.read("packages", pid, default=None)
             if not isinstance(raw, dict):
-                return   # the exam is not added yet: `adopt` notes it afterwards
+                return True   # the exam is not added yet: `adopt` notes it afterwards
             skill = next((s for d in raw["domains"] for g in d["groups"] for s in g["skills"]
                           if skill_key(d["title"], g["title"], s["text"]) == w["key"]), None)
             if skill is None:
-                return
+                return True
             current = skill.get("sources") or []
+            doc["cited"] = len(current)
             fresh = refs_of(doc)
             if not fresh:
-                return
+                return True
             if not current:
                 skill["sources"] = fresh
             elif doc.get("replacing"):
                 if self._filmed(pid, skill["id"]):
-                    doc["replacement_waits"] = True
-                    return
+                    doc["replacement_waits"] = True   # the film's lesson keeps its pages; the owner sees it in the audit
+                    return True
                 skill["sources"] = fresh
                 doc["replacing"] = None
             elif doc.get("activated") and len(current) < MAX_ACCEPTED and not self._filmed(pid, skill["id"]):
                 more = [r for r in fresh if not any(same_page(r["url"], c.get("url")) for c in current)]
                 skill["sources"] = (current + more)[:MAX_ACCEPTED]
                 if skill["sources"] == current:
-                    return
+                    return self._justified(doc, current)
             else:
                 doc["activated"] = doc.get("activated") or {"at": iso(), "sources": len(current), "partial": partial, "already": True}
-                return
+                return self._justified(doc, current)
             idx = run.books.index()
             idx["generation"] = int(idx.get("generation") or 0) + 1
             self.dojo.packages.add(raw)
             run.books.save_index(idx)
             doc["activated"] = {"at": iso(), "generation": idx["generation"], "sources": len(skill["sources"]), "partial": partial}
+            doc["cited"] = len(skill["sources"])
+            cited = list(skill["sources"])
         preparer = getattr(self.nx, "preparer", None)
         if preparer is not None:
             preparer.wake()
+        return self._justified(doc, cited)
+
+    @staticmethod
+    def _justified(doc: dict, cited: list[dict]) -> bool:
+        """Whether the pages the package cites are what made the skill `covered`: a both-`teaches` page among them, or,
+        when the models said the best pages together cover it, all of those pages."""
+        chosen = best(doc)
+        has = lambda a: any(same_page(a["url"], c.get("url")) for c in cited)   # noqa: E731
+        if any(a["grade"] == "teaches" and has(a) for a in chosen):
+            return True
+        return bool(doc.get("set") and doc["set"].get("complete")) and all(has(a) for a in chosen)
 
     def _close(self, run: Run, w: dict) -> None:
         """Round 4 is done. Accepted pages that did not make the skill `covered` are written; with none, the
@@ -830,6 +868,7 @@ class Sourcer:
         doc["state"] = "partial" if doc["accepted"] else "exhausted"
         if doc["accepted"]:
             self._activate(run, w, partial=True)
+            doc["stuck"] = bool(doc.get("cited", 0) >= MAX_ACCEPTED or self._filmed(run.pid, w["id"]))
         doc["next"] = iso(self.now() + delay)
 
     # ------------------------------------------------------------ the audit of pages cited before
@@ -895,6 +934,7 @@ class Sourcer:
             return {}
         counts: Counter = Counter()
         skills = []
+        settled = 0   # partly covered skills that cannot gain another page: the search is done with them
         audit = self.store.read("sourcing", pid, "side-audit", default=None) or {}
         for s in self.skills_of(raw):
             doc = self.store.read("sourcing", pid, s["key"], default=None)
@@ -903,21 +943,32 @@ class Sourcer:
             if doc and doc.get("replacing") and doc["state"] == "searching":
                 state = "searching"
             counts[state] += 1
+            settled += bool(doc and doc["state"] == "partial" and doc.get("stuck"))
             skills.append({"id": s["id"], "text": s["text"], "domain": s["domain"], "group": s["group"], "state": state,
                            "round": doc["round"] if doc else 0, "sources": len(s["sources"]),
                            "accepted": [{k: a[k] for k in ("url", "title", "grade", "by", "rank")} | {"gate": a["gate"]["quote"], "author": a["author"]["quote"],
                                                                                                      "cited": a in cited}
-                                        for cited in [best(doc) if doc else []] for a in (doc or {}).get("accepted", [])],
+                                        for cited in [self._cited(s, doc)] for a in (doc or {}).get("accepted", [])],
                            "next": (doc or {}).get("next"), "blocked": (doc or {}).get("blocked"),
                            "failure": (doc or {}).get("failure"), "replacing": bool((doc or {}).get("replacing")),
                            "audit": (audit.get("skills") or {}).get(s["key"])})
         index = self.store.read("sourcing", pid, default=None) or {}
         total = sum(counts.values())
         missing = sum(1 for k in skills if k["sources"] == 0)
-        incomplete = total - counts["covered"] - counts["legacy"]
+        incomplete = total - counts["covered"] - counts["legacy"] - settled
         return {"package": pid, "skills": total, "counts": dict(counts), "missing": missing, "incomplete": incomplete,
                 "complete": incomplete == 0, "calls_today": int((index.get("calls") or {}).get(utcnow().date().isoformat()) or 0),
                 "generation": int(index.get("generation") or 0), "note": self.state.get("note"), "details": skills}
+
+    @staticmethod
+    def _cited(s: dict, doc: dict | None) -> list[dict]:
+        """The accepted pages a lesson is written from: those the package cites now; for a skill the package has no
+        pages for yet, those it will cite (the best three)."""
+        if not doc:
+            return []
+        if s["sources"]:
+            return [a for a in doc["accepted"] if any(same_page(a["url"], r.get("url")) for r in s["sources"])]
+        return best(doc)
 
     def summary(self, pid: str) -> dict:
         """The numbers the exam page shows."""

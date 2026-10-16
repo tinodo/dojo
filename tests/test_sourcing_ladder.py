@@ -37,8 +37,16 @@ class TocWeb(Web):
     def __init__(self) -> None:
         super().__init__()
         self.toc = [("Dimensioning guide", "dimensioning-guide")]
+        self.versioned: set[str] = set()   # pages with one of these words now redirect to the old versions of the documentation
 
     def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+        if path.startswith(DOCS_AT) and any(word in path for word in self.versioned):
+            return httpx.Response(302, headers={"location": "/en-us/previous-versions/contoso/widgets/" + path.rsplit("/", 1)[-1]})
+        if path.startswith("/en-us/previous-versions/"):
+            what = path.rsplit("/", 1)[-1].replace("-", " ").capitalize()
+            return html(f"<html><body><main><h1>An old version</h1><p>{what} was done differently in the old versions of the Contoso widget documentation. "
+                        "This page describes a version of the service that is no longer supported, with the settings it had at that time and the steps "
+                        "that operators followed to change them in the portal of those years.</p></main></body></html>")
         if path == DOCS_AT + "toc.json":
             return httpx.Response(200, json={"items": [{"toc_title": "Reference",
                                                         "children": [{"toc_title": t, "href": h} for t, h in self.toc]}]})
@@ -245,6 +253,72 @@ class BuildTests(SourcingCase):
         self.assertEqual(ai.calls_of("rank_sources", "gate"), ai.calls_of("rank_sources", "author"))
         [row] = [d for d in self.sourcer.status("xy-110")["details"] if d["text"] == "Implement widget backups"]
         self.assertEqual(sum(1 for a in row["accepted"] if a["cited"]), 3, "Studio shows which accepted pages the lesson cites")
+
+    def test_a_page_that_moved_to_the_old_versions_reaches_no_model_when_the_accepted_pages_are_compared(self):
+        ai = Hooked()
+        ai.search_urls = lambda q: [LEARN + DOCS_AT + f"widget-backup-{w}" for w in ("alpha", "beta")] if "backups" in q else []
+        self.build(ai=ai)
+        text = "Implement widget backups"
+        doc = self.book(text)
+        self.assertTrue(any(a["url"].endswith("widget-backup-alpha") for a in doc["accepted"]))
+        self.web.versioned.add("alpha")
+        key = self.dojo.sources.key(next(a["url"] for a in doc["accepted"] if a["url"].endswith("widget-backup-alpha")))
+        stored = self.store.read("sources", key)
+        stored["fetched_at"] = iso(utcnow() - timedelta(days=10))   # its stored copy is old: the page is read again
+        self.store.write("sources", key, value=stored)
+        doc["ranked"], doc["steps"] = None, {}   # the comparison made at the build is forgotten
+        run = ladder.Run(self.sourcer, self.pid, {"code": "XY-110", "title": "x"})
+        self.assertTrue(run.lease.acquire())
+        w = {"doc": doc, "key": doc["key"], "ctx": {"code": "XY-110", "title": "x", "domain": "d", "group": "g", "text": text}}
+        seen = len(ai.prompts)
+        try:
+            self.sourcer._rank(run, w)
+        finally:
+            run.lease.release()
+        self.assertFalse(any(a["url"].endswith("widget-backup-alpha") for a in doc["accepted"]), "no longer accepted")
+        self.assertEqual(doc["pool"][LEARN + DOCS_AT + "widget-backup-alpha"]["why"], "not-docs")
+        for _, task, _, user in ai.prompts[seen:]:
+            self.assertNotIn("widget-backup-alpha", user.lower().replace(" ", "-"), task)
+            self.assertNotIn("old versions", user)
+
+    def test_a_skill_is_covered_only_by_pages_its_package_cites(self):
+        self.build()
+        text = "Implement widget backups"
+        doc = self.book(text)
+        self.assertEqual(doc["state"], "covered")
+        raw = self.raw()
+        donor = next(s for s in skills_of(raw) if s["text"] != text and s["sources"])
+        mine = next(s for s in skills_of(raw) if s["text"] == text)
+        mine["sources"] = json.loads(json.dumps((donor["sources"] * 3)[:3]))   # a partial skill written earlier: three pages that are not these
+        self.dojo.packages.add(raw)
+        doc["activated"] = {"at": iso()}
+        run = ladder.Run(self.sourcer, self.pid, {"code": "XY-110", "title": "x"})
+        self.assertTrue(run.lease.acquire())
+        try:
+            self.assertFalse(self.sourcer._activate(run, {"doc": doc, "key": doc["key"], "id": mine["id"]}),
+                             "its package keeps three other pages: it is not covered by what it cites")
+        finally:
+            run.lease.release()
+        self.assertEqual([r["url"] for r in self.skill(text)["sources"]], [r["url"] for r in mine["sources"]], "and nothing was changed")
+
+    def test_a_partial_skill_that_cites_three_pages_is_left_as_it_is(self):
+        ai = Hooked()
+        ai.grades = lambda role, title, text: "no" if "documentation" in title.lower() else "covers"
+        ai.set_answer = lambda role: "partly"
+        ai.search_urls = lambda q: [LEARN + DOCS_AT + f"widget-backup-{w}" for w in ("alpha", "beta", "gamma", "delta")] if "backups" in q else []
+        self.build(ai=ai)
+        self.steps()
+        text = "Implement widget backups"
+        book = self.book(text)
+        self.assertEqual((book["state"], book["cited"], book["stuck"]), ("partial", 3, True))
+        self.assertEqual(len(self.skill(text)["sources"]), 3)
+        cycles = book["cycles"]
+        self.later(days=3)
+        self.steps(limit=200)
+        self.assertEqual(self.book(text)["cycles"], cycles, "nothing it could find could be written: it is not searched again")
+        [row] = [d for d in self.sourcer.status("xy-110")["details"] if d["text"] == text]
+        self.assertEqual(row["state"], "partial")
+        self.assertEqual(sum(1 for a in row["accepted"] if a["cited"]), 3, "Studio shows what the package cites")
 
     def test_pages_both_models_drop_never_leave_a_skill_without_a_page(self):
         ai = Hooked()

@@ -45,6 +45,11 @@ def context(exam: dict, s: dict) -> dict:
     return {"code": exam["code"], "title": exam["title"], "domain": s["domain"], "group": s["group"], "text": s["text"]}
 
 
+def wanted(text: str, only: str) -> bool:
+    """Whether a skill is chosen by --only: any of its comma-separated parts is in the text."""
+    return not only or any(part.strip().lower() in text.lower() for part in only.split(",") if part.strip())
+
+
 def title_of(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1].split("?")[0].replace("-", " ")
 
@@ -66,7 +71,7 @@ def count_tokens() -> None:
     def counted(self, request, *args, **kwargs):
         response = send(self, request, *args, **kwargs)
         try:
-            if "services.ai.azure.com" in str(request.url) and response.status_code == 200:
+            if (request.url.host or "").endswith(".services.ai.azure.com") and response.status_code == 200:
                 body = response.json()
                 usage = body.get("usage") or {}
                 tokens_in = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)))
@@ -123,7 +128,7 @@ def verify_mode(app, args) -> int:
     from app.sourcing.verify import Verifier  # noqa: PLC0415
 
     exam, skills = locked(args.sets.split(","))
-    skills = [s for s in skills if not args.only or args.only.lower() in s["text"].lower()]
+    skills = [s for s in skills if wanted(s["text"], args.only)]
     verifier = Verifier(app.state.dojo)
     rows = []
     for s in skills:
@@ -169,7 +174,7 @@ def sets_mode(app, args) -> int:
     bad = 0
     wrong = []
     for case in load("set_checks.json")["cases"]:
-        if args.only and args.only.lower() not in case["text"].lower():
+        if not wanted(case["text"], args.only):
             continue
         pages = [{"url": p["url"], "title": title_of(p["url"]), "grade": p["grade"], "snap": dojo.sources.candidate(p["url"])} for p in case["pages"]]
         out = verifier.complete_set(context(exam, case), pages)
@@ -195,7 +200,7 @@ def retrieval_mode(app, args) -> int:
     net = Net(dojo.sources)
     mcp = McpClient(net)
     exam, skills = locked(args.sets.split(","))
-    skills = [s for s in skills if not args.only or args.only.lower() in s["text"].lower()]
+    skills = [s for s in skills if wanted(s["text"], args.only)]
     inv = Inventory(dojo.store, net, dojo.sources, "eval")
     inv.seed(HUBS.get(exam["code"], []))
     print(f"inventory: {inv.size()} pages")
@@ -229,7 +234,7 @@ def e2e_mode(app, args) -> int:
 
     dojo, nx = app.state.dojo, app.state.newexams
     exam, skills = locked(args.sets.split(","))
-    skills = [s for s in skills if not args.only or args.only.lower() in s["text"].lower()][:args.limit or None]
+    skills = [s for s in skills if wanted(s["text"], args.only)][:args.limit or None]
     domains: dict[str, dict[str, list[dict]]] = {}
     for s in skills:
         domains.setdefault(s["domain"], {}).setdefault(s["group"], []).append(s)
@@ -280,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--mode", choices=("verify", "sets", "retrieval", "e2e"), required=True)
     ap.add_argument("--sets", default="gold13,verified20", help="dp300.json sets: gold13, verified20, silver (comma separated)")
-    ap.add_argument("--only", default="", help="only skills whose text contains this")
+    ap.add_argument("--only", default="", help="only skills whose text contains this (several: comma separated)")
     ap.add_argument("--limit", type=int, default=0, help="e2e: at most this many skills")
     ap.add_argument("--max-steps", type=int, default=300, help="e2e: at most this many background steps")
     ap.add_argument("--min-positives", type=float, default=0.8, help="verify: exit 1 below this share of positives accepted")

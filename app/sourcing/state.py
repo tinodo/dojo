@@ -190,7 +190,7 @@ class Books:
     def save_skill(self, doc: dict) -> None:
         with self._lock:
             self.lease.keep()
-            self._fenced(doc)
+            self._fenced(doc, doc["key"])
             doc["updated"] = iso()
             self.store.write("sourcing", self.pid, doc["key"], value=doc)
             self._written(doc["key"])
@@ -202,6 +202,7 @@ class Books:
     def save_side(self, name: str, value: Any) -> None:
         with self._lock:
             self.lease.keep()
+            self._fenced(value, f"side-{name}")
             self.store.write("sourcing", self.pid, f"side-{name}", value=value)
             self._written(f"side-{name}")
 
@@ -212,14 +213,23 @@ class Books:
             self.lease.check()
         except LeaseLost:
             if self.lease.revoked:
-                self.store.delete("sourcing", self.pid, *name)
+                on_disk = self.store.read("sourcing", self.pid, *name, default=None)
+                if isinstance(on_disk, dict) and on_disk.get("owner") == self.lease.owner:   # never a document of a new owner of the same id
+                    self.store.delete("sourcing", self.pid, *name)
             raise
 
-    def _fenced(self, doc: dict) -> None:
-        """A document written by a newer owner is never written over by an older one."""
-        if int(doc.get("epoch") or 0) > self.lease.epoch:
+    def _fenced(self, doc: Any, *name: str) -> None:
+        """A document written by a newer owner is never written over by an older one: not the copy this owner holds,
+        and not what is on disk at the moment of writing (a process that stalled after its last check meets it here).
+        The files are shared storage with no compare-and-swap, so a stall between this read and the write is not
+        excluded; the check after the write then stops the owner (ADR 0018)."""
+        if not isinstance(doc, dict):
+            return
+        mine = self.lease.epoch
+        on_disk = self.store.read("sourcing", self.pid, *name, default=None)
+        if int(doc.get("epoch") or 0) > mine or (isinstance(on_disk, dict) and int(on_disk.get("epoch") or 0) > mine):
             raise LeaseLost("this document was written by a newer owner")
-        doc["epoch"] = self.lease.epoch
+        doc["epoch"], doc["owner"] = mine, self.lease.owner
 
     # ------------------------------------------------------------ the day's model calls
 

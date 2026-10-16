@@ -132,6 +132,39 @@ class LeaseTests(unittest.TestCase):
             books.save_skill(new_skill("k1"))
 
 
+    def test_a_stale_owner_that_stalled_after_its_check_is_stopped_by_what_is_on_disk(self):
+        clock, a, b = leases(self.store)
+        self.assertTrue(a.acquire())
+        books_a = Books(self.store, "xy-110", a)
+        stale = new_skill("k1")
+        books_a.save_skill(stale)
+        clock.now += 601
+        self.assertTrue(b.acquire())
+        books_b = Books(self.store, "xy-110", b)
+        again = books_b.skill("k1")
+        books_b.save_skill(again)
+        self.store.write("sourcing", "xy-110", "side-scan", value={"epoch": 2, "owner": "b"})
+        with mock.patch.object(a, "check", lambda: None), mock.patch.object(a, "keep", lambda: None):   # a stalled after its last look
+            with self.assertRaises(LeaseLost):
+                books_a.save_skill(stale)
+            with self.assertRaises(LeaseLost):
+                books_a.save_side("scan", {"x": 1})
+        self.assertEqual(self.store.read("sourcing", "xy-110", "k1")["epoch"], 2)
+        self.assertEqual(self.store.read("sourcing", "xy-110", "k1")["owner"], "b")
+
+    def test_a_removed_exams_owner_never_deletes_the_document_of_a_new_owner(self):
+        _, a, b = leases(self.store)
+        self.assertTrue(a.acquire())
+        books_a = Books(self.store, "xy-110", a)
+        a.revoke()
+        a.path.unlink()   # what Sourcer.forget does
+        self.assertTrue(b.acquire())   # the exam was added again meanwhile: a new owner
+        doc = new_skill("k1")
+        Books(self.store, "xy-110", b).save_skill(doc)
+        with self.assertRaises(LeaseLost):
+            books_a._written("k1")
+        self.assertEqual(self.store.read("sourcing", "xy-110", "k1")["owner"], "b", "its document stays")
+
     def test_what_is_written_while_the_exam_is_removed_goes_too(self):
         _, a, _ = leases(self.store)
         self.assertTrue(a.acquire())
@@ -206,7 +239,7 @@ class BooksTests(unittest.TestCase):
         self.books.save_skill(doc)
         self.books.save_side("scan", {"windows": {}})
         self.assertEqual(self.books.keys(), ["abc"])
-        self.assertEqual(self.books.side("scan"), {"windows": {}})
+        self.assertEqual(self.books.side("scan")["windows"], {})
         self.assertEqual(self.store.names("sourcing", "xy-110"), ["abc", "side-scan"])
 
     def test_the_days_model_calls_add_up_and_old_days_go(self):
