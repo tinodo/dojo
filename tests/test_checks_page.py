@@ -3,6 +3,7 @@
 The parts of app.js that draw it run in node, with a page that keeps the elements it is told to make, so the tests look at the
 tree the page would get and not at text: a row behind "Show the other N" is in the tree and must not be counted as shown."""
 import json
+import re
 import shutil
 import subprocess
 import unittest
@@ -12,6 +13,17 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "app" / "static" / "app.js").read_text("utf-8")
 APP_CSS = (ROOT / "app" / "static" / "app.css").read_text("utf-8")
 NODE = shutil.which("node")
+
+
+def contrast(a: str, b: str) -> float:
+    """The WCAG contrast ratio of two #RRGGBB colours."""
+    def luminance(hexcolor: str) -> float:
+        channels = [int(hexcolor[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        r, g, b = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
 
 HARNESS = r"""
 const fs = require('fs'), vm = require('vm');
@@ -222,8 +234,12 @@ class ChecksTabTests(unittest.TestCase):
                          "the owner's Checks tab and a member's Studio log")
         rule = next(line for line in APP_CSS.splitlines() if line.startswith(".panel.scroll.logbox"))
         self.assertIn("max-height: min(70vh, 640px)", rule)
-        self.assertIn(":focus-visible { outline: 2px solid var(--ochre)", APP_CSS, "the page's own ring, dark enough to see")
-        self.assertNotIn("logbox:focus-visible", APP_CSS, "no weaker ring of its own: amber is about 2:1 on the canvas")
+        ring = next(line for line in APP_CSS.splitlines() if line.startswith(".panel.logbox:focus-visible"))
+        self.assertIn("outline: 2px solid var(--amber-ink)", ring)
+        tokens = dict(re.findall(r"--([a-z0-9-]+):\s*(#[0-9A-Fa-f]{6})", APP_CSS[:APP_CSS.index("}")]))
+        for ground in ("canvas", "card"):
+            self.assertGreaterEqual(contrast(tokens["amber-ink"], tokens[ground]), 3.0, f"the ring on the {ground}: 3:1 is what a focus ring needs")
+        self.assertLess(contrast(tokens["amber"], tokens["canvas"]), 3.0, "the check can tell a ring that is too light (the first version used amber)")
 
     def test_nothing_else_draws_the_lab_switch(self):
         self.assertEqual(APP_JS.count("labRow(lb)"), 1)

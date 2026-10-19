@@ -45,7 +45,9 @@ source changes, the deeper lessons and the official pages, and the page was long
 
 ## Consequences
 
-The tab is a few screens. Three lists need a press to be read in full. What still grows with more courses is not capped: one
+The tab is a few screens. Three lists need a press to be read in full. The log box is the one new stop for the keyboard, and
+its focus ring is the dark `--amber-ink`; the page-wide ring (`--ochre`, about 2.7:1 on the canvas) is lighter than the 3:1 that
+is asked of a focus ring, and darkening it is a separate change. What still grows with more courses is not capped: one
 Deeper block for every exam and one summary for every added exam.
 
 ## The rule from here
