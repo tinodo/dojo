@@ -257,6 +257,51 @@ start('owner');
         writes = ["dp-800", "dp-300", "dp-800"]
         self.assertEqual(out, [["#/today", writes, [["route"]], "dp-800"], ["#/plan", writes, [["hash", "#/today"]], "dp-800"]])
 
+    def test_pressing_the_exam_already_picked_while_a_choice_waits_does_not_take_its_place(self):
+        out = run_node("""
+(async () => {
+  const log = [];
+  for (const hash of DATA) {
+    start('owner'); go(hash);
+    const pending = [];
+    apiImpl = (path, opts) => new Promise((resolve) => pending.push(resolve));
+    const first = S.switchPackage('dp-800');
+    await tick();
+    const again = S.switchPackage('dp-800');       // the side bar button of the exam just picked, pressed twice: nothing to do
+    for (let i = 0; i < 40 && pending.length < 1; i++) await tick();
+    pending[0]({});
+    await Promise.all([first, again]);
+    log.push([hash, pending.length, calls.filter((c) => c[0] !== 'api'), context.state.pid]);
+  }
+  console.log(JSON.stringify(log));
+})();""", ["#/today", "#/skills"])
+        self.assertEqual(out, [["#/today", 1, [["route"]], "dp-800"], ["#/skills", 1, [["route"]], "dp-800"]],
+                         "one write, and the choice that was waiting still draws the page")
+
+    def test_a_choice_that_something_else_overtook_while_it_waited_does_not_open_its_page(self):
+        out = run_node("""
+(async () => {
+  const log = [];
+  for (const hash of DATA) {
+    for (const how of ['a lesson page of another exam', 'an exam that went']) {
+      start('owner'); go(hash);
+      const pending = [];
+      apiImpl = () => new Promise((resolve) => pending.push(resolve));
+      const done = S.switchPackage('dp-800');
+      await tick();
+      if (how === 'an exam that went') context.state.pid = 'dp-300';   // what refreshMe does
+      else S.followExam('dp-300');                                   // what a page of the owner's other exam does
+      const writes = how === 'an exam that went' ? 1 : 2;
+      let resolved = 0;
+      for (let i = 0; i < 60 && resolved < writes; i++) { await tick(); if (pending[resolved]) { pending[resolved]({}); resolved++; } }
+      await done;
+      log.push([hash, how, calls.filter((c) => c[0] !== 'api'), context.state.pid]);
+    }
+  }
+  console.log(JSON.stringify(log));
+})();""", ["#/plan", "#/today"])
+        self.assertEqual(out, [[h, how, [], "dp-300"] for h in ("#/plan", "#/today") for how in ("a lesson page of another exam", "an exam that went")])
+
     def test_a_late_answer_does_not_take_the_owner_off_the_page_he_went_to(self):
         out = run_node("""
 (async () => {

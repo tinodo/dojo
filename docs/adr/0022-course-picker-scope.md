@@ -42,7 +42,8 @@ a course on pages that are not about one.
   counts, and so does an address set that is not routed yet. A page that only draws itself again, as Play's and Plan's buttons
   do by calling `route()`, is not left: the choice made there still opens its course. The writes of the exam kept go one after
   another (`keepExam`); each choice takes a number and only the last one draws the page, also when it repeats an earlier
-  one (A, B, A). The Course page (`#/skills`) shows the new
+  one (A, B, A), and not a choice that something else overtook while it waited (a lesson page of another exam, or an exam that
+  went, changed the exam picked). The Course page (`#/skills`) shows the new
   course in place, as Practice and Record do: only a skill or a lesson page, which belongs to the old course, goes to Today.
 
 ## Options considered

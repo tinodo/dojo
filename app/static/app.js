@@ -537,8 +537,9 @@ async function switchPackage(pid) {
   if (pid === state.pid && !open) return;
   const mine = ++state.choice;
   if (pid !== state.pid) await choosePackage(pid);
-  // The owner went on while the choice was kept: it is made all the same. Only the last choice draws the page, so quick ones draw it once.
-  if (!here() || mine !== state.choice) return;
+  // The owner went on while the choice was kept: it is made all the same. Only the last choice draws the page, so quick ones draw it
+  // once, and not one that something else has overtaken meanwhile (a lesson page of another exam, an exam that went).
+  if (!here() || mine !== state.choice || state.pid !== pid) return;
   if (open || /^#\/(skill\/|lesson|item|answer|rehearsal\/)/.test(from)) location.hash = "#/today"; else route();
 }
 
