@@ -2800,10 +2800,12 @@ Elements:
                 counts[pid] += 1
         return counts
 
-    def exam_order(self, owner: Learner) -> list[str]:
+    def exam_order(self, owner: Learner, active_first: bool = True) -> list[str]:
         """The order of shared content work: the owner's active exam, then the others by how many members
-        study them, most first, ties in catalog order. With no members this is today's order."""
-        active = self.profile(owner)["active_package"]
+        study them, most first, ties in catalog order. With no members this is today's order. Without
+        `active_first` the active exam has no place of its own: the order a page about every exam shows,
+        which does not move when the owner picks another exam (ADR 0022)."""
+        active = self.profile(owner)["active_package"] if active_first else None
         counts = self.enrolled_counts()
         ids = list(self.packages.by_id)
         return sorted(ids, key=lambda pid: (pid != active, -counts.get(pid, 0), ids.index(pid)))

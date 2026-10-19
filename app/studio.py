@@ -117,7 +117,8 @@ class Studio:
             newest.setdefault((m.get("package"), m.get("skill")), m["id"])
         storage = self._storage()
         out = []
-        for pid in self.dojo.exam_order(self.owner):
+        # every course, in an order the exam picker does not move (ADR 0022)
+        for pid in self.dojo.exam_order(self.owner, active_first=False):
             try:
                 out.append(self._course(pid, ready.get(pid), media, newest, storage["average_bytes"]))
             except Exception:  # noqa: BLE001 - a course that cannot be read never blanks the page

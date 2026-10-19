@@ -33,7 +33,7 @@ In team mode other members may see a display name, never your sign-in name. Set 
 
 In team mode you pick the exams you study for the first time you come in. Change them later with **Change my exams** in the side bar. Leaving an exam out deletes nothing. Your record for it stays and comes back if you pick it again.
 
-The exam picker at the top switches between your exams. Each exam has its own course, practice and plan.
+The exam picker at the top switches between your exams. Today, Course, Practice and Record are about the exam you picked; Studio, Plan and Play show every exam together, so the picker says **All courses** there, and choosing a course opens it. The exam you picked is also the one Dojo prepares first, and a lesson or a skill of another exam you open makes that exam the one picked.
 
 ### Membership
 
