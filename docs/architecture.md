@@ -105,7 +105,7 @@ Each module starts with a docstring that states what it does and the rules it ke
 | `items.py` | The seven practice-exam item kinds (ADR 0012): how each looks, what an answer may be and how it scores. |
 | `itemwriter.py` | Writes and checks the item kinds beyond single choice; every part of an answer key carries its own checked quote. |
 | `know.py` | Know what you know (ADR 0011): confidence after an answer and the calibration view. |
-| `labs.py` | DP-800 labs in Azure SQL: per-learner schemas and runner users, SQL run and checked in the database; a fake runner locally. |
+| `labs.py` | DP-800 labs in Azure SQL: per-learner schemas and runner users, SQL run and checked in the database; a fake runner locally. Also the owner's switch for Microsoft's performance monitoring of that database (ADR 0023): one deliberate connection, never on its own. |
 | `learning.py` | The core `Dojo` class: lessons, narration, practice items, hints, grading, rehearsal, Ask, the quality log, export and delete. |
 | `main.py` | The FastAPI app: wiring, startup, the request guard and security headers, and every route with its route class. |
 | `meaning.py` | Pure word-error-rate comparison of approved text and a transcript, flagging numbers, names and negations. |

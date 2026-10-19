@@ -16,7 +16,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import Any
 
-from .core import UserError, sha256
+from .core import UserError, iso, sha256
 
 log = logging.getLogger("dojo.labs")
 
@@ -99,6 +99,24 @@ MAX_ROWS = 200
 MAX_BATCH = 20
 TIMEOUT = 20
 
+# Performance monitoring of the lab database (ADR 0023). Azure collects a database's performance data once its database-scoped
+# extended property MS_EnablePerformanceMonitoringPreview is "true" (Learn: "Enable performance monitoring for Azure SQL
+# Database"). It is set per database, in the user database and never in master, by a db_owner: the app's identity is the
+# server's Entra administrator, so it is dbo. The script is Learn's, without the GO that only SSMS reads, with NOCOUNT so the
+# driver finds the one row that answers, and with Learn's own check query to read the value back.
+MONITORING_PROPERTY = "MS_EnablePerformanceMonitoringPreview"
+MONITORING_SET = """SET NOCOUNT ON;
+IF EXISTS (SELECT 1 FROM sys.extended_properties WHERE class = 0 AND name = N'{name}')
+BEGIN
+    EXEC sys.sp_updateextendedproperty @name = N'{name}', @value = N'{value}';
+END
+ELSE
+BEGIN
+    EXEC sys.sp_addextendedproperty @name = N'{name}', @value = N'{value}';
+END;
+SELECT CONVERT(NVARCHAR(128), value) AS value FROM sys.extended_properties WHERE class = 0 AND name = N'{name}';"""
+MONITORING_READ = "SELECT CONVERT(NVARCHAR(128), value) AS value FROM sys.extended_properties WHERE class = 0 AND name = N'{name}'"
+
 SURROGATE = re.compile(r"[0-9a-f]{12}")
 LAB_NAMES = "|".join(LABS)
 RUNNER = re.compile(rf"lr_([0-9a-f]{{12}})_({LAB_NAMES})")
@@ -161,6 +179,15 @@ def sql_error_reason(exc: Exception) -> str:
     return "database error"
 
 
+def monitoring_state(rows: list) -> str | None:
+    """What a read of the property says: "on", "off", "unset" (no such property) or None (a value that is neither)."""
+    if not rows:
+        return "unset"
+    if len(rows) != 1 or not rows[0]:
+        return None
+    return {"true": "on", "false": "off"}.get(str(rows[0][0]).strip().lower())
+
+
 def validate(sql: str) -> str:
     if not sql.strip() or len(sql.encode("utf-8")) > MAX_SQL:
         raise UserError("Enter SQL up to 8 KB.")
@@ -179,6 +206,7 @@ class SqlRunner:
         mssql_python.pooling(enabled=False)
         self.driver = mssql_python
         self.connection_string = f"Server={server};Database={database};Encrypt=Strict;"
+        self.database = database
         self.credential = credential
 
     def connect(self):
@@ -380,6 +408,7 @@ class LabRoom:
         self.migrated = False             # the owner's runners exist and lab_runner is retired (this process)
         self.unknown: list[str] = []      # member-style schemas no member, owner or tombstone accounts for
         self._owner: LabUser | None = None
+        self._monitoring: dict = {}       # with no store (a test): what was last confirmed about performance monitoring
 
     # ---------------------------------------------------------------- whose schemas
 
@@ -620,9 +649,63 @@ class LabRoom:
                 COALESCE(HAS_PERMS_BY_NAME(N'dojo_meta', N'SCHEMA', N'SELECT'), 0) AS meta_allowed""", runner)
             row = restricted["rows"][0]
             safe = row[0] == runner and row[1] == "1" and row[2] == row[3] == row[4] == row[5] == "0"
+            monitoring = self._read_monitoring()
             return {"ok": safe, "mode": "private Azure SQL", "database_checked": True,
                     "database": result["rows"][0][0], "admin": result["rows"][0][1],
-                    "runner": row[0], "runner_allowed": safe, "unknown_schemas": len(self.unknown)}
+                    "runner": row[0], "runner_allowed": safe, "unknown_schemas": len(self.unknown),
+                    "performance_monitoring": monitoring}
+        finally:
+            self.lock.release()
+
+    # ---------------------------------------------------------------- performance monitoring (ADR 0023)
+
+    def _read_monitoring(self) -> str | None:
+        """The live value, read while the owner's probe is already connected. A read that fails is not a failed probe."""
+        try:
+            state = monitoring_state(self.runner.admin(MONITORING_READ.format(name=MONITORING_PROPERTY))["rows"])
+        except Exception as exc:
+            log.info("lab monitoring read failed: %s", sql_error_reason(exc))
+            return None
+        if state is not None:
+            self._remember_monitoring(observed=state, checked_at=iso(), error=None, database=self.runner.database)
+        return state
+
+    def monitoring(self) -> dict:
+        """What Dojo last confirmed about performance monitoring, from its own file: no connection, so nothing is woken.
+        `observed` is "on", "off", "unset" (the database has no such property) or None (never looked); `error` is the
+        reason the last try did not work, if it did not."""
+        saved = (self.store.read("labs", "monitoring", default=None) if self.store is not None else self._monitoring) or {}
+        return {key: saved.get(key) for key in ("observed", "checked_at", "attempted_at", "error", "database")}
+
+    def _remember_monitoring(self, **changes) -> dict:
+        doc = {**self.monitoring(), **changes}
+        if self.store is not None:
+            self.store.write("labs", "monitoring", value=doc)
+        else:
+            self._monitoring = doc
+        return doc
+
+    def set_monitoring(self, on: bool) -> dict:
+        """The owner's button: set the property Azure watches and read it back. One deliberate connection, which wakes a
+        paused database (the free offer pays for that, about 2% of a month). Nothing else sets it, and nothing sets it by
+        itself, so Dojo never connects to the database for this on its own."""
+        if self.local:
+            raise UserError("This is the local demo: there is no lab database to monitor.")
+        if not self.lock.acquire(timeout=30):
+            raise UserError("A lab query is running. Try again in a moment.")
+        try:
+            want = "true" if on else "false"
+            tried = iso()
+            try:
+                rows = self.runner.admin(MONITORING_SET.format(name=MONITORING_PROPERTY, value=want))["rows"]
+            except Exception as exc:
+                self._remember_monitoring(attempted_at=tried, error=sql_error_reason(exc))
+                raise
+            if monitoring_state(rows) != ("on" if on else "off"):
+                self._remember_monitoring(attempted_at=tried, error="the database did not confirm it")
+                raise UserError("The database did not confirm the setting. Try again; Dojo has recorded nothing as changed.")
+            return self._remember_monitoring(observed="on" if on else "off", checked_at=tried, attempted_at=tried, error=None,
+                                             database=self.runner.database)
         finally:
             self.lock.release()
 
