@@ -107,9 +107,9 @@ Dojo fetches every page and two model families judge it; Dojo keeps the books.
 - **Nothing that exists is changed**: only skills without sources are written. A skill that has sources keeps them,
   and with them its lesson, narration and film. The exceptions are a skill whose cited pages both models refuse (found
   by the audit: both models read every cited page and each gave it no grade, not a failed quote and not a split; judged
-  again a day later, three a day, and replaced only while its lesson has no film) and a `partial` skill, which may gain
-  pages up to three, again only while its lesson has no film. Readiness is unchanged except that it cannot say "book" while a skill has
-  no page.
+  again a day later, three a day, and then replaced, filmed or not, [ADR 0021](0021-refused-pages-filmed.md)) and a
+  `partial` skill, which may gain pages up to three, only while its lesson has no film. Readiness is unchanged except
+  that it cannot say "book" while a skill has no page.
 - **Screens**: the repair button, its price question and its route are gone. The exam page says in one line how many
   skills Dojo is still finding pages for. Studio lists every skill with its state, its accepted pages (grade, quotes,
   retrievers), blocked steps and the audit, and says whether web search works (one cached self-test a day, never at
@@ -174,8 +174,9 @@ the gate or author deployment, like the grader bench of ADR 0016.
   and failing the build on them would block legitimate exams. DP-300 has none.
 - Grading (`learning._judge` can keep a grader `met` without a gate) is outside this change: it has its own ADRs and bench.
 - A GitHub Docs inventory, embeddings over page sections and facet decomposition of skills that name several products.
-- Pages cited before this change are audited page by page and reported; refused pages are not removed from a skill that
-  has a lesson, because that changes the lesson's source set.
+- Pages cited before this change are audited page by page and reported. Pages both models refuse, twice, are replaced by
+  the pages the search accepted ([ADR 0021](0021-refused-pages-filmed.md)): at first they were kept while the lesson had a film,
+  which left a lesson that teaches the wrong thing for good.
 
 ## Consequences
 

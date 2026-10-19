@@ -695,7 +695,7 @@ def parse_next(book: dict):
 
 class AuditTests(SourcingCase):
     """Pages cited before this search existed: judged page by page, a report; a skill whose pages both models
-    refuse is searched again and gets new pages only while its lesson has no film."""
+    refuse is searched again and gets new pages, whether or not its lesson has a film (ADR 0021)."""
 
     def legacy(self) -> str:
         """Give the skill without sources the pages another skill cites, as an older Dojo would have kept them."""
@@ -759,19 +759,126 @@ class AuditTests(SourcingCase):
         self.assertFalse(self.sourcer.step())
         self.assertEqual(self.ai.calls_of("verify_graded"), paid, "nothing more is paid for")
 
-    def test_pages_both_models_refuse_are_kept_while_the_lesson_has_a_film(self):
+    def test_pages_both_models_refuse_are_replaced_though_the_lesson_has_a_film(self):
         self.build()
         slug = self.legacy()
-        before = self.skill(UNSOURCED)["sources"]
         self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
         with mock.patch.object(self.sourcer, "_filmed", lambda pid, sid: True):
             self.steps()
             self.later(hours=21)
             self.steps()
-        self.assertEqual(self.skill(UNSOURCED)["sources"], before)
+        urls = [s["url"] for s in self.skill(UNSOURCED)["sources"]]
+        self.assertTrue(urls and not any(u.endswith("/" + slug) for u in urls), "a film does not keep pages both models refuse")
         book = self.book(UNSOURCED)
-        self.assertTrue(book["replacement_waits"])
-        self.assertEqual((book["state"], book["stuck"]), ("partial", True), "not covered by pages its package does not cite, and nothing more to do")
+        self.assertEqual(book["state"], "covered")
+        self.assertIsNone(book["replacing"])
+        self.assertNotIn("replacement_waits", book)
+
+    def held_back(self) -> tuple[list, list]:
+        """The state a filmed skill was left in before ADR 0021: its refused page cited, the replacement waiting in the
+        book (`partial`, `stuck`). Returns the refused pages and the pages the search accepted for it."""
+        self.build()
+        slug = self.legacy()
+        before = self.skill(UNSOURCED)["sources"]
+        self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
+        self.steps()
+        self.later(hours=21)
+        self.steps()
+        replaced = self.skill(UNSOURCED)["sources"]
+        self.assertNotEqual(replaced, before)
+        self.put_pages(before)
+        book = self.book(UNSOURCED)
+        book.update(state="partial", stuck=True, replacing=[r["url"] for r in before], replacement_waits=True)
+        self.store.write("sourcing", self.pid, book["key"], value=book)
+        return before, replaced
+
+    def put_pages(self, pages: list) -> None:
+        raw = self.raw()
+        next(s for s in skills_of(raw) if s["text"] == UNSOURCED)["sources"] = pages
+        self.dojo.packages.add(raw)
+
+    def generation(self) -> int:
+        return self.sourcer.status("xy-110")["generation"]
+
+    def test_a_replacement_the_earlier_rule_held_back_for_a_film_is_written_by_the_next_step_without_a_model_call(self):
+        before, replaced = self.held_back()
+        generation, asked = self.generation(), len(self.ai.prompts)
+        self.assertTrue(self.sourcer.step(), "writing the held pages is the step's work")
+        self.assertEqual(self.skill(UNSOURCED)["sources"], replaced)
+        book = self.book(UNSOURCED)
+        self.assertIsNone(book["replacing"])
+        self.assertNotIn("replacement_waits", book)
+        self.assertEqual(book["state"], "covered", "what the package cites now is what covers the skill")
+        self.steps()
+        self.assertEqual(self.generation(), generation + 1, "written once, and nothing else was")
+        self.assertEqual(len(self.ai.prompts), asked, "nothing is searched and no model is asked")
+
+    def test_a_held_replacement_stays_partial_when_the_new_pages_do_not_make_the_skill_covered(self):
+        self.held_back()
+        with mock.patch.object(ladder.Sourcer, "_justified", staticmethod(lambda doc, cited: False)):
+            self.assertTrue(self.sourcer.step())
+        book = self.book(UNSOURCED)
+        self.assertEqual((book["state"], book["stuck"], book["replacing"]), ("partial", True, None), "the search is done with it, as before")
+
+    def test_a_held_replacement_is_not_written_again_when_the_package_already_cites_the_new_pages(self):
+        before, replaced = self.held_back()
+        self.put_pages(replaced)   # written by a step that stopped before it saved the book
+        generation = self.generation()
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.skill(UNSOURCED)["sources"], replaced)
+        self.assertEqual(self.generation(), generation, "nothing was written, so nothing is written again")
+        self.assertNotIn("replacement_waits", self.book(UNSOURCED))
+
+    def test_a_held_replacement_never_overwrites_pages_that_changed_since(self):
+        before, replaced = self.held_back()
+        taken = [r["url"] for r in before + replaced]
+        mine = [next(r for s in skills_of(self.raw()) if s["text"] != UNSOURCED for r in s["sources"]
+                     if not any(ladder.same_page(r["url"], u) for u in taken))]
+        self.put_pages(mine)   # none of the refused pages is cited any more, and not the accepted ones either
+        generation = self.generation()
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.skill(UNSOURCED)["sources"], mine, "what the package cites stays")
+        self.assertEqual(self.generation(), generation)
+        book = self.book(UNSOURCED)
+        self.assertIsNone(book["replacing"])
+        self.assertNotIn("replacement_waits", book)
+
+    def test_a_held_replacement_waits_while_the_refusal_is_not_on_record(self):
+        before, replaced = self.held_back()
+        side = self.store.read("sourcing", self.pid, "side-audit")
+        side["skills"][self.book(UNSOURCED)["key"]].pop("confirmed")
+        self.store.write("sourcing", self.pid, "side-audit", value=side)
+        self.assertFalse(self.sourcer.step())
+        self.assertEqual(self.skill(UNSOURCED)["sources"], before)
+        self.assertTrue(self.book(UNSOURCED)["replacement_waits"])
+
+    def test_replacing_pages_clears_what_failed_before_for_the_lesson(self):
+        self.build()
+        slug = self.legacy()
+        deeper = self.nx.preparer.deeper
+        key = f"{self.pid}/{self.skill(UNSOURCED)['id']}"
+        record = deeper._doc()
+        record["skills"][key] = {"lesson": "lesson-0", "tries": 3, "last": iso(), "outcome": "failed", "given_up": iso(), "error": "The author did not answer."}
+        deeper._save(record)
+        self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
+        self.steps()
+        self.assertIn(key, deeper._doc()["skills"], "while its pages stand, the attempts at its lesson stand")
+        self.later(hours=21)
+        self.steps()
+        self.assertNotIn(key, deeper._doc()["skills"], "the new pages start the lesson afresh")
+
+    def test_a_skill_whose_pages_were_replaced_no_longer_shows_the_old_verdict_as_current(self):
+        self.build()
+        slug = self.legacy()
+        self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
+        self.steps()
+        row = next(d for d in self.sourcer.status("xy-110")["details"] if d["text"] == UNSOURCED)
+        self.assertTrue(row["audit"]["current"], "it still cites the pages that were judged")
+        self.later(hours=21)
+        self.steps()
+        row = next(d for d in self.sourcer.status("xy-110")["details"] if d["text"] == UNSOURCED)
+        self.assertEqual(row["audit"]["verdict"], "invalid", "what was judged stays on record")
+        self.assertFalse(row["audit"]["current"], "but the skill cites other pages now")
 
     def test_only_a_few_skills_a_day_go_back_to_the_search(self):
         self.build()

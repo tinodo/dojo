@@ -906,6 +906,54 @@ class UpgradeTests(UpgradeCase):
         self.assertEqual(self.get(f"/api/lessons/{old}")["id"], old, "the earlier lesson stays readable")
         self.assertEqual(self.deeper.upgrades(), [])
 
+    def thick(self, lesson: str, pages=None) -> None:
+        """The lesson as if it held far more checked points than the stand-in author writes, from the pages `pages` makes of its own."""
+        doc = self.dojo.lesson(lesson)
+        points = [dict(p) for sec in doc["sections"] for p in sec["points"]]
+        doc["sections"] = doc["sections"] + [{"heading": "More", "points": points * 4}]
+        if pages is not None:
+            doc["sources"] = pages(doc.get("sources") or [])
+        self.dojo.store.write("content", "lessons", lesson, value=doc)
+        self.dojo._lesson_meta.pop(lesson, None)
+
+    def test_a_lesson_written_again_from_the_same_pages_must_keep_as_many_points(self):
+        old = self.old_lesson(OTHER)
+        self.thick(old)
+        self.searched(OTHER)
+        self.fill()
+        self.assertTrue(self.preparer.step())
+        self.assertEqual([x["id"] for x in self.dojo.lessons_for(PID, OTHER)], [old])
+        self.assertIn("so the earlier lesson stays", self.attempt(OTHER)["error"])
+
+    def test_a_lesson_written_from_other_pages_is_not_measured_against_the_points_of_the_one_it_replaces(self):
+        """Pages both models refused were replaced (ADR 0021): the lesson written from them is no measure."""
+        old = self.old_lesson(OTHER)
+        self.thick(old, lambda pages: [{**r, "url": r["url"] + "-refused"} for r in pages])
+        self.searched(OTHER)
+        self.fill()
+        self.assertTrue(self.preparer.step())
+        new = self.newest(OTHER)
+        self.assertNotEqual(new["id"], old)
+        self.assertEqual(self.dojo.lesson(new["id"])["upgrade_of"], old)
+        self.assertEqual(self.attempt(OTHER)["outcome"], "done")
+
+    def test_new_pages_start_the_lesson_afresh_after_its_upgrade_was_given_up(self):
+        old = self.old_lesson(OTHER)
+        self.searched(OTHER)
+        self.fill()
+        self.ai.fail = True
+        for _ in range(deeper_mod.UPGRADE_TRIES):
+            self.assertTrue(self.preparer.step())
+            self.later(deeper_mod.UPGRADE_WAIT_H)
+        self.assertTrue(self.attempt(OTHER).get("given_up"))
+        self.assertIsNone(self.preparer.next_upgrade(), "given up")
+        self.deeper.start_again(PID, OTHER)   # the Sourcer replaced the pages both models refused (ADR 0021)
+        self.assertNotIn(f"{PID}/{OTHER}", self.deeper._doc()["skills"])
+        self.assertEqual(self.preparer.next_upgrade(), (PID, OTHER, old))
+        self.ai.fail = False
+        self.assertTrue(self.preparer.step())
+        self.assertNotEqual(self.newest(OTHER)["id"], old)
+
     def test_a_lesson_the_drift_check_holds_is_left_to_it(self):
         old = self.old_lesson(S)
         self.searched(S)
@@ -1338,6 +1386,27 @@ class EarlierFilmTests(UpgradeCase):
         self.read_due()
         self.assertTrue(self.drift.withheld(old))
         self.assertIsNone(self.get(f"/api/lessons/{new}")["earlier_film"])
+
+    def rewrite_pages(self, lesson: str, pages) -> None:
+        doc = self.dojo.lesson(lesson)
+        self.dojo.store.write("content", "lessons", lesson, value={**doc, "sources": pages(doc.get("sources") or [])})
+        self.dojo._lesson_meta.pop(lesson, None)
+
+    def test_an_earlier_film_of_pages_the_new_lesson_does_not_cite_is_not_shown(self):
+        """A lesson written again because its pages were replaced (ADR 0021): the film teaches from pages that did not cover the skill."""
+        old, new = self.upgraded_after_filming(OTHER)
+        self.assertEqual(self.get(f"/api/lessons/{new}")["earlier_film"]["id"], old, "written from the earlier pages and more: the film stays")
+        self.rewrite_pages(new, lambda pages: [{**r, "url": r["url"] + "-better"} for r in pages])
+        self.assertIsNone(self.get(f"/api/lessons/{new}")["earlier_film"])
+        self.assertEqual(self.dojo.film_kind(new), "none")
+        self.assertTrue(self.drift._filmed(old), "the earlier film is not removed")
+        refilm = self.get("/api/studio/drift")["refilm"]
+        self.assertEqual([x["id"] for x in refilm["lessons"]], [new], "the new lesson is offered for filming, at its price")
+
+    def test_an_earlier_film_is_kept_when_the_pages_of_either_lesson_are_not_recorded(self):
+        old, new = self.upgraded_after_filming(OTHER)
+        self.rewrite_pages(new, lambda pages: [])
+        self.assertEqual(self.get(f"/api/lessons/{new}")["earlier_film"]["id"], old, "nothing is known against the film")
 
 
 class DeeperListenTests(UpgradeCase):

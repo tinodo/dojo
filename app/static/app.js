@@ -6774,7 +6774,9 @@ function sourcingSkill(d) {
       d.failure ? h("small", { class: "block bad" }, d.failure) : null,
       d.blocked ? h("small", { class: "block bad" }, `Blocked at ${d.blocked.step}: ${d.blocked.error}`) : null,
       d.next ? h("small", { class: "block muted" }, `Next search ${fmtWhen(d.next)}`) : null),
-    h("span", { class: "chips" }, chip(label, kind), d.audit ? chip(`audit: ${d.audit.verdict}`, d.audit.verdict === "supported" ? "sage" : "amber") : null));
+    h("span", { class: "chips" }, chip(label, kind), d.audit ? (d.audit.current === false
+      ? chip("audit: pages replaced", "sage")
+      : chip(`audit: ${d.audit.verdict}`, d.audit.verdict === "supported" ? "sage" : "amber")) : null));
 }
 
 // ---------------------------------------------------------------- Studio: deeper lessons (ADR 0008)

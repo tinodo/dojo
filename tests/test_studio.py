@@ -166,6 +166,18 @@ class CourseOverviewTests(StudioCase):
         self.assertEqual((search["supported"], search["invalid"]), (1, 1))
         self.assertTrue(any("a page that both models refuse" in a["text"] for a in self.course()["attention"]))
 
+    def test_pages_replaced_since_the_audit_are_not_counted_as_refused_and_the_text_says_what_happens(self):
+        raw = self.dojo.store.read("packages", self.pid)
+        skills = [s for s in self.app.state.newexams.sourcer.skills_of(raw) if s["sources"]]
+        gone = {"verdict": "invalid", "pages": [{"url": skills[1]["sources"][0]["url"] + "-gone"}], "at": iso()}   # the skill cites other pages now
+        still = {"verdict": "invalid", "pages": [{"url": skills[0]["sources"][0]["url"]}], "at": iso()}
+        self.dojo.store.write("sourcing", self.pid, "side-audit", value={"v": 1, "skills": {skills[0]["key"]: still, skills[1]["key"]: gone}})
+        search = self.course()["search"]
+        self.assertEqual(search["invalid"], 1, "pages that were replaced are history")
+        [text] = [a["text"] for a in self.course()["attention"] if "both models refuse" in a["text"]]
+        self.assertIn("writes the lesson again", text)
+        self.assertIn("offered for filming again on this page, at its price", text)
+
     def test_courses_come_in_the_order_the_owner_studies_them(self):
         ids = [x["package"] for x in self.read()["courses"]]
         self.assertEqual(ids, self.dojo.exam_order(self.owner))
