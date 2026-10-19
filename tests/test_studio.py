@@ -178,10 +178,20 @@ class CourseOverviewTests(StudioCase):
         self.assertIn("writes the lesson again", text)
         self.assertIn("offered for filming again on this page, at its price", text)
 
-    def test_courses_come_in_the_order_the_owner_studies_them(self):
-        ids = [x["package"] for x in self.read()["courses"]]
-        self.assertEqual(ids, self.dojo.exam_order(self.owner))
-        self.assertEqual(set(ids), {"gh-300", "dp-800", self.pid})
+    def test_courses_keep_their_order_whichever_exam_is_the_active_one(self):
+        orders = []
+        for pid in ("gh-300", "dp-800", self.pid):
+            self.dojo.save_profile(self.owner, {"active_package": pid})
+            orders.append([x["package"] for x in self.read()["courses"]])
+        self.assertEqual(orders[0], orders[1], "picking another exam does not move a course on Studio (ADR 0022)")
+        self.assertEqual(orders[1], orders[2])
+        self.assertEqual(set(orders[0]), {"gh-300", "dp-800", self.pid})
+        self.assertEqual(orders[0], self.dojo.exam_order(self.owner, active_first=False))
+
+    def test_the_work_dojo_does_still_goes_to_the_active_exam_first(self):
+        self.dojo.save_profile(self.owner, {"active_package": self.pid})
+        self.assertEqual(self.dojo.exam_order(self.owner)[0], self.pid)
+        self.assertNotEqual(self.dojo.exam_order(self.owner, active_first=False)[0], self.pid, "an added exam comes after the built-in ones in the catalog")
 
     def test_what_a_reading_costs_is_nothing_but_reading(self):
         def files() -> list[str]:

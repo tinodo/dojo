@@ -5,7 +5,7 @@
    The Content-Security-Policy forbids inline styles, so layout lives in app.css and the few
    measured lengths (bars, timelines) are set through the CSSOM with el.style.setProperty. */
 
-const state = { me: null, gate: null, pid: null, nav: 0, pkg: null, pkgPid: null, askDraft: "", pickedSkill: null, laterHours: 20, feedLink: null, calLink: null, timer: null, keys: null, deckOff: null, help: null, gateHelp: false };
+const state = { me: null, gate: null, pid: null, nav: 0, visit: 0, choice: 0, pkg: null, pkgPid: null, askDraft: "", pickedSkill: null, laterHours: 20, feedLink: null, calLink: null, timer: null, keys: null, deckOff: null, help: null, gateHelp: false };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const $view = () => document.getElementById("view");
 const $ = (id) => document.getElementById(id);
@@ -422,14 +422,24 @@ function examWhen(pid) {
   return { date: d, text: w === null ? fmtDay(d) : w >= 0 ? `exam ${fmtDay(d)} · ${w} week${w === 1 ? "" : "s"}` : `exam was ${fmtDay(d)}`, short: fmtDay(d) };
 }
 
+// Studio, Plan and Play show every exam together: what they show does not depend on the exam picked (Play only starts its
+// own choice at it). The picker says so there instead of offering a scope the page does not have, and choosing a course on
+// them opens that course (ADR 0022). The side bar keeps marking the exam picked: it is the one Dojo prepares first.
+const ALL_COURSES_PAGE = /^#\/(?:quality|plan|play)(?:\/|$)/;
+const onAllCourses = () => ALL_COURSES_PAGE.test(location.hash || "");
+
 function renderHeader() {
   const me = state.me;
+  const all = onAllCourses();
   const pack = myExams().find((p) => p.id === state.pid) || myExams()[0] || {};
-  $("exam-code").textContent = pack.exam || "—";
-  $("exam-title").textContent = pack.title || "";
   const w = examWhen(state.pid);
-  $("exam-when").textContent = w ? w.text : "no date set";
-  $("exam-pill").setAttribute("title", `${pack.exam || ""} ${pack.title || ""}${w ? " · " + w.text : ""}`);
+  $("exam-pill").classList.toggle("all", all);
+  $("exam-code").textContent = all ? "ALL" : pack.exam || "—";
+  $("exam-title").textContent = all ? "All courses" : pack.title || "";
+  $("exam-when").textContent = all ? "not tied to one course" : w ? w.text : "no date set";
+  $("exam-pill").setAttribute("title", all ? "All courses: this page shows every course together. Choose a course to open it."
+    : `${pack.exam || ""} ${pack.title || ""}${w ? " · " + w.text : ""}`);
+  $("exam").setAttribute("aria-label", all ? "This page shows all courses. Choose a course to open it" : "Exam package");
   const initials = String(me.name || "You").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join("") || "Y";
   $("me-initials").textContent = initials;
   $("me-initials").setAttribute("title", me.name || "You");
@@ -492,37 +502,87 @@ function markNav() {
   for (const a of document.querySelectorAll("#side .nav")) a.classList.toggle("on", a.getAttribute("data-sec") === sec);
 }
 
+// The exam chosen is kept for the next visit and for the order Dojo prepares things in. The writes go one after another, so
+// the last choice is the one kept, whatever order the answers come back in.
+let keeping = Promise.resolve();
+function keepExam(pid) {
+  keeping = keeping.then(() => api("/api/settings", { method: "PUT", body: { active_package: pid } })).catch(() => { /* the view still switches */ });
+  return keeping;
+}
+
 async function choosePackage(pid) {
   state.pid = pid;
   state.pkg = null;
   state.pickedSkill = null;
-  $("exam").value = pid;
+  fillExamSelect();
   renderHeader();
   renderSide();
-  try { await api("/api/settings", { method: "PUT", body: { active_package: pid } }); } catch (e) { /* the view still switches */ }
+  await keepExam(pid);
+}
+
+// A slow answer moves the owner, or changes the exam picked, only while he is still on the page it was asked on. Leaving it counts
+// (state.visit), also coming back to the same address, and so does an address set that is not routed yet. A page that draws itself
+// again (an action on it asks route() for that, state.nav) is not left: what was waited for is still wanted after it.
+function stillHere() {
+  const visit = state.visit, hash = location.hash;
+  return () => state.visit === visit && location.hash === hash;
 }
 
 async function switchPackage(pid) {
-  if (pid === state.pid) return;
-  await choosePackage(pid);
-  if (/^#\/(skill|lesson|item|answer|rehearsal\/)/.test(location.hash)) location.hash = "#/today"; else route();
+  // Studio, Plan and Play have no page for one course: choosing a course there opens it, the one already chosen too.
+  // A skill or a lesson page is the old exam's: it goes to Today. The Course page, Practice and Record show the new exam in place.
+  const here = stillHere();
+  const from = location.hash;
+  const open = onAllCourses();
+  if (pid === state.pid && !open) return;
+  const mine = ++state.choice;
+  if (pid !== state.pid) await choosePackage(pid);
+  // The owner went on while the choice was kept: it is made all the same. Only the last choice draws the page, so quick ones draw it
+  // once, and not one that something else has overtaken meanwhile (a lesson page of another exam, an exam that went).
+  if (!here() || mine !== state.choice || state.pid !== pid) return;
+  if (open || /^#\/(skill\/|lesson|item|answer|rehearsal\/)/.test(from)) location.hash = "#/today"; else route();
+}
+
+// A page about one of the owner's exams (a skill, a lesson) is that exam's page: the picker and the side bar follow it, as they
+// do for a link to a check or a practice exam. `here` is the `stillHere()` of a page that was asked for and has come back.
+function followExam(pid, here) {
+  if (here && !here()) return;
+  if (pid && pid !== state.pid && myExams().some((p) => p.id === pid)) choosePackage(pid);
 }
 
 // A calendar event names its exam: #/check/for/<exam>, #/recall/for/<exam> and #/rehearsal/for/<exam>
 // switch to that exam first.
 async function openFor(pid, where) {
+  const here = stillHere();
   if (pid !== state.pid && myExams().some((p) => p.id === pid)) await choosePackage(pid);
-  location.replace(where);
+  if (here()) location.replace(where);
   return [];
 }
 
-// The last choice in the exam switcher opens "Add an exam" instead of switching.
+// The last choice in the exam switcher opens "Add an exam" instead of switching. On a page about every course the first
+// choice, already chosen, says so, and each course is one to open.
 const ADD_EXAM = "+add";
+const ALL_COURSES = "+all";
 function fillExamSelect() {
   const sel = $("exam");
-  put(sel, myExams().map((p) => h("option", { value: p.id }, `${p.exam} · ${p.title}`)),
+  const all = onAllCourses();
+  put(sel, all ? h("option", { value: ALL_COURSES }, "All courses") : null,
+    myExams().map((p) => h("option", { value: p.id }, `${all ? "Open " : ""}${p.exam} · ${p.title}`)),
     isAdmin() ? h("option", { value: ADD_EXAM }, "Add an exam…") : null);
-  sel.value = state.pid;
+  sel.value = all ? ALL_COURSES : state.pid;
+}
+
+// What the picker says follows the page: it is drawn again at every page change.
+function markScope() {
+  fillExamSelect();
+  renderHeader();
+}
+
+function examChosen(sel) {
+  if (sel.value === ALL_COURSES) return;
+  if (sel.value !== ADD_EXAM) { switchPackage(sel.value); return; }
+  sel.value = onAllCourses() ? ALL_COURSES : state.pid;
+  location.hash = "#/add-exam";
 }
 
 // The exams change when one is added or removed; an exam that went is never left selected.
@@ -1065,6 +1125,7 @@ function attemptTimeline(e) {
 }
 
 async function viewSkill(pid, sid) {
+  followExam(pid);
   const v = await api(`/api/skills/${pid}/${sid}`);
   const s = v.skill, e = v.evidence;
   const big = h("div", { class: "bigpips" }, pipKinds(e.state).map((k, i) => h("div", { class: "bp" },
@@ -1143,7 +1204,9 @@ async function markViewed(id, modality, narration, retry = true) {
 
 async function viewLesson(id, tab, section) {
   tab = tab || "read";
+  const here = stillHere();
   const L = await api(`/api/lessons/${id}`);
+  followExam(L.package, here);
   state.scrollTo = tab === "read" && section !== undefined ? `sec-${Number(section)}` : null;  // a link to one section
   if (tab === "read") markViewed(id, "read");
   const tabs = h("div", { class: "seg", role: "tablist" }, FORMATS.map((f) =>
@@ -8579,8 +8642,9 @@ async function viewAddExam(code) {
 
 // Opening an added (or built-in) exam's course from this page.
 async function openExam(pid) {
+  const here = stillHere();
   if (pid !== state.pid) await choosePackage(pid);
-  location.hash = "#/skills";
+  if (here()) location.hash = "#/skills";
 }
 
 // Asks the server again every few seconds for as long as `onStatus` says there is more to see.
@@ -9484,6 +9548,7 @@ async function route() {
   examMode(false);
   checkMode(false);
   markNav();
+  markScope();
   const match = routes.map(([re, fn]) => [hash.match(re), fn]).find(([m]) => m);
   if (!match) { location.hash = "#/today"; return; }
   const [m, fn] = match;
@@ -9502,6 +9567,12 @@ async function route() {
     if (GATE_CODES.has(e.code)) { await gateAgain(); return; }
     put($view(), errorPanel(e));
   }
+}
+
+// A visit is a change of the address, or the page the app opens on. route() alone draws the same page again, as an action on it asks.
+function pageVisit() {
+  state.visit += 1;
+  return route();
 }
 
 // A membership can change while the page is open (removed, paused, a new notice): ask again and show the gate.
@@ -9536,11 +9607,7 @@ async function init() {
   state.pid = state.me.profile.active_package;
   const sel = $("exam");
   fillExamSelect();
-  sel.addEventListener("change", () => {
-    if (sel.value !== ADD_EXAM) { switchPackage(sel.value); return; }
-    sel.value = state.pid;
-    location.hash = "#/add-exam";
-  });
+  sel.addEventListener("change", () => examChosen(sel));
   const form = $("askform");
   const askInput = $("askq");
   const headerMic = canSpeak() ? speakBox(askInput, { compact: true, label: "Speak your question" }) : null;
@@ -9559,8 +9626,8 @@ async function init() {
   registerWorker();
   window.addEventListener("hashchange", stopEveryMicrophone);  // going to another page stops any recording
   window.addEventListener("pagehide", stopEveryMicrophone);
-  window.addEventListener("hashchange", route);
-  route();
+  window.addEventListener("hashchange", pageVisit);
+  pageVisit();
 }
 
 document.addEventListener("DOMContentLoaded", init);
