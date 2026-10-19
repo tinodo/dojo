@@ -6697,7 +6697,7 @@ function driftRow(dr) {
 
 function driftChanges(d, paint) {
   const P = d.pages, L = d.limits, st = d.status || {}, R = d.rewrites;
-  const labs = d.labs || [];
+  const labs = d.labs || [], stuck = d.stuck || [];
   const now = !d.started ? "The check is not running in this copy of Dojo." : st.running ? "Reading a page now." : st.note ? `Now: ${st.note}.` : "";
   const waiting = P.waiting.length ? ` Leaving ${P.waiting.join(" and ")} alone for now, as asked.` : "";
   return h("section", { class: "panel grow stack" },
@@ -6716,6 +6716,7 @@ function driftChanges(d, paint) {
     labs.length ? h("p", { class: "conf top" }, icon("target", "xs"), h("span", null,
       `${plural(labs.length, "lab")} to look at: a page ${labs.length === 1 ? "it cites" : "they cite"} changed. A lab has no quotes to check, so compare its steps with the page, then press “I looked at it”.`)) : null,
     labs.length ? h("div", { class: "top" }, labs.map((x) => driftLab({ ...x, now: "flagged" }, paint))) : null,
+    stuck.length ? h("div", { class: "top" }, capped(stuck, 5, "lessons waiting for a source", driftStuck)) : null,
     d.changes.length ? h("div", { class: "top" }, capped(d.changes, 4, "earlier changes", (c) => driftChange(c, paint))) : h("p", { class: "sub top" }, "No cited page has changed its words so far."),
     d.formatting.length ? [h("h3", { class: "top" }, "Formatting only, nothing to re-check"),
       d.formatting.map((f) => h("p", { class: "prow" }, icon("check", "xs"), h("span", null, ext(f.url, f.title || f.url), ` · ${f.date}`)))] : null,
@@ -6754,6 +6755,14 @@ function driftLesson(x) {
     h("span", null, h("a", { class: "link", href: `#/lesson/${x.now === "rewritten" && x.by ? x.by : x.id}` }, x.title || x.skill),
       " ", h("span", { class: "mono muted" }, x.skill), x.why ? h("small", { class: "block muted" }, x.why) : null),
     h("span", { class: "chips" }, chip(label, kind), film ? chip(film[0], film[1]) : null));
+}
+
+// A lesson that waits for the owner to update its package's source: named above the history, so no history can hide or lose it.
+function driftStuck(x) {
+  return h("div", { class: "near" },
+    h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, `${x.package} ${x.skill}`),
+      h("small", { class: "block muted" }, "Every official page of this skill is gone or moved: update the package's source.")),
+    chip("waiting", "amber"));
 }
 
 // A lab a changed page touched. Only a person can say whether its steps still match, so its flag stays

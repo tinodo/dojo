@@ -20,6 +20,10 @@ source changes, the deeper lessons and the official pages, and the page was long
 ## The decision
 
 - **What the owner presses comes first.** The Lab database panel is the first block of the Checks tab.
+- **A lesson that waits for a new source is named.** When every official page of a skill is gone or moved, its lesson waits and
+  the owner updates the package's source. Studio only counted them, and named them only inside the change that found the page
+  gone, which the cap now folds away and the 60 kept can lose. `summary()` gains one list, `stuck` (package, skill, lesson,
+  title), and the tab names them above the history, five shown and the rest under one line.
 - **A lab that needs a look has one action row**, made from `d.labs` (the labs flagged now) and drawn above the history. The
   change blocks only show its state. Before, every change that touched the lab had its own "I looked at it", and a change that
   was no longer one of the 60 kept took the button with it.
@@ -30,7 +34,7 @@ source changes, the deeper lessons and the official pages, and the page was long
 - **The log is a box** (`logbox`: `max-height: min(70vh, 640px)`, a region the keyboard can reach), on the owner's Checks tab and on
   a member's Studio log alike.
 - **The rest stays open** while a block is drawn again after a press, and is closed again when the tab is opened anew.
-- The cap is on the client side. The API is unchanged (tests/test_drift.py asserts on its payload).
+- The cap is on the client side. The one addition to the API is `stuck`; nothing else in its payload changes.
 
 ## Options considered
 

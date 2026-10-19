@@ -67,7 +67,7 @@ const lesson = (i, extra) => ({ id: `lesson-${i}`, title: `Lesson ${i}`, skill: 
 const film = (i, extra) => ({ id: `lesson-${i}`, title: `Film ${i}`, skill: `s${i}`, state: "done", ...extra });
 const drift = (changes, extra) => ({
   pages: { cited: 9, gone: 0, moved: 0, unchecked: 0, read_today: 1, last_read: "2026-10-19T10:00:00Z", waiting: [] },
-  limits: { per_day: 40, gap_minutes: 5, every_hours: 20 }, status: {}, started: true, rewrites: null, rechecking: 0, labs: [], changes, formatting: [],
+  limits: { per_day: 40, gap_minutes: 5, every_hours: 20 }, status: {}, started: true, rewrites: null, rechecking: 0, labs: [], stuck: [], changes, formatting: [],
   record: "Only content is written.", refilm: { lessons: [], estimate, films: [], approvals: [] }, ...extra });
 """
 
@@ -110,6 +110,22 @@ const none = P.driftRow(drift(many));                           // nothing flagg
 const inside = all(withHistory, isTag("details")).flatMap((d) => all(d, isTag("button"))).length;
 console.log(JSON.stringify([buttons(withHistory), inside, buttons(evicted), buttons(none)]));""")
         self.assertEqual(out, [["I looked at it"], 0, ["I looked at it"], []])
+
+    def test_a_lesson_that_waits_for_a_new_source_is_named_above_the_history_and_not_lost_in_it(self):
+        out = run_node("""
+const stuck = (n) => Array.from({ length: n }, (_, i) => ({ id: `lesson-w${i}`, package: "gh-300", skill: `d1.g1.s${i}`, title: `Waiting lesson ${i}` }));
+const waiting = (e) => cls(e).includes("near") && text(e).includes("Waiting lesson");
+const run = (n, changes) => {
+  const host = P.driftRow(drift(changes, { stuck: stuck(n) }));
+  const everything = all(host, () => true);
+  return [outside(host, waiting).length, all(host, isTag("summary")).map(text),
+          changes.length ? everything.findIndex(waiting) < everything.findIndex(isCls("dchange")) : null];
+};
+const many = Array.from({ length: 30 }, (_, i) => change(i));
+console.log(JSON.stringify([run(3, []), run(6, []), run(8, []), run(8, many)]));""")
+        self.assertEqual(out, [[3, [], None], [6, [], None], [5, ["Show the other 3 lessons waiting for a source"], None],
+                               [5, ["Show the other 3 lessons waiting for a source", "Show the other 26 earlier changes"], True]],
+                         "named without any change to carry them, five shown, and above the history")
 
     def test_the_lab_to_look_at_comes_before_the_history(self):
         out = run_node("""
@@ -206,7 +222,8 @@ class ChecksTabTests(unittest.TestCase):
                          "the owner's Checks tab and a member's Studio log")
         rule = next(line for line in APP_CSS.splitlines() if line.startswith(".panel.scroll.logbox"))
         self.assertIn("max-height: min(70vh, 640px)", rule)
-        self.assertIn(".panel.logbox:focus-visible", APP_CSS)
+        self.assertIn(":focus-visible { outline: 2px solid var(--ochre)", APP_CSS, "the page's own ring, dark enough to see")
+        self.assertNotIn("logbox:focus-visible", APP_CSS, "no weaker ring of its own: amber is about 2:1 on the canvas")
 
     def test_nothing_else_draws_the_lab_switch(self):
         self.assertEqual(APP_JS.count("labRow(lb)"), 1)
@@ -216,7 +233,7 @@ class ChecksTabTests(unittest.TestCase):
 class WordsTests(unittest.TestCase):
     def test_the_adr_and_the_guide_say_it(self):
         adr = (ROOT / "docs" / "adr" / "0024-studio-checks-short.md").read_text("utf-8")
-        for word in ("Show the other", "logbox", "d.labs", "client side"):
+        for word in ("Show the other", "logbox", "d.labs", "client side", "stuck"):
             self.assertIn(word, adr)
         self.assertIn("(0024-studio-checks-short.md)", (ROOT / "docs" / "adr" / "README.md").read_text("utf-8"))
         guide = (ROOT / "docs" / "user-guide.md").read_text("utf-8")
