@@ -281,7 +281,7 @@ You pay Azure's normal prices. Dojo has no licence fee.
   endpoint and the private DNS zone. With both settings empty, labs are off and the rest of Dojo works as
   before.
 - **Performance monitoring of the lab database** (ADR 0023) is off until the owner presses **Turn on** in Studio, on the
-  Checks tab. It has no extra price, but Azure then samples the database every few seconds, and Learn does not say whether
+  Checks tab. It has no extra price, but Azure then samples the database every 10 to 30 seconds, and Learn does not say whether
   that keeps a serverless database from pausing. If it does, the free allowance (100,000 vCore-seconds a month) is used in a
   few days and labs stop until next month. After pressing, read *Free amount remaining* for the database in the Azure portal
   two hours after the last lab use and again a day later. If the database is still online while idle, or the amount falls
@@ -358,7 +358,7 @@ query wakes it up, which takes about a minute.
 **Performance monitoring shows no data.** Data usually appears in the Fabric Database Hub (its Performance page) about 10
 minutes after Turn on. Check that Studio's Checks tab says *on*, that you have the Reader role on the subscription, that the
 `Microsoft.Sql` resource provider is registered there (Learn's troubleshooting table also names `Microsoft.AzureArcData`), and
-that the lab database is a single database on 2 or more vCores, not in an elastic pool. For KQL, connect the Azure Data
+that the lab database is a single database, not in an elastic pool and not a secondary replica. For KQL, connect the Azure Data
 Explorer web UI to `https://adx.centralus.arcdataservices.com/kusto/` and open the `ArcSqlTelemetry` database.
 
 **Studio says the last try to turn monitoring on or off failed.** *database waking* means the database was paused and did not

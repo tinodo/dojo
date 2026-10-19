@@ -16,14 +16,16 @@ property `MS_EnablePerformanceMonitoringPreview` is `true` in that database. Wha
 - It is per database. The property is set in the user database, never in `master`, by a member of `db_owner`. Dojo's
   connection is the server's Entra administrator, so it is `dbo`. The script is `sp_updateextendedproperty` or
   `sp_addextendedproperty`; the `GO` in the article is the batch separator of SSMS.
-- Single databases are supported, serverless too (the vCore tiers "with 2 or more vCores"; the lab database is `GP_S_Gen5`
-  with a maximum of 2). Elastic pools and secondary replicas are not. It is a preview and has no extra price.
+- Single databases are supported: in the vCore model (General Purpose, Business Critical and Hyperscale "with 2 or more
+  vCores") and, on a line of its own with no such floor, in the serverless tier, which the lab database is (`GP_S_Gen5`, 0.5 to
+  2 vCores). Elastic pools and secondary replicas are not. It is a preview and has no extra price.
 - The data is usually there within 10 minutes, in the Fabric Database Hub (its Performance page) or by KQL on
   `https://adx.centralus.arcdataservices.com/kusto/` (database `ArcSqlTelemetry`). Reading it needs the Reader role on the
   subscription and the `Microsoft.Sql` resource provider registered there. Dojo does not read it.
-- It samples the engine's views every 10 to 30 seconds: CPU, memory, storage, waits, counters and the active sessions (ids and
-  status). Learn says it holds no personal data or customer content and does not keep it at rest outside the database's
-  geography. Turning it off stops new data and keeps what was collected.
+- It samples the engine's views: waits and memory every 10 seconds, CPU every 15, the active sessions (ids and status) every
+  30, counters and storage use every minute, the database's properties every 10 minutes. Learn says it holds no personal
+  data or customer content and does not keep it at rest outside the database's geography. Turning it off stops new data and
+  keeps what was collected.
 - **Not said anywhere: whether that sampling keeps a serverless database from pausing, or wakes a paused one.**
 
 The last point is the whole risk. The lab database is on the free offer: 100,000 vCore-seconds a month, then it is closed until

@@ -153,7 +153,7 @@ monitor: the operator's technical access (above) remains.
   owner's own record.
 - **Honest limit:** the Azure bill and the AI resource's metrics show total use per day. With very few
   members, a sharp change can hint at one person's use. Dojo adds nothing to that. If the owner turns on performance
-  monitoring of the lab database, its CPU and sessions are sampled every few seconds, so a burst of lab use can show there as
+  monitoring of the lab database, its CPU is sampled every 15 seconds and its active sessions every 30, so a burst of lab use can show there as
   well, and with very few members that can hint at one person's use in the same way. Nothing in it names a person or holds a query.
 - **Play:** no admin page shows anyone's Play data. The admin role sees only whether circles are switched
   on (see "Play: circles, the board and duels" below).
