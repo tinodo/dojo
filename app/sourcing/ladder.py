@@ -15,7 +15,8 @@ A skill whose accepted pages are enough is `covered` and written into the packag
 accepted pages of a `partial` skill are written too (the lesson checker refuses what a page does not support)
 and the search goes on at the retry schedule of `exhausted`: three days in a row, then weekly. Only skills
 without sources are written, so no lesson, narration or film is ever orphaned; a skill whose cited pages both
-models refuse is replaced only while its lesson has no film. A step that failed three times blocks its skill
+models refuse (twice, a day apart) is replaced whether or not its lesson has a film (ADR 0021), and a `partial`
+skill gains pages only while its lesson has no film. A step that failed three times blocks its skill
 for the day; `exhausted` is reached only when every step of the four rounds succeeded and nothing was
 accepted: it says that the configured retrieval is exhausted, never that the documentation lacks a page."""
 from __future__ import annotations
@@ -163,6 +164,12 @@ def refs_of(doc: dict, limit: int = MAX_ACCEPTED) -> list[dict]:
                     "use": "ground", "verified": {"quote": a["gate"]["quote"], "by": f"{a['gate']['model']}; {a['author']['model']}",
                                                   "on": a["at"][:10], "sha256": a["sha256"]}})
     return out
+
+
+def _cites(pages: list[dict], urls: list) -> bool:
+    """Whether the package cites any of these addresses: the same page, or the very same address (one that names no
+    documentation page cannot be compared as a page)."""
+    return any(c.get("url") == u or same_page(c.get("url"), u) for c in pages for u in urls)
 
 
 def _refused(res: dict) -> bool:
@@ -397,6 +404,8 @@ class Sourcer:
 
     def _work(self, run: Run, raw: dict) -> bool:
         raw = self._tidy(run, raw)
+        if self._resume_replacements(run, raw):
+            return True
         items = self._items(run, raw)
         if not items:
             return self._audit(run, raw)
@@ -852,12 +861,13 @@ class Sourcer:
 
     def _activate(self, run: Run, w: dict, partial: bool = False) -> bool:
         """Write the accepted pages into the package: for a skill without sources; or, for a skill whose cited
-        pages both models refuse, in their place; or, for a `partial` skill that was written before, as further
-        pages (at most three). A skill whose lesson has a film is never changed. True unless the package keeps
-        pages that do not make the skill `covered`: a skill is covered only by what its package cites."""
+        pages both models refuse, in their place, filmed or not (ADR 0021); or, for a `partial` skill that was written
+        before, as further pages (at most three). Any other skill whose lesson has a film is never changed. True unless
+        the package keeps pages that do not make the skill `covered`: a skill is covered only by what its package cites."""
         doc = w["doc"]
         pid = run.pid
         store = self.store
+        swapped = settled = None   # the skill whose refused pages were replaced, now or by an earlier step; the answer when nothing is written
         with self._package:
             run.lease.check()   # an exam removed meanwhile (`forget`) is never written back
             raw = store.read("packages", pid, default=None)
@@ -875,11 +885,13 @@ class Sourcer:
             if not current:
                 skill["sources"] = fresh
             elif doc.get("replacing"):
-                if self._filmed(pid, skill["id"]):
-                    doc["replacement_waits"] = True   # the film's lesson keeps its pages; the owner sees it in the audit
-                    return self._justified(doc, current)
-                skill["sources"] = fresh
-                doc["replacing"] = None
+                refused, doc["replacing"] = doc["replacing"], None
+                doc.pop("replacement_waits", None)
+                swapped = skill["id"]
+                if _cites(current, refused):
+                    skill["sources"] = fresh   # a film does not keep pages both models refused: it would go on teaching from them
+                else:
+                    settled = self._justified(doc, current)   # none is cited any more: written by an earlier step, or changed since; what it cites stays
             elif doc.get("activated") and len(current) < MAX_ACCEPTED and not self._filmed(pid, skill["id"]):
                 more = [r for r in fresh if not any(same_page(r["url"], c.get("url")) for c in current)]
                 skill["sources"] = (current + more)[:MAX_ACCEPTED]
@@ -888,17 +900,29 @@ class Sourcer:
             else:
                 doc["activated"] = doc.get("activated") or {"at": iso(), "sources": len(current), "partial": partial, "already": True}
                 return self._justified(doc, current)
-            idx = run.books.index()
-            idx["generation"] = int(idx.get("generation") or 0) + 1
-            self.dojo.packages.add(raw)
-            run.books.save_index(idx)
-            doc["activated"] = {"at": iso(), "generation": idx["generation"], "sources": len(skill["sources"]), "partial": partial}
-            doc["cited"] = len(skill["sources"])
-            cited = list(skill["sources"])
+            if settled is None:
+                idx = run.books.index()
+                idx["generation"] = int(idx.get("generation") or 0) + 1
+                self.dojo.packages.add(raw)
+                run.books.save_index(idx)
+                doc["activated"] = {"at": iso(), "generation": idx["generation"], "sources": len(skill["sources"]), "partial": partial}
+                doc["cited"] = len(skill["sources"])
+                cited = list(skill["sources"])
         preparer = getattr(self.nx, "preparer", None)
         if preparer is not None:
+            if swapped:
+                self._start_again(preparer, pid, swapped)
             preparer.wake()
-        return self._justified(doc, cited)
+        return settled if settled is not None else self._justified(doc, cited)
+
+    @staticmethod
+    def _start_again(preparer: Any, pid: str, sid: str) -> None:
+        """The pages of a skill were replaced: a failed or given-up attempt at its lesson was made on the old pages, and
+        neither makes the new lesson wait nor stops it (app/deeper.py). It runs on every settled replacement, also one an
+        earlier step wrote before it stopped, and a failure is not swallowed: the book is not saved, so the next step settles it again."""
+        deeper = getattr(preparer, "deeper", None)
+        if deeper is not None:
+            deeper.start_again(pid, sid)
 
     @staticmethod
     def _justified(doc: dict, cited: list[dict]) -> bool:
@@ -910,6 +934,31 @@ class Sourcer:
         if any(a["grade"] == "teaches" and a["url"] in direct and has(a) for a in chosen):
             return True
         return bool(doc.get("set") and doc["set"].get("complete")) and all(has(a) for a in chosen)
+
+    def _resume_replacements(self, run: Run, raw: dict) -> bool:
+        """Skills whose cited pages both models refused, and whose replacement was held back because their lesson has a
+        film (the rule before ADR 0021): the pages the search accepted for them are written now, if the refusal is still
+        on record. Nothing is searched and no model is called: it is files, and the new lesson is written by the
+        preparer as for any change of pages. One skill a step; True when one was settled."""
+        side = run.books.side("audit", None)
+        refused = (side.get("skills") or {}) if isinstance(side, dict) and side.get("v") == VERIFIER_VERSION else {}
+        for s in self.skills_of(raw):
+            doc = run.books.skill(s["key"])
+            if not (doc["state"] == "partial" and doc.get("replacing") and doc.get("replacement_waits") and doc.get("accepted")):
+                continue
+            entry = refused.get(s["key"]) or {}
+            if not (entry.get("verdict") == "invalid" and entry.get("confirmed")):
+                continue   # the refusal is not on record any more (the audit was made again): the pages stay as they are
+            justified = self._activate(run, {"key": s["key"], "id": s["id"], "doc": doc}, partial=True)
+            if doc.get("replacing"):
+                continue   # nothing could be written (the exam is gone, or no accepted page is left to cite): it waits as before
+            if justified:
+                doc.update(state="covered", partial=False)   # what the package cites now is what covers the skill
+                doc.pop("stuck", None)
+            run.books.save_skill(doc)
+            log.info("the held replacement of the refused pages of skill %s of %s was settled", s["key"], run.pid)
+            return True
+        return False
 
     def _close(self, run: Run, w: dict) -> None:
         """Round 4 is done. Accepted pages that did not make the skill `covered` are written; with none, the
@@ -997,7 +1046,7 @@ class Sourcer:
                                         for cited in [self._cited(s, doc)] for a in (doc or {}).get("accepted", [])],
                            "next": (doc or {}).get("next"), "blocked": (doc or {}).get("blocked"),
                            "failure": (doc or {}).get("failure"), "replacing": bool((doc or {}).get("replacing")),
-                           "audit": (audit.get("skills") or {}).get(s["key"])})
+                           "audit": self._audit_row(audit, s)})
         index = self.store.read("sourcing", pid, default=None) or {}
         total = sum(counts.values())
         missing = sum(1 for k in skills if k["sources"] == 0)
@@ -1005,6 +1054,16 @@ class Sourcer:
         return {"package": pid, "skills": total, "counts": dict(counts), "missing": missing, "incomplete": incomplete,
                 "settled": settled, "complete": incomplete == 0, "calls_today": int((index.get("calls") or {}).get(utcnow().date().isoformat()) or 0),
                 "generation": int(index.get("generation") or 0), "note": self.state.get("note"), "details": skills}
+
+    @staticmethod
+    def _audit_row(audit: dict, s: dict) -> dict | None:
+        """What the audit said of a skill's pages, and whether the skill still cites them: once they were replaced, the
+        verdict is history and no longer counts."""
+        entry = (audit.get("skills") or {}).get(s["key"])
+        judged = [p["url"] for p in (entry or {}).get("pages") or [] if isinstance(p, dict) and p.get("url")]
+        if not judged:
+            return entry
+        return {**entry, "current": _cites(s["sources"], judged)}
 
     @staticmethod
     def _cited(s: dict, doc: dict | None) -> list[dict]:

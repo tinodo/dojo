@@ -485,6 +485,14 @@ class DeeperLessons:
             self._save(doc)
         log.info("deeper lessons: %s/%s written again on template %d", pid, sid, LESSON_TEMPLATE)
 
+    def start_again(self, pid: str, sid: str) -> None:
+        """The pages a skill cites were replaced because both models refused the old ones (ADR 0021): what became of an
+        earlier attempt at its lesson was on those pages, so it neither makes the skill wait nor gives it up."""
+        with self.dojo.store.lock:
+            doc = self._doc()
+            if doc["skills"].pop(f"{pid}/{sid}", None) is not None:
+                self._save(doc)
+
     def failed(self, pid: str, sid: str, lesson_id: str, reason: str) -> None:
         """The new lesson did not pass: the earlier one stays. Given up after UPGRADE_TRIES attempts."""
         with self.dojo.store.lock:

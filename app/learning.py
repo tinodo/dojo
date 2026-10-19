@@ -32,7 +32,7 @@ from .evidence import coverage, derive, due_later, plan, suggestions
 from .exam import for_export, mark_seen, question_key
 from .itemwriter import ItemWriter
 from .packages import Packages
-from .sources import Sources, excerpt, normalize
+from .sources import Sources, excerpt, normalize, same_page
 from .speech import Speech, media_id_for
 
 log = logging.getLogger("dojo.learning")
@@ -892,7 +892,8 @@ class Dojo:
     def make_lesson(self, progress: Progress, learner: Learner, pid: str, sid: str, upgrade_of: str | None = None) -> dict:
         """Writes a lesson to the current template (LESSON_TEMPLATE). With `upgrade_of` it is meant to replace
         that lesson (ADR 0008): it is kept only if it holds as well as a first lesson must and has at least as
-        many checked points, otherwise nothing is written and the earlier lesson stays the one shown."""
+        many checked points (unless it teaches from other pages than that lesson, ADR 0021), otherwise nothing is
+        written and the earlier lesson stays the one shown."""
         pkg = self.packages.get(pid)
         s = pkg["skills"][sid]
         progress("Reading the official sources")
@@ -903,6 +904,7 @@ class Dojo:
             unread = [r["url"] for r in s["sources"] if r["url"] not in read and not (self.sources.head(r["url"]) or {}).get("gone")]
             if unread:
                 raise UserError(f"The page {unread[0]} could not be read just now, so the deeper lesson waits for it.")
+        sources = self.source_refs(g)
         best: tuple | None = None
         feedback = ""
         for round_no in (1, 2):
@@ -946,12 +948,14 @@ class Dojo:
             except ValueError:
                 old = {}
             had = _points(old) if isinstance(old, dict) and isinstance(old.get("sections"), list) else 0
+            if not self._shares_a_page({"sources": sources}, old if isinstance(old, dict) else {}):
+                had = 0   # written from other pages than the lesson it replaces (ADR 0021): that lesson's points are no measure
             if score < KEPT_SHARE or len(lesson["sections"]) < 2 or _points(lesson) < had:
                 raise UserError(f"The deeper lesson kept {_points(lesson)} checked points ({round(score * 100)}% of what was written) "
                                 f"and the lesson it would replace has {had}, so the earlier lesson stays.")
         doc = {"id": new_id("lesson"), "package": pid, "skill": sid, "skill_text": s["text"], "created": iso(), "rounds": rounds,
                "template": LESSON_TEMPLATE, "kept_share": round(score, 2), "models": self.models("author", "gate"),
-               "sources": self.source_refs(g), "cited": _cited(lesson, g), "offered": [r["url"] for r in s["sources"]],
+               "sources": sources, "cited": _cited(lesson, g), "offered": [r["url"] for r in s["sources"]],
                **({"upgrade_of": upgrade_of} if upgrade_of else {}),
                "blocked": blocked, **lesson}
         self.store.write("content", "lessons", doc["id"], value=doc)
@@ -1140,10 +1144,18 @@ Narration is a natural spoken conversation between two voices: "guide" explains,
             out["created"] = d.get("created")
         return out
 
+    @staticmethod
+    def _shares_a_page(doc: dict, other: dict) -> bool:
+        """Whether two lessons were written from some of the same official pages. A lesson whose pages are not
+        recorded counts as sharing: nothing is known against its film."""
+        pages = [[r["url"] for r in d.get("sources") or [] if isinstance(r, dict) and r.get("url")] for d in (doc, other)]
+        return not all(pages) or any(same_page(a, b) for a in pages[0] for b in pages[1])
+
     def _earlier_film(self, doc: dict) -> dict | None:
-        """For a lesson written again on the deeper template (ADR 0008) that has no video of its own: the
-        nearest earlier version that was filmed, with its slides and sources, for Watch to show with a plain
-        note, unless a page change no longer supports that version. Nothing is filmed on its own."""
+        """For a lesson written again (ADR 0008) that has no video of its own: the nearest earlier version that
+        was filmed, with its slides and sources, for Watch to show with a plain note, unless a page change no
+        longer supports that version, or the lesson was written again because its pages were replaced (ADR 0021):
+        then the film teaches from pages that did not cover the skill. Nothing is filmed on its own."""
         seen, old = {doc["id"]}, doc.get("upgrade_of")
         while isinstance(old, str) and old not in seen and len(seen) <= 5:
             seen.add(old)
@@ -1151,7 +1163,7 @@ Narration is a natural spoken conversation between two voices: "guide" explains,
                 prev = self.lesson(old)
             except HTTPException:
                 return None
-            if self.drift and self.drift.withheld(old):
+            if (self.drift and self.drift.withheld(old)) or not self._shares_a_page(doc, prev):
                 return None
             slides = prev.get("slides") or []
             clips = self.avatar.lesson_clips([self._slide_lines(sl) for sl in slides])

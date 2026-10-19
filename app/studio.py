@@ -267,7 +267,7 @@ class Studio:
             return None
         details = st.get("details") or []
         counts = st.get("counts") or {}
-        verdicts = Counter((d.get("audit") or {}).get("verdict") for d in details if d.get("audit"))
+        verdicts = Counter(d["audit"].get("verdict") for d in details if d.get("audit") and d["audit"].get("current", True))   # pages replaced since are history
         return {"covered": counts.get("covered", 0), "legacy": counts.get("legacy", 0),
                 "unfinished": st.get("incomplete", 0), "complete": bool(st.get("complete")),
                 "supported": verdicts.get("supported", 0), "invalid": verdicts.get("invalid", 0), "weak": verdicts.get("weak", 0),
@@ -300,7 +300,8 @@ class Studio:
             add("info", f"{_plural(rechecking, 'lesson')} {'is' if rechecking == 1 else 'are'} being written again after an official page changed.")
         if search and search["invalid"]:
             add("info", f"{_plural(search['invalid'], 'skill')} cite{'s' if search['invalid'] == 1 else ''} a page that both models refuse. "
-                        "Dojo looks again a day later and then finds a better page on its own, a few a day.")
+                        "Dojo looks again a day later, then finds better pages on its own, a few a day, and writes the lesson again. "
+                        "A lesson that was filmed is offered for filming again on this page, at its price; its old film is not shown meanwhile.")
         if search and not search["complete"]:
             add("info", f"Dojo is still finding official pages for {_plural(search['unfinished'], 'skill')}.")
         if lessons and deeper < lessons:
