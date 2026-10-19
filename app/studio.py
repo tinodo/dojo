@@ -18,6 +18,7 @@ from fastapi import HTTPException
 
 from .avatar import FILM_STORAGE_SHARE
 from .core import iso, parse_iso, sha256, utcnow
+from .learning import QUIET_DAYS
 from .newexam import BUILD, exam_blocker
 from .pagecheck import KIND as PAGECHECK
 from .prepare import DEEP_PER_DAY
@@ -123,7 +124,26 @@ class Studio:
                 out.append(self._course(pid, ready.get(pid), media, newest, storage["average_bytes"]))
             except Exception:  # noqa: BLE001 - a course that cannot be read never blanks the page
                 log.exception("studio: could not read the course %s", pid)
-        return {"at": iso(), "courses": out, "make": self._make(out, storage)}
+        return {"at": iso(), "courses": out, "make": self._make(out, storage), "todo": self._todo()}
+
+    def _todo(self) -> dict:
+        """What only the owner can do about what Dojo found, for the To do page: the labs to look at, the lessons whose every official
+        page is gone (a change to the course's source, not a button), and the exam builds that stopped. Each is read on its own, so one
+        that cannot be read never hides the others."""
+        out: dict = {"labs": [], "stuck": [], "builds": []}
+        try:
+            if self.drift is not None:
+                found = self.drift.owner_todo()
+                out["labs"] = found["labs"]
+                out["stuck"] = [{**s, "exam": self._exam(s["package"])} for s in found["stuck"]]
+        except Exception:  # noqa: BLE001 - the rest of the page still shows
+            log.exception("studio: could not read the labs and lessons that wait for the owner")
+        try:
+            out["builds"] = [{"package": r["package"], "exam": r["exam"], "state": r["state"]} for r in self.newexams.overview()
+                             if not r["added"] and r["state"] in ("failed", "stopped")]
+        except Exception:  # noqa: BLE001
+            log.exception("studio: could not read the exam builds")
+        return out
 
     def _media_set(self) -> set[str]:
         try:
@@ -198,8 +218,9 @@ class Studio:
                "make": {"videos": self._videos(pid, added, films["own"], lessons, average, media, unfilmed)}}
         out["missing"] = {"deeper": lessons - deeper, "diagrams": lessons - diagrams, "videos": lessons - films["own"],
                           "deeper_days": math.ceil((lessons - deeper) / DEEP_PER_DAY)}
-        out["verdict"] = ("Everything needed to study this course is there." if ready
+        out["verdict"] = ("Every skill has a lesson and audio." if ready
                           else f"{_plural(total - lessons, 'skill')} of {total} can't be studied from a lesson yet.")
+        out["rechecking"] = rechecking
         out["attention"] = self._attention(pid, out, with_pages, lessons, listen, deeper, failed, rechecking, price, search, check)
         return out
 
@@ -356,13 +377,14 @@ class Studio:
             old = self.drift.film_queue(pid) if self.drift is not None else {"waiting": 0, "filming": 0, "ids": []}   # approved on the Checks page before ADR 0020
             offer, token = (list(st["offer"]), st["token"]) if not old["ids"] else ([], None)   # those are stopped or finished first: nothing is offered twice
             return {"offer": offer, "token": token, "waiting": st["waiting"] + old["waiting"], "filming": st["filming"] + old["filming"],
-                    "failed": st["failed"], "queued": list(st["queued"]) + list(old["ids"])}
+                    "failed": st["failed"], "queued": list(st["queued"]) + list(old["ids"]), "later": st["later"]}
         if self.drift is None:
-            return {"offer": [], "token": None, "waiting": 0, "filming": 0, "failed": 0, "queued": []}
-        offer, queue = self.drift.film_offer(pid), self.drift.film_queue(pid)
+            return {"offer": [], "token": None, "waiting": 0, "filming": 0, "failed": 0, "queued": [], "later": {"scheduled": [], "quiet": {}, "pages": {}}}
+        offer, later = self.drift.film_split(pid)
+        queue = self.drift.film_queue(pid)
         return {"offer": [x["id"] for x in offer], "token": self.drift.offer_token(offer) if offer else None,
                 "waiting": queue["waiting"], "filming": queue["filming"], "failed": sum(1 for x in offer if x.get("error")),
-                "queued": queue["ids"]}
+                "queued": queue["ids"], "later": later}
 
     def _offer(self, state: dict, media: set[str], average: int) -> dict | None:
         """What a course's Film button carries: the lessons, the price, the room the films need, and a token that names the
@@ -384,8 +406,9 @@ class Studio:
         take, how far the films already approved have come, and why the other lessons are not offered."""
         try:
             state = self._film_state(pid, added)
-            offered, queued = set(state["offer"]), set(state["queued"])
+            offered, queued, later = set(state["offer"]), set(state["queued"]), state["later"]
             why: Counter = Counter()
+            until: list[str] = []
             for lid in unfilmed:
                 if lid in offered or lid in queued:
                     continue
@@ -393,6 +416,13 @@ class Studio:
                     why["silent"] += 1
                 elif self.drift is not None and self.drift.withheld(lid):
                     why["held"] += 1
+                elif lid in later["scheduled"]:
+                    why["scheduled"] += 1
+                elif lid in later["quiet"]:
+                    why["quiet"] += 1
+                    until.append(later["quiet"][lid])
+                elif lid in later.get("pages", {}):
+                    why["pages"] += 1
                 else:
                     why["other"] += 1
             busy = state["waiting"] + state["filming"]
@@ -401,7 +431,7 @@ class Studio:
             if offer is not None:
                 offer["eta_minutes"] = round(offer["lessons"] * cycle)
             return {"have": have, "of": lessons, "waiting": state["waiting"], "filming": state["filming"], "failed": state["failed"],
-                    "later": dict(why), "offer": offer,
+                    "later": dict(why), "quiet_until": min(until) if until else None, "quiet_last": max(until) if until else None, "offer": offer,
                     "queued_bytes": int(self._missing_films(state["queued"], media) * average * FILM_MARGIN),
                     "eta_minutes": round(busy * cycle) if busy else None}
         except Exception:  # noqa: BLE001 - a course whose films cannot be read still shows everything else
@@ -440,7 +470,7 @@ class Studio:
         moving = (any(v["waiting"] or v["filming"] for v in videos) or bool(decks and decks["ahead"] and decks["remaining"])
                   or any((c.get("pagecheck") or {}).get("state") == "running" for c in courses))
         priced = [o for _, o in offers if o["token"]]
-        return {"storage": {**storage, "queued_bytes": queued, "free_bytes": free},
+        return {"quiet_days": QUIET_DAYS, "storage": {**storage, "queued_bytes": queued, "free_bytes": free},
                 "films": {"lessons": sum(o["lessons"] for _, o in offers), "usd": round(sum(o["usd"] or 0 for o in priced), 2),
                           "priced": len(priced) == len(offers), "bytes": sum(o["bytes"] for _, o in offers),
                           "eta_minutes": sum(o["eta_minutes"] for _, o in offers),
@@ -451,14 +481,20 @@ class Studio:
 
     def lesson_film_price(self, lesson_id: str) -> dict | None:
         """What filming one lesson costs at list price, for its Film this lesson button: the presenters whose video is not stored
-        yet. None when the lesson is filmed, or when the price cannot be worked out at all."""
+        yet. None when the lesson is filmed, or when the price cannot be worked out at all. `later` says when the lesson is
+        likely to be replaced (it is not offered on Studio's To do page then): the owner may still film it, knowing that."""
         try:
             plan = self.checker.plan(lesson_id)
             missing = {sp: mid for sp, mid in plan["films"].items() if not self.dojo.avatar.exists(mid)}
             if not missing:
                 return None
             est = self.costs.film_estimate([{**plan, "films": missing}], kept=True)   # a lesson is shown without waiting for the network
-            return {"usd": est["total"], "complete": bool(est["complete"])}
+            later = None
+            if lesson_id in self.dojo.scheduled_rewrites():
+                later = {"kind": "scheduled", "until": None}
+            elif lesson_id in (quiet := self.dojo.rewritten_recently()):
+                later = {"kind": "quiet", "until": quiet[lesson_id]}
+            return {"usd": est["total"], "complete": bool(est["complete"]), "later": later}
         except Exception:  # noqa: BLE001 - the price is a word on a button, never a reason to lose the lesson
             log.info("studio: the price of filming a lesson could not be worked out")
             return None

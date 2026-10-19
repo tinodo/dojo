@@ -24,7 +24,7 @@ from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import app.drift as drift_mod  # noqa: E402
-from app.core import UserError, iso, new_id, utcnow  # noqa: E402
+from app.core import UserError, iso, new_id, parse_iso, utcnow  # noqa: E402
 from app.costs import PRICES_VERSION, retail_filter  # noqa: E402
 from app.exam import blocker, for_export, mark_seen, plan_skills, question_key, spec, untestable  # noqa: E402
 from app.labs import DISTANCE_SOURCE, JSON_SOURCE, LABS, VECTOR_SOURCE  # noqa: E402
@@ -770,7 +770,10 @@ class FilmTests(DriftCase):
         self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}).status_code, 403)
         self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": ["not an id"]}, headers=POST).status_code, 422)
         self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [lesson]}, headers=POST).status_code, 409)
+        self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST).status_code, 409,
+                         "written again this week: it is not offered yet, by this button either")
         self.assertEqual(self.video_jobs(), [])
+        self.clock += timedelta(days=8)   # a quiet week later
 
         with mock.patch.object(drift_mod, "FILM_WAIT_S", 0.05):
             r = self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST)
@@ -832,9 +835,6 @@ class FilmTests(DriftCase):
         est = self.get("/api/studio/drift")["refilm"]["estimate"]
         self.assertEqual((est["fetched"], est["stale"]), (old, True))
         self.assertGreater(est["usd"], 0, "the last list still prices it, and says how old it is")
-        script = (Path(__file__).resolve().parents[1] / "app" / "static" / "app.js").read_text("utf-8")
-        panel = script.split("function refilmPanel(d, paint) {", 1)[1].split("\n}\n", 1)[0]
-        self.assertIn('h("div", { class: "actions top refilm" }, btn), pricesAge(est),', panel, "right under the button")
 
 
 class OfferTests(DriftCase):
@@ -932,7 +932,41 @@ class OfferTests(DriftCase):
         self.assertTrue(self.drift._file_films() is False, "nothing is left to film")
         self.assertEqual(self.drift._doc()["films"], {}, "the approval for the old lesson was dropped, not filmed")
         self.assertEqual(self.video_jobs(), [])
-        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [new], "the new lesson waits for an approval of its own")
+        self.assertEqual(self.drift.film_offer(PID), [], "the new lesson is not offered until it has been quiet for a week")
+        self.clock += timedelta(days=8)
+        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [new], "then it waits for an approval of its own")
+
+    def test_a_lesson_written_again_this_week_is_left_out_and_joins_after_a_quiet_week(self):
+        self.lesson()
+        time.sleep(1.1)
+        new = self.lesson()
+        offer, later = self.drift.film_split(PID)
+        self.assertEqual((offer, later), ([], {"scheduled": [], "quiet": later["quiet"], "pages": {}}))
+        self.assertEqual(list(later["quiet"]), [new])
+        self.assertGreater(parse_iso(later["quiet"][new]), self.clock, "it joins in the future, a week after it was written")
+        videos = self.videos()
+        self.assertEqual((videos["offer"], videos["later"], videos["quiet_until"]), (None, {"quiet": 1}, later["quiet"][new]))
+        self.clock += timedelta(days=8)
+        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [new])
+        self.assertEqual(self.drift.film_split(PID)[1]["quiet"], {})
+
+    def test_a_lesson_to_be_written_again_on_the_deeper_template_is_left_out(self):
+        lesson = self.lesson()
+        with mock.patch.object(self.dojo, "scheduled_rewrites", return_value={lesson}):
+            offer, later = self.drift.film_split(PID)
+            self.assertEqual((offer, later["scheduled"]), ([], [lesson]))
+            self.assertEqual((self.videos()["offer"], self.videos()["later"]), (None, {"scheduled": 1}))
+        self.assertEqual([x["id"] for x in self.drift.film_offer(PID)], [lesson])
+
+    def test_an_approved_film_waits_while_its_lesson_is_about_to_be_written_again(self):
+        lesson = self.lesson()
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        with mock.patch.object(self.dojo, "scheduled_rewrites", return_value={lesson}):
+            self.assertTrue(self.drift._file_films(), "still approved")
+        self.assertEqual(self.video_jobs(), [])
+        self.assertEqual(self.drift._doc()["films"][lesson]["state"], "approved", "it stays approved, and is forgotten when the new lesson is written")
+        self.drift._file_films()
+        self.assertEqual(len(self.video_jobs()), 1, "no longer scheduled: it is filmed")
 
     def test_stopping_forgets_the_films_that_have_not_started_and_leaves_the_one_being_made(self):
         a, b = self.lesson(), self.lesson(OTHER)
@@ -1038,6 +1072,9 @@ class LabTests(DriftCase):
         self.assertEqual((change["lessons"], change["removed"]), ([], []))
         self.assertEqual([f["url"] for f in self.get("/api/studio/drift")["formatting"]], [JSON_SOURCE])
         self.assertEqual(self.get("/api/diag")["drift_check"]["labs_flagged"], 1)
+        todo = self.drift.owner_todo()
+        self.assertEqual([x["id"] for x in todo["labs"]], ["vector"], "the To do page reads this, not the whole history")
+        self.assertEqual(todo["stuck"], [])
         self.assertEqual(self.video_jobs(), [], "a flagged lab starts no film and no other work")
         self.assertEqual(self.record(), before, "the check writes nothing to the record")
         self.boot()   # a restart keeps the flag
@@ -1721,6 +1758,7 @@ class GoneRewriteTests(DriftCase):
         self.assertEqual(studio["rechecking"], len(gone))
         self.assertEqual({x["skill"] for x in studio["stuck"]}, gone, "named, and not only counted")
         self.assertTrue(all(x["package"] == PID and x["id"] and x["title"] for x in studio["stuck"]))
+        self.assertEqual(self.drift.owner_todo()["stuck"], studio["stuck"], "the To do page names them too")
         change = next(c for c in studio["changes"] if c["url"] == URL)
         self.assertEqual({x["skill"]: (x["now"], x.get("why")) for x in change["lessons"]},
                          {sid: ("waiting", drift_mod.PAGES_GONE) for sid in gone})

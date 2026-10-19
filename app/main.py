@@ -75,6 +75,7 @@ from .prepare import Preparer
 from .readiness import advice_log, advise, store_advice
 from .selftest import SelfTest
 from .sources import Sources
+from .bill import Bill
 from .studio import Studio
 from .speech import (AUDIO_TYPES, MAX_AUDIO_BYTES, MEDIA_ID, NORMALIZE_MAX_BYTES, TRANSCRIBE_ERRORS, AudioRefused, Speech, StubSpeech,
                      normalize)
@@ -567,6 +568,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     pool.budget = budget
     pagecheck = PageCheck(dojo, owner, costs)   # the two-model check of the pages a course cites, when the owner asks (ADR 0019)
     studio = Studio(dojo, newexams, checker, costs, preparer, drift, pool, budget, owner, pagecheck)   # Studio's course overview and activity (ADR 0019)
+    bill = Bill(store, tokens, settings.ai_resource_id)   # what Azure charged for the resource group, for the Money tab (ADR 0025)
     team.on_sweep.append(lambda: budget.prune([owner.key] + [m.key for m in team.active_learners()]))
     social = PlaySocial(settings, store, team, play)   # circles and the witness room (ADR 0010)
     board = Board(social)                  # the effort board: weekly bands, no order
@@ -619,6 +621,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             team.start()
         if settings.in_azure:
             studio.warm()   # reads Studio's two views once, so the first visit does not wait for them (ADR 0019)
+            bill.warm()     # and the bill, if the last reading on the share is old (ADR 0025)
         social.start()   # Play's sweeper: lapsed invitations and old shared copies, in both modes (ADR 0010)
         # Nudges call no model, so they also run with the stub when asked.
         if settings.in_azure or os.environ.get("DOJO_PUSH") == "1":
@@ -648,6 +651,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     app.state.team = team
     app.state.budget = budget
     app.state.studio = studio
+    app.state.bill = bill
     app.state.pagecheck = pagecheck
     app.state.background = background
     app.state.five = five
@@ -1766,6 +1770,12 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         # "Reservation bound exceeded": a call cost more than Dojo reserved for it (role and call kind only).
         view = costs.view()
         return {**view, "budget_flags": budget.flags()} if budget.active else view
+
+    @app.get("/api/studio/bill")
+    def studio_bill(learner: Learner = Admin) -> dict:
+        """What Azure charged for Dojo's resource group this month (ADR 0025). It is money, not lesson text, so a timed exam does not close
+        it. There is no way to force a new reading from here: Azure throttles, and Dojo reads it every few hours."""
+        return bill.view()
 
     @app.get("/api/studio/drift")
     def studio_drift(learner: Learner = Admin) -> dict:

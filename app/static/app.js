@@ -478,7 +478,7 @@ function renderSide() {
     navLink("#/plan", "plan", "Plan"),
     h("div", { class: "sep" }),
     navLink("#/quality", "studio", isAdmin() ? "Studio" : "Studio log"),
-    h("p", { class: "cap" }, isAdmin() ? "is each course complete?" : "what the checker removed"),
+    h("p", { class: "cap" }, isAdmin() ? "what needs you" : "what the checker removed"),
     isAdmin() && state.me.team ? navLink("#/members", "shield", "Members") : null,
     exams,
     h("div", { class: "foot" }, h("a", { href: "#/help" }, "Help"), h("a", { href: "#/phone" }, "On your phone"), h("a", { href: "#/about" }, "How Dojo works"),
@@ -3489,6 +3489,12 @@ function filmPane(L, onFilmed) {
   const priced = !!(L.film_price && L.film_price.complete);
   const cost = priced ? `about ${usd(L.film_price.usd)}` : "price not listed yet";
   const btn = button(`Film this lesson (${cost}, about 2 minutes)`, async () => {
+    const later = L.film_price && L.film_price.later;
+    const ask = { lines: [{ label: L.title || "This lesson", usd: L.film_price ? L.film_price.usd : null }], title: (n, total) => `Film this lesson? About ${usd(total)}`, confirm: () => "Film this lesson",
+      notes: ["Azure's published price for the presenters' video and voice; the bill can differ a little. It takes about 2 minutes.",
+        later && later.kind === "quiet" ? `This lesson was rewritten recently, so Studio does not offer it for filming before ${dayOf(later.until)}: it may change again.` : null,
+        later && later.kind === "scheduled" ? "This lesson will be rewritten soon as a deeper lesson, and a film made now would be replaced." : null, FILM_STAKE].filter(Boolean) };
+    if (!(await moneySheet(ask))) return;
     btn.disabled = true;
     status.textContent = "Starting…";
     try {
@@ -6098,31 +6104,362 @@ const PIPE = [
   ["06", "Record", "hash-chained events", "record"],
 ];
 
-// ---------------------------------------------------------------- Studio (ADR 0019)
-// The owner's page. Courses: is everything there, per course. Activity: what Dojo did on its own and what it is doing now.
-// Checks: how Dojo checks its own work, with everything it blocked. Costs: list-price estimates and the exams added.
-const STUDIO_TABS = [["courses", "Courses"], ["activity", "Activity"], ["checks", "Checks"], ["costs", "Costs"]];
+// ---------------------------------------------------------------- Studio (ADR 0019, ADR 0025)
+// The owner's page, organised by what he asks. To do: what needs him, and what costs money only if he wants it. Courses: whether each course is
+// ready to study. Money: what Azure charged. Health: whether everything works. Activity: what Dojo did on its own.
+const STUDIO_TABS = [["todo", "To do"], ["courses", "Courses"], ["money", "Money"], ["health", "Health"], ["activity", "Activity"]];
+const STUDIO_ALIAS = { checks: "health", costs: "money" };   // the links of before keep working
 const STUDIO_LEAD = {
-  courses: "What is made for each course and what is still missing. Press a button to make it; the price is on the button.",
-  activity: "What Dojo did on its own, what it is doing now, and what the metered calls cost each day.",
-  checks: "How Dojo checks its own work: the checker, the voices, the official pages and source changes. Nothing is dropped silently.",
-  costs: "What building and finishing a course costs at list prices, and the exams you have added.",
+  todo: "What needs you, and what is optional. Videos, diagrams and page checks cost money, so they wait for your button, with the price on it.",
+  courses: "Does each course have what you need to study? Dojo makes the study material itself; videos and diagrams are optional extras.",
+  money: "What Azure charged for Dojo's resource group this month, before tax. Azure reports its costs 8 to 24 hours late.",
+  health: "Is everything working and correct? Each line says what it checks; open it for the detail.",
+  activity: "What Dojo did on its own, newest first.",
 };
 
-async function viewQuality(tab) {
-  if (!isAdmin()) return viewStudioLog();
-  const at = STUDIO_TABS.some(([id]) => id === tab) ? tab : "courses";
-  const body = await ({ courses: studioCourses, activity: studioActivity, checks: studioChecks, costs: studioCosts })[at]();
-  const tabs = h("div", { class: "seg studio-tabs", role: "tablist", "aria-label": "Studio" }, STUDIO_TABS.map(([id, label]) =>
-    h("a", { href: id === "courses" ? "#/quality" : `#/quality/${id}`, role: "tab", "aria-selected": String(id === at), class: id === at ? "s on" : "s" }, label)));
-  return [pageHead("Studio", STUDIO_LEAD[at], null, helpQ("studio")), tabs, body];
+const money = (x, currency) => {
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(x); }
+  catch (e) { return `${Number(x).toFixed(2)} ${currency || ""}`.trim(); }
+};
+const dayWord = (s) => { const d = parseDay(String(s || "").slice(0, 10)); return d ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : ""; };
+const dayOf = (s) => { const d = new Date(s); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); };
+const whenWord = (s) => { const d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+const howLong = (minutes) => (minutes < 90 ? `${Math.max(1, minutes)} minutes` : minutes < 2880 ? `${Math.round(minutes / 60)} hours` : `${Math.round(minutes / 1440)} days`);
+const loadingNote = () => h("p", { class: "sub", role: "status" }, "Loading…");
+
+// A question before money is spent: what, at what price, what was left out. Cancel has the focus, so Enter never spends; Escape and a click
+// beside the box cancel as well. With `pick`, each line has a box (ticked) and the price follows the ticks. It answers the lines chosen, or null.
+function moneySheet(o) {
+  return new Promise((resolve) => {
+    const dlg = h("dialog", { class: "sheet money-sheet", "aria-labelledby": "money-h" });
+    const rows = o.lines.map((l, i) => ({ l, box: o.pick ? h("input", { type: "checkbox", id: `money-${i}`, checked: !l.off, disabled: !!l.off }) : null }));
+    const title = h("h2", { id: "money-h" });
+    const go = h("button", { class: "btn amber", type: "button" });
+    const cancel = h("button", { class: "btn ghost", type: "button", onclick: () => dlg.close() }, "Cancel");
+    const chosen = () => rows.filter((r) => (r.box ? r.box.checked : !r.l.off)).map((r) => r.l);
+    const draw = () => {
+      const on = chosen(), total = on.reduce((a, l) => a + (l.usd || 0), 0);
+      title.textContent = o.title(on.length, total);
+      go.textContent = `${o.confirm(on.length)} · about ${usd(total)}`;
+      go.disabled = !on.length;
+    };
+    let answer = null;
+    go.addEventListener("click", () => { answer = chosen(); dlg.close(); });
+    put(dlg, h("div", { class: "sheet-in" }, title,
+      h("ul", { class: "sheet-lines" }, rows.map((r, i) => h("li", { class: r.l.off ? "off" : null },
+        r.box ? h("label", { for: `money-${i}` }, r.box, h("span", null, r.l.label)) : h("span", null, r.l.label),
+        h("span", { class: "cost" }, r.l.usd === null || r.l.usd === undefined ? "no price" : `about ${usd(r.l.usd)}`)))),
+      (o.notes || []).map((n) => h("p", { class: "small muted" }, n)),
+      h("div", { class: "actions sheet-acts" }, cancel, go)));
+    const onHash = () => dlg.close();
+    window.addEventListener("hashchange", onHash);
+    dlg.addEventListener("change", draw);
+    dlg.addEventListener("close", () => { window.removeEventListener("hashchange", onHash); dlg.remove(); resolve(answer); });
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+    document.body.append(dlg);
+    draw();
+    dlg.showModal();
+    cancel.focus();
+  });
 }
 
-// Courses: what is made for each course, what is missing, and the button that makes it (ADR 0020).
-const ATTN_CHIP = { bad: ["Problem", "rose"], warn: ["Needs a look", "amber"] };
-const howLong = (minutes) => (minutes < 90 ? `${Math.max(1, minutes)} minutes` : minutes < 2880 ? `${Math.round(minutes / 60)} hours` : `${Math.round(minutes / 1440)} days`);
+function studioNav(at) {
+  return h("nav", { class: "seg studio-tabs", "aria-label": "Studio" }, STUDIO_TABS.map(([id, label]) =>
+    h("a", { href: id === "todo" ? "#/quality" : `#/quality/${id}`, class: id === at ? "s on" : "s", "aria-current": id === at ? "page" : null }, label)));
+}
 
-// What each row counts, in words: kept under Details, for whoever wants to know what a number means.
+// The heading and the tabs are drawn at once; the page under them fills in when it has been read, and says so if it could not be.
+async function viewQuality(tab) {
+  if (!isAdmin()) return viewStudioLog();
+  const named = STUDIO_ALIAS[tab] || tab;
+  const at = STUDIO_TABS.some(([id]) => id === named) ? named : "todo";
+  const body = h("div", { class: "studio-body" }, loadingNote());
+  const token = state.nav;
+  const draw = { todo: studioTodo, courses: studioCourses, money: studioMoney, health: studioHealth, activity: studioActivity }[at];
+  draw({ open: tab === "checks" ? "blocked" : null }).then((nodes) => { if (state.nav === token) put(body, nodes); },
+    (e) => { if (state.nav === token) put(body, panel(h("p", { class: "sub", role: "alert" }, `This page could not be read: ${e.message}`))); });
+  return [pageHead("Studio", STUDIO_LEAD[at], null, helpQ("studio")), studioNav(at), body];
+}
+
+// ---------------------------------------------------------------- To do
+// One card for each thing to decide. A card says what it is, why, what it costs, and has the one button; the numbers behind it are closed.
+const ATTN_CHIP = { bad: ["Problem", "rose"], warn: ["Needs a look", "amber"] };
+
+// Where the courses stand and what this month cost: two answers on the first screen, each a link to the page that shows it.
+function todoStrip(c, bill) {
+  const ready = c.courses.filter((x) => x.ready).length;
+  const spend = !bill || bill.state === "error" ? "Money: not read just now"
+    : bill.state === "not_connected" ? "Money: not connected to Azure yet"
+    : bill.state === "empty" ? "Money: nothing reported yet this month"
+    : `Money: ${money(bill.month.total, bill.currency)} so far this month`;
+  return h("nav", { class: "todo-strip", "aria-label": "Where things stand" },
+    h("a", { href: "#/quality/courses", class: ready === c.courses.length ? "ok" : "warn" }, icon(ready === c.courses.length ? "check" : "alert", "sm"),
+      `Courses: ${ready} of ${plural(c.courses.length, "course")} have every lesson and audio`),
+    h("a", { href: "#/quality/money" }, icon("scale", "sm"), spend));
+}
+
+function labCard(l, act) {
+  const here = labsOn();
+  const looked = button("I looked at it", () => {
+    looked.disabled = true;
+    return act(() => api(`/api/studio/drift/labs/${l.id}/looked`, { method: "POST" }).then(() => api("/api/studio/courses?fresh=true")),
+      () => ({ text: `Noted. “${l.title || l.id}” is watched from the page as it is now.` }));
+  }, "amber sm");
+  return h("section", { class: "panel todo-card" },
+    h("div", { class: "panel-h" }, h("h3", null, "Look at the lab “", here ? h("a", { class: "link", href: `#/lab/${l.id}` }, l.title || l.id) : (l.title || l.id), "”"), chip("no cost", "line")),
+    h("p", { class: "sub" }, `A page it is based on changed on ${fmtDay(l.date)}. A lab has no quotes Dojo can check, so compare its steps with the page, then press “I looked at it”.`),
+    h("div", { class: "actions" }, here ? linkButton("Open the lab", `#/lab/${l.id}`, "ghost sm") : null, looked));
+}
+
+function stuckCard(list) {
+  return h("section", { class: "panel todo-card" },
+    h("div", { class: "panel-h" }, h("h3", null, `${plural(list.length, "lesson")} can't be updated`), chip("needs a change to the course", "amber")),
+    h("p", { class: "sub" }, "Every official page they were written from is gone or moved, so Dojo cannot rewrite them. Their text stays as it is until a new source is added to the course. "
+      + "That is a change to the course's content, not a button here."),
+    capped(list, 3, "lessons whose pages are gone", (x) => h("div", { class: "near" },
+      h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, `${x.exam || x.package} ${x.skill}`)),
+      chip("waiting", "amber"))));
+}
+
+function buildCard(b) {
+  return h("section", { class: "panel todo-card" },
+    h("div", { class: "panel-h" }, h("h3", null, `The build of ${b.exam} stopped`), chip(b.state === "failed" ? "failed" : "stopped", "rose")),
+    h("p", { class: "sub" }, "Dojo was adding this exam and did not finish. Open it to see where it stopped and to build again; the pages checked so far are kept."),
+    h("div", { class: "actions" }, linkButton("Open the exam", `#/add-exam/${String(b.exam).toLowerCase()}`, "amber sm")));
+}
+
+// What is left out of a course's offer, and why, in the words of its card.
+function filmLeftOut(v, days) {
+  const l = v.later || {}, out = [];
+  if (l.quiet) out.push(`${plural(l.quiet, "lesson")} rewritten in the last ${plural(days, "day")} (back in ${dayOf(v.quiet_until) === dayOf(v.quiet_last) ? `on ${dayOf(v.quiet_until)}` : `from ${dayOf(v.quiet_until)} to ${dayOf(v.quiet_last)}`}, unless rewritten again)`);
+  if (l.scheduled) out.push(`${plural(l.scheduled, "lesson")} about to be rewritten as a deeper lesson`);
+  if (l.held) out.push(`${plural(l.held, "lesson")} waiting for a rewrite after a source page changed`);
+  if (l.pages) out.push(`${plural(l.pages, "lesson")} whose official pages may still be replaced`);
+  if (l.silent) out.push(`${plural(l.silent, "lesson")} with no narration to film`);
+  if (l.other) out.push(`${plural(l.other, "lesson")} that can't be filmed yet`);
+  return out;
+}
+
+const FILM_STAKE = "If a lesson is rewritten after you film it, Watch plays the old video with a note, or no video when the new text rests on other pages, until you film it again. You see the price first.";
+
+// What the question before a course's films says.
+function filmAsk(x, v, days, storage) {
+  const o = v.offer, left = filmLeftOut(v, days);
+  return {
+    lines: [{ label: `${plural(o.lessons, "lesson")} of ${x.exam}`, usd: o.usd }],
+    title: (n, total) => `Film ${plural(o.lessons, "lesson")} of ${x.exam}? About ${usd(total)}`,
+    confirm: () => `Film ${plural(o.lessons, "lesson")}`,
+    notes: [`Azure's published price for the presenters' video and voice; the bill can differ a little.`,
+      left.length ? `Left out: ${left.join("; ")}.` : null, FILM_STAKE,
+      `The videos need about ${gb(o.bytes)}; ${gb(storage.free_bytes)} is free. They are made one at a time, about ${howLong(o.eta_minutes)} in all. `
+      + "You can stop the ones that have not started; a film that has started finishes and is charged."].filter(Boolean),
+  };
+}
+
+function videoRow(x, c, act) {
+  const v = x.make.videos, o = v.offer, busy = v.waiting + v.filming, days = c.make.quiet_days;
+  const left = filmLeftOut(v, days);
+  const facts = [];
+  if (busy) facts.push(`${v.filming ? "Filming" : "Waiting"}: ${plural(busy, "lesson")} to go${v.eta_minutes ? `, about ${howLong(v.eta_minutes)}` : ""}.`);
+  if (o) facts.push(`None of these ${o.lessons} was rewritten in the last ${plural(days, "day")}.`);
+  if (left.length) facts.push(`Left out for now: ${left.join("; ")}.`);
+  if (x.video.earlier) facts.push(`${x.video.earlier} play the video of an earlier version of their lesson, with a note.`);
+  if (v.failed) facts.push(`${plural(v.failed, "film")} did not work last time. Pressing the button tries ${v.failed === 1 ? "it" : "them"} again.`);
+  let go = null;
+  if (o && !o.token) facts.push("The price is not available just now, so nothing can be approved.");
+  else if (o && !o.fits) facts.push(`There is no room for these films: they need ${gb(o.bytes)} and ${gb(c.make.storage.free_bytes)} is free.`);
+  else if (o) {
+    go = button([icon("video", "sm"), `Film ${plural(o.lessons, "lesson")} · about ${usd(o.usd)}`], async () => {
+      const ask = filmAsk(x, v, days, c.make.storage);
+      if (!(await moneySheet(ask))) return;
+      go.disabled = true;
+      go.replaceChildren("Approving…");
+      return act(() => api(`/api/studio/film/${x.package}`, { method: "POST", body: { confirm: "FILM", offer: o.token } }),
+        () => ({ text: `Approved the films of ${x.exam}. They are made one at a time; the first starts shortly.` }));
+    }, "amber");
+  }
+  const stop = v.waiting ? button("Stop the rest", () => {
+    stop.disabled = true;
+    return act(() => api(`/api/studio/film/${x.package}/stop`, { method: "POST" }),
+      (r) => ({ text: r.stopped ? `Stopped ${plural(r.stopped, "film")} that had not started. A film being made finishes.` : "No film was waiting." }));
+  }, "ghost sm") : null;
+  return h("div", { class: "vrow" },
+    h("div", { class: "vrow-h" }, h("b", null, x.exam), h("span", { class: "vrow-t" }, o ? `${plural(o.lessons, "lesson")} to film now` : busy ? "Filming" : "Nothing to film right now")),
+    facts.map((t) => h("p", { class: "small muted" }, t)),
+    go || stop ? h("div", { class: "actions" }, go, stop) : null);
+}
+
+function videosCard(c, act) {
+  const rows = c.courses.filter((x) => {
+    const v = x.make && x.make.videos;
+    return v && (v.offer || v.waiting || v.filming || v.failed || filmLeftOut(v, c.make.quiet_days).length);
+  });
+  if (!rows.length) return null;
+  return h("section", { class: "panel todo-card" },
+    h("div", { class: "panel-h" }, h("h3", null, "Videos")),
+    h("p", { class: "sub" }, "Presenters talk through a lesson on its slides. Lessons, Listen and Present work without them."),
+    rows.map((x) => videoRow(x, c, act)),
+    h("details", { class: "how" }, h("summary", null, "How the prices were worked out"),
+      h("p", { class: "small muted" }, "Each lesson has two presenters, and each is filmed once for the whole lesson. The price is Azure's published price per second of video and per character of voice, "
+        + "for the presenters whose video is not stored yet. The bill can differ a little. The videos you have made take "
+        + `${gb(c.make.storage.bytes)} of ${gb(c.make.storage.budget_bytes)}; filming pauses at 90%.`)));
+}
+
+// The question before the diagrams: all of them at once, and that it stays on for the lessons written later until it is stopped.
+function deckAsk(d) {
+  const each = d.remaining ? d.usd / d.remaining : null;
+  return {
+    lines: [{ label: `${plural(d.remaining, "lesson")}, up to ${d.per_day} a day (about ${plural(d.days, "day")})`, usd: d.usd }],
+    title: (n, total) => `Draw the diagrams ahead of time? About ${usd(total)}`,
+    confirm: () => "Draw the diagrams",
+    notes: ["Azure's published price for the model that draws them; the bill can differ a little.",
+      `Lessons written later get a diagram too${each === null ? "" : `, at about ${usd(each)} each`}, until you press Stop here. A lesson you open in Present gets its diagram at once, whether this is on or not.`],
+  };
+}
+
+function decksCard(c, act) {
+  const d = c.make.decks;
+  if (!d || (!d.ahead && !d.remaining)) return null;
+  const priced = d.usd !== null && d.usd !== undefined && d.complete;
+  const each = d.remaining && priced ? d.usd / d.remaining : null;
+  const body = d.ahead
+    ? [h("p", { class: "sub" }, `Being drawn ahead of time: ${d.ready} of ${d.lessons} done, up to ${d.per_day} a day.`),
+      h("div", { class: "actions" }, button("Stop drawing ahead of time", (e) => {
+        e.currentTarget.disabled = true;
+        return act(() => api("/api/studio/decks/ahead", { method: "POST", body: { on: false } }).then(() => api("/api/studio/courses?fresh=true")),
+          () => ({ text: "Diagrams are no longer drawn ahead of time." }));
+      }, "ghost sm"))]
+    : [h("p", { class: "sub" }, `A lesson's diagrams are drawn the first time you open it in Present. This draws them all in advance: ${plural(d.remaining, "lesson")}, `
+        + `${priced ? `about ${usd(d.usd)} now` : "price not available just now"}, up to ${d.per_day} a day (about ${plural(d.days, "day")})`
+        + `${each === null ? "" : `, then about ${usd(each)} for each lesson written later, until you press Stop`}.`),
+      priced ? h("div", { class: "actions" }, button([icon("video", "sm"), `Draw ${d.remaining} diagrams · about ${usd(d.usd)}`], async () => {
+        if (!(await moneySheet(deckAsk(d)))) return;
+        return act(() => api("/api/studio/make", { method: "POST", body: { confirm: "MAKE", decks: true, films: [] } }),
+          (r) => ({ text: r.results.every((x) => x.ok) ? "Diagrams are being drawn ahead of time." : r.results.filter((x) => !x.ok).map((x) => x.error).join(" "), bad: !r.results.every((x) => x.ok) }));
+      }, "amber")) : null];
+  return h("section", { class: "panel todo-card" },
+    h("div", { class: "panel-h" }, h("h3", null, "Diagrams")), body);
+}
+
+// The two-model check of a built-in course's pages: a report that changes nothing, started by the owner with the price shown.
+function pageCheckRow(x, act) {
+  const pc = x.pagecheck;
+  const price = pc.price && pc.price.complete && pc.price.total !== null && pc.price.total !== undefined ? `about ${usd(pc.price.total)}` : null;
+  const status = h("span", { class: "small muted", role: "status" });
+  const part = pc.state === "partial";
+  if (pc.state === "running") return h("div", { class: "vrow" }, h("div", { class: "vrow-h" }, h("b", null, x.exam), chip("running now", "amber")));
+  const go = price ? button(`${part ? "Check the rest" : "Check pages"} · ${price}`, async () => {
+    const ask = { lines: [{ label: `${plural(pc.price.pages, "page")} of ${x.exam}`, usd: pc.price.total }], title: (n, total) => `Check the pages of ${x.exam}? About ${usd(total)}`,
+      confirm: () => "Check the pages", notes: ["Two model families read every page and say whether it teaches its skill. It changes nothing: no page, lesson or video.",
+        "Azure's published price for the two models; the bill can differ a little."] };
+    if (!(await moneySheet(ask))) return;
+    go.disabled = true;
+    await act(() => runJob(api(`/api/studio/pagecheck/${x.package}`, { method: "POST", body: {} }), (s, secs) => { status.textContent = `${s} · ${secs}s`; })
+      .then(() => api("/api/studio/courses?fresh=true")), null);
+  }, "amber sm") : null;
+  return h("div", { class: "vrow" },
+    h("div", { class: "vrow-h" }, h("b", null, x.exam), h("span", { class: "vrow-t" }, `${plural(pc.price ? pc.price.pages : 0, "page")} to check`)),
+    price ? null : h("p", { class: "small muted" }, "The price is not available just now."),
+    h("div", { class: "actions" }, go, status));
+}
+
+function pageChecksCard(c, act) {
+  const rows = c.courses.filter((x) => x.pagecheck && x.pagecheck.state !== "done" && x.pagecheck.price);
+  if (!rows.length) return null;
+  return h("section", { class: "panel todo-card" },
+    h("div", { class: "panel-h" }, h("h3", null, "Page check")),
+    h("p", { class: "sub" }, "Two model families read every page a built-in course cites and say whether it teaches its skill. It changes nothing: no page, lesson or video."),
+    rows.map((x) => pageCheckRow(x, act)));
+}
+
+// The one button for everything that costs money, after the cards it covers: it asks again with every line and a box for each.
+function reviewAll(c, act) {
+  const lines = [];
+  for (const x of c.courses) {
+    const v = x.make && x.make.videos, o = v && v.offer;
+    if (o && o.token) lines.push({ kind: "films", label: `Film ${plural(o.lessons, "lesson")} of ${x.exam}`, usd: o.usd, off: !o.fits, package: x.package, offer: o.token,
+      detail: o.fits ? null : "no room for these films" });
+  }
+  const d = c.make.decks;
+  if (d && !d.ahead && d.remaining && d.usd !== null && d.usd !== undefined && d.complete) lines.push({ kind: "decks", label: `Draw ${plural(d.remaining, "diagram")}, up to ${d.per_day} a day`, usd: d.usd });
+  for (const x of c.courses) {
+    const pc = x.pagecheck;
+    if (pc && pc.state !== "done" && pc.state !== "running" && pc.price && pc.price.complete && pc.price.total !== null && pc.price.total !== undefined)
+      lines.push({ kind: "check", label: `Check the ${plural(pc.price.pages, "page")} of ${x.exam}`, usd: pc.price.total, package: x.package });
+  }
+  if (lines.filter((l) => !l.off).length < 2) return null;
+  const total = lines.filter((l) => !l.off).reduce((a, l) => a + l.usd, 0);
+  const go = button(`Review all ${lines.filter((l) => !l.off).length} · about ${usd(total)}`, async () => {
+    const left = c.courses.flatMap((x) => {
+      const v = x.make && x.make.videos, n = v && v.offer ? Object.entries(v.later || {}).filter(([k]) => k !== "silent" && k !== "other").reduce((a, [, m]) => a + m, 0) : 0;
+      return n ? [`${x.exam} ${n}`] : [];
+    });
+    const picked = await moneySheet({ pick: true, lines,
+      title: (n, sum) => `Start ${plural(n, "thing")}? About ${usd(sum)}`, confirm: (n) => `Start ${n}`,
+      notes: ["Azure's published prices; the bill can differ a little. Videos are made one at a time. The diagrams stay on for lessons written later until you stop them here.",
+        left.length ? `Left out of the films for now, because they were rewritten lately or are about to be (the courses' cards say when they come back): ${left.join(", ")}.` : null,
+        `Room for videos: ${gb(c.make.storage.free_bytes)} free of ${gb(c.make.storage.budget_bytes)}.`].filter(Boolean) });
+    if (!picked) return;
+    go.disabled = true;
+    const films = picked.filter((l) => l.kind === "films").map((l) => ({ package: l.package, offer: l.offer }));
+    const decks = picked.some((l) => l.kind === "decks");
+    const refused = [];
+    await act(async () => {
+      let r = c;
+      if (films.length || decks) {
+        r = await api("/api/studio/make", { method: "POST", body: { confirm: "MAKE", decks, films } });
+        r.results.filter((x) => !x.ok).forEach((x) => refused.push(`${x.exam || "Diagrams"}: ${x.error}`));
+      }
+      for (const l of picked.filter((p) => p.kind === "check")) {
+        try { await api(`/api/studio/pagecheck/${l.package}`, { method: "POST", body: {} }); } catch (e) { refused.push(`Page check: ${e.message}`); }
+      }
+      return picked.some((l) => l.kind === "check") ? api("/api/studio/courses?fresh=true") : r;
+    }, () => ({ text: refused.length ? `Some of it was not started. ${refused.join(" ")}` : "Approved. Films are made one at a time and the checks run in the background; this page looks again while they do.",
+      bad: refused.length > 0 }));
+  }, "amber");
+  return h("div", { class: "actions todo-all" }, go);
+}
+
+async function studioTodo() {
+  const host = h("div", { class: "todo-page" });
+  let notice = null, last = null, timer = null, bill = null;
+  const act = async (call, said) => {
+    try {
+      const r = await call();
+      notice = said ? said(r) : null;
+      show(r && r.courses ? r : await api("/api/studio/courses?fresh=true"));
+    } catch (e) {
+      notice = { text: e.message, bad: true };
+      try { show(await api("/api/studio/courses?fresh=true")); } catch (e2) { show(last); }
+    }
+  };
+  const poll = async () => {
+    if (!host.isConnected) return;
+    try { show(await api("/api/studio/courses")); } catch (e) { timer = setTimeout(poll, 60000); }
+  };
+  const show = (c) => {
+    last = c;
+    const t = c.todo || { labs: [], stuck: [], builds: [] };
+    const needs = [t.builds.map(buildCard), t.labs.map((l) => labCard(l, act)), t.stuck.length ? stuckCard(t.stuck) : null].flat().filter(Boolean);
+    const optional = [videosCard(c, act), decksCard(c, act), pageChecksCard(c, act)].filter(Boolean);
+    put(host,
+      notice ? h("p", { class: notice.bad ? "note bad" : "note", role: "status" }, notice.text) : null,
+      todoStrip(c, bill),
+      needs.length ? [h("h2", { class: "todo-h" }, "Needs you"), needs] : h("p", { class: "todo-none" }, icon("check", "sm"), "Nothing needs you right now. Lessons, Listen and Deeper Listen make themselves."),
+      optional.length ? [h("h2", { class: "todo-h" }, "Optional · costs money"), optional, reviewAll(c, act)] : null,
+      h("p", { class: "note top" }, `Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. `,
+        h("a", { class: "link", href: "#/quality/activity" }, "See what Dojo did on its own")));
+    clearTimeout(timer);
+    if (c.make.busy) timer = setTimeout(poll, 30000);
+  };
+  const first = await api("/api/studio/courses");
+  show(first);
+  api("/api/studio/bill").then((b) => { bill = b; if (host.isConnected && last) show(last); }).catch(() => null);
+  return host;
+}
+
+// ---------------------------------------------------------------- Courses
+// What each number counts, in words: kept under Details, for whoever wants to know what a number means.
 function covRow(r) {
   const filled = r.have !== null && r.have !== undefined;
   const pct = filled && r.of ? Math.round((100 * r.have) / r.of) : 0;
@@ -6132,7 +6469,7 @@ function covRow(r) {
     h("p", { class: "small muted" }, r.note));
 }
 
-// One line of a course: what is made, a bar, and what to do about the rest.
+// One line of a course: what is made, a bar, and what there is to say about it.
 function mkRow(label, have, of, state, ...cell) {
   const pct = of ? Math.round((100 * have) / of) : 0;
   return h("div", { class: `mk-row ${state}` },
@@ -6146,21 +6483,12 @@ function mkRow(label, have, of, state, ...cell) {
 const mkDone = () => h("span", { class: "mk-s ok" }, icon("check", "sm"), " done");
 const mkState = (have, of, optional) => (have === of ? "ok" : optional ? "todo" : "warn");
 
-// The two-model check of an original course's pages: a report, started by the owner with the price shown.
-function pageCheckBlock(x, act) {
-  const pc = x.pagecheck;
-  if (!pc) return null;
-  if (pc.state === "done") return h("span", { class: "mk-s" }, `${pc.supported} confirmed · ${pc.weak} only partly · ${pc.invalid} refused`);
-  if (pc.state === "running") return chip("running now", "amber");
-  const status = h("span", { class: "mk-s" });
-  const price = pc.price && pc.price.complete && pc.price.total !== null && pc.price.total !== undefined ? `about ${usd(pc.price.total)} at list price` : "price not listed";
-  const go = button(pc.state === "partial" ? `Check the rest · ${price}` : `Check pages · ${price}`, async () => {
-    if (!window.confirm(`Check the ${plural(pc.price ? pc.price.pages : 0, "page")} of ${x.exam}?\n\nTwo model families read every page and say whether it teaches its skill. This costs ${price} and changes nothing: no page, lesson or film.`)) return;
-    go.disabled = true;
-    await act(() => runJob(api(`/api/studio/pagecheck/${x.package}`, { method: "POST", body: {} }), (s, secs) => { status.textContent = `${s} · ${secs}s`; })
-      .then(() => api("/api/studio/courses?fresh=true")), null);
-  }, "ghost sm");
-  return [status, go];
+// What the pages of a course are, in one sentence: found for every skill, and how far two model families confirmed them.
+function pagesLine(x, pages) {
+  const s = x.search, pc = x.pagecheck;
+  if (s) return `${s.supported} confirmed by two models${s.weak ? `, ${s.weak} only partly` : ""}${s.invalid ? `, ${s.invalid} refused` : ""}${s.unlooked ? `, ${s.unlooked} not looked at yet` : ""}`;
+  if (pc && pc.checked) return `${pc.supported} confirmed by two models${pc.weak ? `, ${pc.weak} only partly` : ""}${pc.invalid ? `, ${pc.invalid} refused` : ""}${pc.unchecked ? `, ${pc.unchecked} not checked yet` : ""}`;
+  return "not read by two models yet";
 }
 
 // The skills whose pages the check did not confirm, under Details.
@@ -6173,178 +6501,120 @@ function pageCheckList(x) {
       chip(s.verdict === "invalid" ? "pages refused" : "only partly", s.verdict === "invalid" ? "rose" : "amber"))));
 }
 
-// What the Videos row says and offers: the films being made, the button that approves the rest at its price, and why some lessons are not offered.
-function videoCell(x, c, act) {
-  const v = x.make && x.make.videos;
-  if (!v) return h("span", { class: "mk-s muted" }, "could not be read just now");
-  const out = [];
-  const busy = v.waiting + v.filming;
-  if (busy) {
-    out.push(h("span", { class: "mk-s" }, `${v.filming ? "Filming" : "Waiting"}: ${plural(busy, "lesson")} to go${v.eta_minutes ? `, about ${howLong(v.eta_minutes)}` : ""}`));
-    if (v.waiting) {
-      const stop = button("Stop the rest", () => {
-        stop.disabled = true;
-        return act(() => api(`/api/studio/film/${x.package}/stop`, { method: "POST" }),
-          (r) => ({ text: r.stopped ? `Stopped ${plural(r.stopped, "film")} that had not started. A film being made finishes.` : "No film was waiting." }));
-      }, "ghost sm");
-      out.push(stop);
-    }
-  }
-  const o = v.offer;
-  if (o && !o.token) out.push(h("span", { class: "mk-s" }, "price not available just now"));
-  else if (o && !o.fits) out.push(chip(`no room: needs ${gb(o.bytes)}, ${gb(c.make.storage.free_bytes)} free`, "rose"));
-  else if (o) {
-    const go = button([icon("video", "sm"), `Film ${plural(o.lessons, "lesson")} · about ${usd(o.usd)}`], () => {
-      if (!window.confirm(`Film ${plural(o.lessons, "lesson")} of ${x.exam}?\n\nAbout ${usd(o.usd)} at list price; the bill can differ a little. The films are made one at a time, about ${howLong(o.eta_minutes)} in all. You can stop the ones that have not started.`)) return;
-      go.disabled = true;
-      go.replaceChildren("Approving…");
-      return act(() => api(`/api/studio/film/${x.package}`, { method: "POST", body: { confirm: "FILM", offer: o.token } }),
-        () => ({ text: `Approved the films of ${x.exam}. They are made one at a time; the first starts shortly.` }));
-    }, "amber");
-    out.push(go);
-  }
-  const later = v.later || {};
-  const why = [later.held ? `${plural(later.held, "lesson")} wait for a rewrite (a source page changed)` : null,
-    later.silent ? `${plural(later.silent, "lesson")} ${later.silent === 1 ? "has" : "have"} no narration to film` : null,
-    later.other ? `${plural(later.other, "lesson")} can't be filmed yet` : null].filter(Boolean);
-  if (why.length) out.push(h("span", { class: "mk-s muted" }, why.join("; ")));
-  if (v.failed) out.push(h("span", { class: "mk-s bad" }, `${plural(v.failed, "film")} did not work last time; ${v.failed === 1 ? "it is" : "they are"} in the button`));
-  if (!out.length && v.have === v.of) out.push(mkDone());
-  return out;
-}
-
-function courseCard(x, c, act) {
-  const R = (key) => x.rows.find((r) => r.key === key);
-  const M = x.missing || {};
-  const decks = c.make && c.make.decks;
+function courseCard(x, c) {
+  const R = (key) => x.rows.find((r) => r.key === key) || {};
+  const M = x.missing || {}, v = x.make && x.make.videos, o = v && v.offer, decks = c.make && c.make.decks;
   const pages = R("pages"), lessons = R("lessons"), listen = R("listen"), deeper = R("deeper");
-  const complete = x.ready && !M.videos && !M.diagrams && !M.deeper;
-  const left = [M.videos ? `${M.videos} videos` : null, M.diagrams ? `${M.diagrams} diagrams` : null, M.deeper ? `${plural(M.deeper, "Deeper Listen")}` : null].filter(Boolean);
-  const line = !x.ready ? x.verdict : complete ? "Everything is made." : `You can study this now. Still missing: ${left.join(", ")}.`;
-  const videos = x.make && x.make.videos;
-  const rows = [
-    pages.state === "ok" ? null : mkRow("Official pages", pages.have, pages.of, "warn", h("span", { class: "mk-s" }, "Dojo is finding them")),
-    mkRow("Lessons", lessons.have, lessons.of, lessons.state, lessons.have === lessons.of ? mkDone() : h("span", { class: "mk-s" }, "Dojo is writing them")),
-    mkRow("Listen", listen.have, listen.of, listen.state, listen.have === listen.of ? mkDone() : h("span", { class: "mk-s" }, "Dojo is narrating them")),
-    mkRow("Deeper Listen", deeper.have, deeper.of, deeper.state, deeper.have === deeper.of ? mkDone()
-      : h("span", { class: "mk-s" }, `by itself${M.deeper_days ? `, about ${plural(M.deeper_days, "day")}` : ""}`)),
-    mkRow("Diagrams", x.diagrams.ready, x.diagrams.of, mkState(x.diagrams.ready, x.diagrams.of, true), x.diagrams.ready === x.diagrams.of ? mkDone()
-      : h("span", { class: "mk-s" }, decks && decks.ahead ? `being drawn, up to ${decks.per_day} a day` : "drawn when you open Present; the top button draws them all")),
-    videos ? mkRow("Videos", videos.have, videos.of, mkState(videos.have, videos.of, true), videoCell(x, c, act))
-      : mkRow("Videos", x.video.own, lessons.of, mkState(x.video.own, lessons.of, true), videoCell(x, c, act)),
-    x.pagecheck ? h("div", { class: "mk-row todo" }, h("span", { class: "mk-l" }, "Page check"),
-      h("span", { class: "mk-m" }, h("span", { class: "mk-s muted" }, x.pagecheck.state === "done" ? "two model families read every page" : "optional: do the pages teach their skills?")),
-      h("span", { class: "mk-a" }, pageCheckBlock(x, act))) : null,
-  ];
+  const decide = (text) => h("span", { class: "mk-s" }, text, " ", h("a", { class: "link", href: "#/quality" }, "Decide in To do"));
   const attn = (x.attention || []).map((a) => h("div", { class: "attn-row" }, ATTN_CHIP[a.level] ? chip(ATTN_CHIP[a.level][0], ATTN_CHIP[a.level][1]) : h("i", { class: "attn-dot" }),
     h("span", null, a.text, " ", a.link ? h("a", { class: "link", href: a.link }, a.link_text || "Open") : null)));
+  const own = v ? v.have : x.video.own;
   return h("section", { class: x.ready ? "panel course" : "panel course edge-amber" },
     h("div", { class: "panel-h" }, eyebrow("course", `${x.exam} · ${x.title}`),
-      h("span", { class: "chips" }, chip(x.added ? "added by you" : "original course", "line"),
-        complete ? chip("Everything made", "sage") : x.ready ? chip("Can study now", "line") : chip("Not ready yet", "amber"))),
-    h("p", { class: "sub" }, `${plural(x.skills, "skill")}. ${line}`),
-    h("div", { class: "mk" }, rows),
-    h("details", { class: "how" }, h("summary", null, "Details: what each number counts"),
+      h("span", { class: "chips" }, chip(x.added ? "added by you" : "original course", "line"), x.ready ? chip("Ready to study", "sage") : chip("Not complete yet", "amber"))),
+    h("p", { class: "sub" }, `${plural(x.skills, "skill")}. ${x.verdict}`,
+      x.rechecking ? ` ${plural(x.rechecking, "lesson")} ${x.rechecking === 1 ? "is" : "are"} being rewritten after a source page changed.` : ""),
+    h("div", { class: "mk" },
+      h("h3", { class: "mk-h" }, "Study material, made by Dojo"),
+      mkRow("Lessons", lessons.have, lessons.of, lessons.state, lessons.have === lessons.of ? mkDone() : h("span", { class: "mk-s" }, "Dojo is writing them")),
+      mkRow("Listen (audio)", listen.have, listen.of, listen.state, listen.have === listen.of ? mkDone() : h("span", { class: "mk-s" }, "Dojo is narrating them")),
+      mkRow("Deeper Listen", deeper.have, deeper.of, deeper.state, deeper.have === deeper.of ? mkDone()
+        : h("span", { class: "mk-s" }, `Dojo writes them by itself${M.deeper_days ? `, about ${plural(M.deeper_days, "day")}` : ""}`)),
+      mkRow("Pages found", pages.have, pages.of, pages.state, h("span", { class: "mk-s" }, pagesLine(x, pages))),
+      h("h3", { class: "mk-h" }, "Optional extras"),
+      mkRow("Diagrams", x.diagrams.ready, x.diagrams.of, mkState(x.diagrams.ready, x.diagrams.of, true),
+        x.diagrams.ready === x.diagrams.of ? mkDone() : decks && decks.ahead ? h("span", { class: "mk-s" }, `being drawn, up to ${decks.per_day} a day`)
+          : decide("Drawn when you open Present, or all at once.")),
+      mkRow("Videos", own, lessons.of, mkState(own, lessons.of, true),
+        own === lessons.of ? mkDone() : v && (v.waiting || v.filming) ? h("span", { class: "mk-s" }, "being made") : o ? decide(`${plural(o.lessons, "lesson")} can be filmed now.`)
+          : h("span", { class: "mk-s muted" }, x.video.earlier ? `${x.video.earlier} play an earlier version's video.` : "none yet"))),
+    h("details", { class: "how" }, h("summary", null, "What each number counts"),
       h("div", { class: "cov-grid" }, x.rows.map(covRow)),
       pageCheckList(x),
       attn.length ? [h("h3", { class: "top" }, "What to know"), h("div", { class: "attn" }, attn)] : null));
 }
 
-// The one place to press: what is left to make over all courses, with its price, and one button for all of it.
-function makePanel(c, act) {
-  const M = c.make, f = M.films, d = M.decks;
-  const filmsLeft = f.lessons > 0, decksLeft = !!d && d.remaining > 0;
-  if (!filmsLeft && !decksLeft) {
-    return h("section", { class: "panel make-all" }, eyebrow("check", "Nothing is waiting for your go-ahead"),
-      h("p", { class: "sub" }, "Every lesson has its videos and diagrams, or they are on their way. Lessons, Listen and Deeper Listen make themselves."));
-  }
-  const deckPriced = decksLeft && d.usd !== null && d.complete;
-  const toDraw = deckPriced && !d.ahead;
-  const doFilms = filmsLeft && f.fits && f.priced;
-  const total = (doFilms ? f.usd : 0) + (toDraw ? d.usd : 0);
-  const lines = [];
-  if (filmsLeft) {
-    lines.push(h("div", { class: "make-line" }, h("b", null, "Videos"),
-      h("span", null, `${plural(f.lessons, "lesson")} in ${plural(f.courses.length, "course")}`),
-      f.fits ? h("span", { class: "cost" }, f.priced ? `about ${usd(f.usd)}` : "price not available just now")
-        : chip(`no room: needs ${gb(f.bytes)}, ${gb(M.storage.free_bytes)} free`, "rose")));
-  }
-  if (decksLeft) {
-    lines.push(h("div", { class: "make-line" }, h("b", null, "Diagrams"),
-      h("span", null, d.ahead ? `being drawn ahead of time: ${d.ready} of ${d.lessons}, up to ${d.per_day} a day`
-        : `${plural(d.remaining, "lesson")}, up to ${d.per_day} a day, about ${plural(d.days, "day")}`),
-      d.ahead ? button("Stop drawing", (e) => {
-        e.currentTarget.disabled = true;
-        return act(() => api("/api/studio/decks/ahead", { method: "POST", body: { on: false } }).then(() => api("/api/studio/courses?fresh=true")),
-          () => ({ text: "Diagrams are no longer drawn ahead of time." }));
-      }, "ghost sm")
-        : h("span", { class: "cost" }, deckPriced ? `about ${usd(d.usd)}` : "price not available just now")));
-  }
-  const ask = () => {
-    const rows = [];
-    if (doFilms) rows.push("Videos", ...f.courses.map((k) => `  ${k.exam}: ${plural(k.lessons, "lesson")}, about ${usd(k.usd)}`));
-    if (toDraw) rows.push("Diagrams", `  ${plural(d.remaining, "lesson")}, about ${usd(d.usd)}, up to ${d.per_day} a day. `
-      + "Lessons written later get one too, until you stop it here.");
-    return `${doFilms && toDraw ? "Make everything that is missing?" : doFilms ? "Film everything that is missing?" : "Draw the diagrams?"}\n\n${rows.join("\n")}\n\n`
-      + `Together about ${usd(total)} at list price; the bill can differ a little. `
-      + (doFilms ? `Videos are made one at a time, about ${howLong(f.eta_minutes)} in all. You can stop the ones that have not started.` : "");
-  };
-  const go = (doFilms || toDraw) ? button([icon("video", "sm"), doFilms && toDraw ? `Make everything · about ${usd(total)}` : doFilms ? `Film everything · about ${usd(f.usd)}` : `Draw the diagrams · about ${usd(d.usd)}`], () => {
-    if (!window.confirm(ask())) return;
-    go.disabled = true;
-    go.replaceChildren("Approving…");
-    return act(() => api("/api/studio/make", { method: "POST", body: { confirm: "MAKE", decks: toDraw,
-      films: doFilms ? f.courses.filter((k) => k.token && k.fits).map((k) => ({ package: k.package, offer: k.token })) : [] } }),
-    (r) => {
-      const bad = r.results.filter((x) => !x.ok);
-      const ok = r.results.filter((x) => x.ok && x.what === "films").map((x) => x.exam);
-      const said = [ok.length ? `Approved the films of ${ok.join(", ")}.` : null, r.results.some((x) => x.ok && x.what === "diagrams") ? "Diagrams are being drawn ahead of time." : null,
-        ...bad.map((x) => `${x.exam || "Diagrams"}: ${x.error}`)].filter(Boolean);
-      return { text: said.join(" "), bad: bad.length > 0 };
-    });
-  }, "amber") : null;
-  return h("section", { class: "panel make-all" },
-    h("div", { class: "panel-h" }, eyebrow("video", "Still to make"), chip("only when you say so", "line")),
-    lines,
-    go ? h("div", { class: "actions top" }, go) : null,
-    h("p", { class: "small muted top" }, "Lessons, Listen and Deeper Listen make themselves. Videos and diagrams cost money, so nothing is made until you press a button and see the price. Prices are at Azure list price."));
-}
-
 async function studioCourses() {
-  const host = h("div", { class: "courses" });
-  let notice = null, last = null, timer = null;
-  // A button's request: show the answer, or say why not and read the page again.
-  const act = async (call, said) => {
-    try {
-      const r = await call();
-      notice = said ? said(r) : null;
-      show(r);
-    } catch (e) {
-      notice = { text: e.message, bad: true };
-      try { show(await api("/api/studio/courses?fresh=true")); } catch (e2) { show(last); }
-    }
-  };
-  // While anything is being made, the page looks again every half minute, until it is left.
-  const poll = async () => {
-    if (!host.isConnected) return;
-    try { show(await api("/api/studio/courses")); } catch (e) { timer = setTimeout(poll, 60000); }
-  };
-  const show = (c) => {
-    last = c;
-    put(host,
-      notice ? h("p", { class: notice.bad ? "note bad" : "note", role: "status" }, notice.text) : null,
-      makePanel(c, act),
-      c.courses.map((x) => courseCard(x, c, act)),
-      h("p", { class: "note top" }, `Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. `,
-        `Presenter videos use ${gb(c.make.storage.bytes)} of ${gb(c.make.storage.budget_bytes)}. “Everything made” means every lesson has its Listen, Deeper Listen, diagrams and video. `, NOT_A_PREDICTION));
-    clearTimeout(timer);
-    if (c.make.busy) timer = setTimeout(poll, 30000);
-  };
-  show(await api("/api/studio/courses"));
-  return host;
+  const c = await api("/api/studio/courses");
+  return [h("div", { class: "between wrap courses-head" },
+    h("p", { class: "small muted" }, `Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. ${NOT_A_PREDICTION}`),
+    linkButton("Add an exam", "#/add-exam", "ghost sm")),
+  c.courses.map((x) => courseCard(x, c))];
 }
 
-// Activity: what Dojo did, newest first, day by day.
+// ---------------------------------------------------------------- Money
+const BILL_KIND = { use: ["Pay per use", "line"], always: ["Always on", "amber"], mixed: ["Partly always on", "line"], free: ["Free offer", "sage"] };
+
+function dayBars(days, currency) {
+  const top = Math.max(...days.map((d) => d.total), 1);
+  return h("div", { class: "bill-bars", role: "img", "aria-label": `Cost of each day this month: from ${money(Math.min(...days.map((d) => d.total)), currency)} to ${money(top, currency)}` },
+    days.map((d) => {
+      const bar = h("i", { class: d.partial ? "partial" : null });
+      bar.style.setProperty("height", `${Math.max(2, (100 * Math.max(d.total, 0)) / top)}%`);
+      return h("span", { class: "bd", title: `${dayWord(d.day)}: ${money(d.total, currency)}${d.partial ? " (still arriving)" : ""}` }, bar);
+    }));
+}
+
+function groupRow(g, total, currency) {
+  const [label, kind] = BILL_KIND[g.kind] || ["", "line"];
+  const share = total > 0 && g.total > 0 ? g.total / total : 0;
+  return h("div", { class: "bg-row" },
+    h("div", { class: "bg-t" }, h("b", null, g.label), chip(label, kind)),
+    h("div", { class: "bg-a" }, h("b", null, money(g.total, currency)), share ? h("span", { class: "small muted" }, `${Math.round(share * 100)}%`) : g.total < 0 ? h("span", { class: "small muted" }, "credit") : null),
+    share ? h("div", { class: "bar bg-bar", role: "img", "aria-label": `${g.label}: ${Math.round(share * 100)}% of the month` }, wide(h("i", null), `${Math.max(1, Math.round(share * 100))}%`)) : null,
+    h("p", { class: "small muted bg-n" }, g.note),
+    g.parts.length ? h("ul", { class: "bg-parts" }, g.parts.map((p) => h("li", null,
+      h("span", null, p.label, g.kind === "mixed" ? [" ", chip(BILL_KIND[p.kind][0], BILL_KIND[p.kind][1])] : null), h("span", null, money(p.total, currency))))) : null);
+}
+
+function billPanels(b) {
+  if (b.state === "not_connected") {
+    return panel(h("div", { class: "panel-h" }, eyebrow("scale", "The Azure bill"), chip("not connected", "line")),
+      h("h2", null, "Dojo cannot read the Azure bill yet"),
+      h("p", { class: "sub" }, b.reason),
+      b.detail ? h("details", { class: "how" }, h("summary", null, "What is missing"), h("p", { class: "small muted" }, b.detail)) : null,
+      h("p", { class: "small muted top" }, "The estimates below are Dojo's own, at Azure's published prices. They are not the bill."));
+  }
+  if (b.state === "error") return panel(h("div", { class: "panel-h" }, eyebrow("scale", "The Azure bill"), chip("not read", "rose")), h("p", { class: "sub", role: "alert" }, b.reason));
+  if (b.state === "empty") {
+    return panel(h("div", { class: "panel-h" }, eyebrow("scale", "The Azure bill"), chip("nothing yet", "line")),
+      h("h2", null, "No cost reported yet this month"), h("p", { class: "sub" }, b.reason),
+      b.previous ? h("p", { class: "sub" }, `Last month: ${money(b.previous.total, b.previous.currency || b.currency)}.`) : null);
+  }
+  const m = b.month, cur = b.currency, q = b.quiet_day, f = b.fixed;
+  const through = dayWord(m.to), partial = b.days.length ? b.days[b.days.length - 1].partial : false;
+  const portal = typeof b.link === "string" && /^https:\/\/portal\.azure\.com\//.test(b.link) ? b.link : null;
+  return [
+    h("section", { class: "panel bill-top" },
+      h("div", { class: "panel-h" }, eyebrow("scale", "This month so far"), b.stale ? chip(`as of ${whenWord(b.read_at)}`, "amber") : chip(`read ${whenWord(b.read_at)}`, "line")),
+      h("p", { class: "bill-big" }, h("b", null, money(m.total, cur)), h("span", { class: "small muted" }, ` in ${new Date(`${m.from}T12:00:00`).toLocaleDateString(undefined, { month: "long" })}, up to ${through}${partial ? " (that day is still arriving)" : ""}`)),
+      b.stale ? h("p", { class: "small bad", role: "status" }, `${b.stale_reason || "This is the last reading Dojo has."} `) : null,
+      h("p", { class: "sub" }, `Always on: about ${money(f.per_month, cur)} a month, charged even if nobody uses Dojo.`,
+        q ? ` Your quietest complete day was ${money(q.total, cur)} (${dayWord(q.day)}); at that rate a month is about ${money(q.per_month, cur)}.` : "",
+        b.previous ? ` Last month: ${money(b.previous.total, cur)}.` : ""),
+      dayBars(b.days, cur),
+      b.busiest.length ? h("p", { class: "small muted" }, `Busiest days: ${b.busiest.map((d) => `${dayWord(d.day)} ${money(d.total, cur)}`).join(", ")}. `, h("a", { class: "link", href: "#/quality/activity" }, "Activity shows what happened then."))
+        : null),
+    h("section", { class: "panel bill-groups" },
+      h("div", { class: "panel-h" }, eyebrow("scale", "Where it goes")),
+      b.groups.map((g) => groupRow(g, m.total, cur)),
+      h("p", { class: "small muted top" }, "Always on: charged for as long as it exists, even if nobody uses Dojo. Pay per use: grows with what Dojo writes, films or checks."),
+      portal ? h("p", { class: "small" }, h("a", { class: "link", href: portal, target: "_blank", rel: "noopener noreferrer" }, "Open this in Azure Cost analysis ↗")) : null,
+      h("p", { class: "note top" }, "Azure bills the whole resource group, so Dojo cannot split it per course or per person. Charges Azure does not assign to this resource group are not included. "
+        + "Azure reports with a delay of usually 8 to 24 hours and may revise a day.")),
+  ];
+}
+
+async function studioMoney() {
+  const [b, e] = await Promise.all([api("/api/studio/bill").catch((err) => ({ state: "error", reason: err.message })), api("/api/studio/costs").catch((err) => ({ error: err.message }))]);
+  return [billPanels(b),
+    h("details", { class: "how top bill-est", open: b.state === "ok" ? null : true }, h("summary", null, "What building a course costs: Dojo's own estimates"),
+      h("p", { class: "small muted" }, "These are estimates at Azure's published prices for work Dojo would do. They are not the bill above."),
+      costsPanel(e))];
+}
+
+// ---------------------------------------------------------------- Activity
+// What Dojo did, newest first, day by day.
 const FEED_KIND = { lesson: "Lesson", deep: "Deeper Listen", pages: "Official pages", page: "Source change", job: "Job", problem: "Problem" };
 const FEED_MANY = { lesson: "lessons", deep: "Deeper Listens", pages: "official pages", page: "source changes", job: "jobs", problem: "problems" };
 
@@ -6379,10 +6649,10 @@ function feedDay(d) {
 }
 
 function spendPanel(a) {
-  return panel(h("div", { class: "panel-h" }, eyebrow("scale", "What it cost"), chip("Metered", "amber")),
+  return panel(h("div", { class: "panel-h" }, eyebrow("scale", "Dojo's own count"), chip("not the bill", "amber")),
     a.metered ? [a.spend.map((s) => h("div", { class: "now-row" }, h("b", null, fmtDay(s.day)), h("span", null, usd(s.usd)))),
-      h("p", { class: "small muted top" }, "What Dojo's own model and voice calls cost on each day (UTC), as it counted them. The bill in Azure Cost Management is the figure to trust.")]
-      : h("p", { class: "sub" }, "Spending is metered only in team mode. Costs shows list-price estimates."));
+      h("p", { class: "small muted top" }, "What Dojo's own model and voice calls cost on each day (UTC), as it counted them. The bill under Money is the figure to trust.")]
+      : h("p", { class: "sub" }, "Dojo counts its calls only in team mode. Money shows what Azure charged."));
 }
 
 async function studioActivity() {
@@ -6408,52 +6678,110 @@ async function studioActivity() {
     h("p", { class: "note top" }, `The last ${a.window_days} days, newest first${a.cut ? " (the oldest events are left out)" : ""}. Times are yours.`)];
 }
 
-// Checks: how Dojo checks its own work (what Studio was before it had tabs).
-async function studioChecks() {
-  const [log, a, v, dr, dl, sr, lb] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
-    api("/api/studio/voices").catch((e) => ({ error: e.message })),
-    api("/api/studio/drift").catch((e) => ({ error: e.message })), api("/api/studio/deeper").catch((e) => ({ error: e.message })),
-    api("/api/studio/sourcing").catch((e) => ({ error: e.message })), api("/api/studio/lab").catch((e) => ({ error: e.message }))]);
+// ---------------------------------------------------------------- Health
+// One closed section for each check, with a chip and one plain line that say whether to open it.
+function healthSection(id, title, state, line, body, open) {
+  const kind = { ok: ["fine", "sage"], look: ["to look at", "amber"], info: ["for information", "line"], unread: ["could not be read", "rose"] }[state];
+  return h("details", { class: "hsec", id: `health-${id}`, open: open ? true : null },
+    h("summary", null, h("span", { class: "hs-t" }, title), chip(kind[0], kind[1]), h("span", { class: "hs-l" }, line)),
+    h("div", { class: "hs-body" }, body));
+}
+
+const DAY_MS = 86400000;
+// A line that points at a section of this page opens it and moves there: the address of a page is its route, so it is not an anchor.
+function openHealth(id) {
+  const el = document.getElementById(`health-${id}`);
+  if (!el) return;
+  el.open = true;
+  el.scrollIntoView({ block: "start" });
+  const s = el.querySelector("summary");
+  if (s) s.focus({ preventScroll: true });
+}
+const unreadable = (x) => !x || !!x.error;
+
+// What to look at, from what the checks said, in the owner's words. A check that could not be read is not a thing to look at: it is said apart.
+function healthLook(dr, dl, sr) {
+  const look = [];
+  if (!unreadable(dr)) {
+    if (dr.labs.length) look.push({ text: `${plural(dr.labs.length, "lab")} to look at`, href: "#/quality" });
+    if (dr.stuck.length) look.push({ text: `${plural(dr.stuck.length, "lesson")} whose official pages are gone`, href: "#/quality" });
+    const last = dr.pages.last_read ? Date.parse(dr.pages.last_read) : null;
+    if (dr.started && last && Date.now() - last > 36 * 3600000) look.push({ text: `the daily page check has not read a page for ${plural(Math.floor((Date.now() - last) / DAY_MS), "day")}`, section: "changes" });
+  }
+  if (!unreadable(sr) && sr.web_search && !sr.web_search.ok) look.push({ text: "web search for finding pages does not work", section: "sources" });
+  if (!unreadable(dl) && dl.failures.length) look.push({ text: `${plural(dl.failures.length, "rewrite")} failed recently`, section: "rewrites" });
+  return look;
+}
+
+// One thing to look at, said as a link: to the page that has its button, or to the section of this page that has its detail.
+function lookLink(l, sentence) {
+  const text = sentence ? `${l.text[0].toUpperCase()}${l.text.slice(1)}.` : l.text;
+  return l.href ? h("a", { class: "link", href: l.href }, text) : h("a", { class: "link", href: "#/quality/health", onclick: (e) => { e.preventDefault(); openHealth(l.section); } }, text);
+}
+
+function healthTop(parts, look) {
+  const unread = parts.filter(([, x]) => unreadable(x));
+  return panel(h("div", { class: "panel-h" }, eyebrow("shield", "Where things stand"), look.length ? chip(plural(look.length, "thing") + " to look at", "amber") : unread.length ? chip("some checks could not be read", "rose") : chip("all fine", "sage")),
+    h("p", { class: "sub", role: "status" }, look.length === 1 ? lookLink(look[0], true) : look.length ? `${plural(look.length, "thing")} to look at.` : unread.length ? "Everything Dojo could read is working." : "Everything Dojo checked is working.",
+      unread.length ? ` ${unread.length} of ${plural(parts.length, "check")} could not be read: ${unread.map(([n]) => n).join(", ")}.` : ""),
+    look.length > 1 ? h("ul", { class: "facts" }, look.map((l) => h("li", null, lookLink(l)))) : null);
+}
+
+async function studioHealth(opts) {
+  const read = (path) => api(path).catch((e) => ({ error: e.message }));
+  const [log, a, v, dr, dl, sr, lb] = await Promise.all([read("/api/quality"), api("/api/about").catch(() => null), read("/api/studio/voices"),
+    read("/api/studio/drift"), read("/api/studio/deeper"), read("/api/studio/sourcing"), read("/api/studio/lab")]);
   // During a timed exam the log is closed, because blocked sentences are still lesson text.
   const q = Array.isArray(log) ? log : [];
   const who = { "02": a && a.models.author, "03": a && a.models.gate, "05": a && a.models.grader };
   const pipe = h("div", { class: "pipe" }, PIPE.map(([num, name, note, ic]) => h("div", { class: num === "03" ? "pstage gate" : "pstage" },
     h("span", { class: "num" }, num), h("b", null, icon(ic, "sm"), " ", name), h("small", null, note),
     who[num] ? h("div", { class: "who" }, chip(who[num], "line")) : null)));
-  const blocked = q.filter((x) => x.text);
-  // What the owner presses comes first (the lab database switch), then the checks, then the long history (ADR 0024).
   for (const k of Object.keys(OPEN_MORE)) delete OPEN_MORE[k];
-  return [labRow(lb), pipe,
-    h("div", { class: "row stackable" }, voicesPanel(v)),
-    driftRow(dr),
-    deeperRow(dl),
-    sourcingRow(sr),
-    h("div", { class: "row stackable grow studio-log" },
-      h("section", { class: "panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why" },
-        h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
-        !Array.isArray(log) ? h("p", { class: "sub" }, log.error || "The log could not be read.")
-        : q.length ? q.map((x) => h("div", { class: "qentry" },
-          h("div", { class: "qh" }, h("b", null, [x.kind, x.part].filter(Boolean).join(" · ")), h("span", { class: "small muted" }, fmtDate(x.at))),
-          x.text ? h("p", { class: "blocked-line" }, x.text) : null,
-          x.reason ? h("p", { class: "small ink2" }, h("b", null, "Why: "), x.reason) : null)) : h("p", { class: "sub" }, "Nothing so far.")),
-      h("div", { class: "col w430" },
-        h("section", { class: "panel" }, eyebrow("scale", "The rule"),
-          h("p", { class: "sub" }, "Every model-written sentence you see has to survive an independent model from a different family, element by element. What does not hold is removed and written down here, with the reason."),
-          h("dl", { class: "mrow top" }, h("dt", null, "Blocked text"), h("dd", null, Array.isArray(log) ? `${blocked.length}` : "–")),
-          h("dl", { class: "mrow" }, h("dt", null, "Entries"), h("dd", null, Array.isArray(log) ? `${q.length}` : "–")),
-          a ? h("dl", { class: "mrow" }, h("dt", null, "Author"), h("dd", { class: "jname" }, a.models.author)) : null,
-          a ? h("dl", { class: "mrow" }, h("dt", null, "Gate"), h("dd", { class: "jname" }, a.models.gate)) : null,
-          a ? h("dl", { class: "mrow" }, h("dt", null, "Grader"), h("dd", { class: "jname" }, a.models.grader)) : null),
-        h("section", { class: "panel" }, eyebrow("shield", "Why you can trust the gaps"),
-          h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "A blocked claim never reaches you, so a thin lesson is honest, not broken.")),
-          h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "Quotes are matched word for word by Dojo itself, not by a model.")),
-          h("p", { class: "note top" }, NOT_A_PREDICTION))))];
-}
-
-// Costs: what building a course costs at list prices, and the way in to adding an exam.
-async function studioCosts() {
-  const c = await api("/api/studio/costs").catch((e) => ({ error: e.message }));
-  return [h("div", { class: "row stackable" }, h("div", { class: "col grow" }, costsPanel(c)), h("div", { class: "col w430" }, examsPanel()))];
+  const look = healthLook(dr, dl, sr);
+  const parts = [["page changes", dr], ["voices", v], ["rewrites from more pages", dl], ["lesson sources", sr], ["blocked sentences", Array.isArray(log) ? log : { error: log.error }], ["lab database", lb]];
+  const week = unreadable(dr) ? 0 : dr.changes.filter((c) => Date.now() - Date.parse(`${c.date}T12:00:00`) < 7 * DAY_MS).length;
+  const flagged = unreadable(v) ? 0 : v.listen.flagged + v.watch.flagged + (v.deep || { flagged: 0 }).flagged;
+  const blocked = q.filter((x) => x.text);
+  const sections = [
+    healthSection("changes", "Page changes", unreadable(dr) ? "unread" : dr.labs.length || dr.stuck.length ? "look" : "ok",
+      unreadable(dr) ? "The source check could not be read." : `Dojo reads every cited page again each day: ${plural(dr.pages.cited, "page")}, last read ${dr.pages.last_read ? fmtDate(dr.pages.last_read) : "not yet"}. `
+        + `${plural(week, "page")} changed this week${dr.pages.gone ? `; ${dr.pages.gone} gone` : ""}.`,
+      driftRow(dr), false),
+    healthSection("voices", "Voices", unreadable(v) ? "unread" : "info",
+      unreadable(v) ? "The voice check could not be read." : `${plural(v.listen.lessons, "lesson")} heard again; ${flagged} ${flagged === 1 ? "slide or part was" : "slides or parts were"} read a little differently from the text. Optional to listen to.`,
+      voicesPanel(v), false),
+    healthSection("rewrites", "Rewrites from more pages", unreadable(dl) ? "unread" : dl.failures.length ? "look" : "ok",
+      unreadable(dl) ? "Rewrites could not be read." : `${dl.today.used} of ${dl.limits.per_day} lessons rewritten today. ${dl.failures.length ? `${plural(dl.failures.length, "rewrite")} failed recently.` : "No failures."}`,
+      deeperRow(dl), false),
+    healthSection("sources", "Lesson sources", unreadable(sr) ? "unread" : sr.web_search && !sr.web_search.ok ? "look" : "ok",
+      unreadable(sr) ? "The search for pages could not be read." : sr.exams.length ? `Dojo finds the pages of ${plural(sr.exams.length, "added exam")} itself; web search ${sr.web_search && sr.web_search.ok ? "works" : "is not confirmed"}.`
+        : "No added exam yet; the pages of the built-in courses are checked from Courses.",
+      sourcingRow(sr), false),
+    healthSection("blocked", "Blocked sentences", Array.isArray(log) ? "info" : "unread",
+      Array.isArray(log) ? `${q.length >= 400 ? "The last 400 are kept" : plural(q.length, "entry")}. A blocked sentence never reaches you.` : "The log could not be read.",
+      [pipe, h("div", { class: "row stackable grow studio-log" },
+        h("section", { class: "panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why" },
+          h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
+          !Array.isArray(log) ? h("p", { class: "sub" }, log.error || "The log could not be read.")
+          : q.length ? q.map((x) => h("div", { class: "qentry" },
+            h("div", { class: "qh" }, h("b", null, [x.kind, x.part].filter(Boolean).join(" · ")), h("span", { class: "small muted" }, fmtDate(x.at))),
+            x.text ? h("p", { class: "blocked-line" }, x.text) : null,
+            x.reason ? h("p", { class: "small ink2" }, h("b", null, "Why: "), x.reason) : null)) : h("p", { class: "sub" }, "Nothing so far.")),
+        h("div", { class: "col w430" },
+          h("section", { class: "panel" }, eyebrow("scale", "The rule"),
+            h("p", { class: "sub" }, "Every model-written sentence you see has to survive an independent model from a different family, element by element. What does not hold is removed and written down here, with the reason."),
+            h("dl", { class: "mrow top" }, h("dt", null, "Blocked text"), h("dd", null, Array.isArray(log) ? `${blocked.length}` : "–")),
+            h("dl", { class: "mrow" }, h("dt", null, "Entries"), h("dd", null, Array.isArray(log) ? `${q.length}` : "–")),
+            a ? h("dl", { class: "mrow" }, h("dt", null, "Author"), h("dd", { class: "jname" }, a.models.author)) : null,
+            a ? h("dl", { class: "mrow" }, h("dt", null, "Gate"), h("dd", { class: "jname" }, a.models.gate)) : null,
+            a ? h("dl", { class: "mrow" }, h("dt", null, "Grader"), h("dd", { class: "jname" }, a.models.grader)) : null),
+          h("section", { class: "panel" }, eyebrow("shield", "Why you can trust the gaps"),
+            h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "A blocked claim never reaches you, so a thin lesson is honest, not broken.")),
+            h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "Quotes are matched word for word by Dojo itself, not by a model.")),
+            h("p", { class: "note top" }, NOT_A_PREDICTION))))], !!(opts && opts.open === "blocked")),
+  ];
+  return [healthTop(parts, look), labRow(lb), sections];
 }
 
 // What Dojo's own voices actually said (EG-19): a background check writes down the Listen audio and a
@@ -6525,13 +6853,6 @@ function voicesPanel(v) {
       ? [h("h3", { class: "top" }, "Where the words differ most"), h("div", { class: "vlist" }, v.worst.map(voiceCase))]
       : h("p", { class: "sub top" }, L.lessons || W.lessons || D.lessons ? "Every checked slide and part was heard exactly as approved." : "Nothing has been checked yet."),
     h("p", { class: "note top" }, v.note));
-}
-
-// The way in to screen 12 from Studio: which exams Dojo builds courses for, and a way to add one.
-function examsPanel() {
-  return panel(h("div", { class: "panel-h" }, eyebrow("course", "Your exams"), linkButton("Add an exam", "#/add-exam", "sm")),
-    h("div", { class: "chips" }, state.me.packages.map((p) => chip(p.added ? `${p.exam} · added` : p.exam, "line"))),
-    h("p", { class: "small muted top" }, "Type any Microsoft or GitHub exam code. Dojo reads the official study guide, shows what the course costs, and builds it when you confirm."));
 }
 
 // The estimate. Every price comes from the public list; a meter that is not listed is said so, not guessed.
@@ -6609,46 +6930,27 @@ function deepCosts(d) {
     everyLessonCost(all, d.assumptions));
 }
 
-// Present's visual decks (ADR 0014): how many lessons play one, what they have cost so far and what every
-// lesson costs. Drawing them ahead of time is the owner's switch, off until it is turned on with the price shown.
+// Present's visual decks (ADR 0014): how many lessons play one, what they have cost so far and what every lesson costs, as an estimate. Drawing
+// them ahead of time is the owner's decision, made on the To do page with the price shown: nothing here spends money.
 function deckCosts(first) {
   if (!first) return null;
-  const host = h("div", { class: "deep-costs" });
-  const draw = (d) => {
-    const so = d.so_far, all = d.every_lesson;
-    const checks = (d.failed || 0) - (d.stopped || 0);
-    const state = [d.ahead && d.per_day ? `Today: ${d.today} of ${d.per_day} drawn ahead of time.` : "",
-      d.drawing ? `${plural(d.drawing, "deck")} being drawn now.` : "",
-      d.waiting_upgrade ? `${plural(d.waiting_upgrade, "lesson")} ${d.waiting_upgrade === 1 ? "waits" : "wait"} until ${d.waiting_upgrade === 1 ? "it is" : "they are"} written again on the deeper template, so ${d.waiting_upgrade === 1 ? "its" : "each"} deck is drawn once.` : "",
-      checks > 0 ? `${plural(checks, "lesson")} did not pass the checks and ${checks === 1 ? "plays" : "play"} the deck built from the lesson.` : "",
-      d.stopped ? `${plural(d.stopped, "lesson")} stopped before ${d.stopped === 1 ? "it was" : "they were"} finished and ${d.stopped === 1 ? "plays" : "play"} the deck built from the lesson.` : "",
-      d.failed ? "Dojo draws each deck at most twice, a week apart." : ""].filter(Boolean).join(" ");
-    const price = all.per_lesson === null || all.per_lesson === undefined ? "" : ` (about ${usd(all.per_lesson)} a lesson)`;
-    const toggle = async () => {
-      if (!d.ahead && !window.confirm(`Draw the visual decks ahead of time?\n\nUp to ${d.per_day} a day, the active exam first, until ${plural(all.lessons, "lesson")} have one: `
-        + `${all.complete ? "about" : "at least"} ${usd(all.total)} at list price in all${price}. Lessons written later get one too, at about the same price each, until you stop it. `
-        + "You can stop it here at any time.\n\n"
-        + "A lesson you open in Present gets its deck drawn right away, whether this is on or not.")) return;
-      try {
-        const r = await api("/api/studio/decks/ahead", { method: "POST", body: { on: !d.ahead } });
-        draw({ ...d, ahead: r.ahead });
-      } catch (e) {
-        host.append(h("p", { class: "small bad", role: "alert" }, e.message));
-      }
-    };
-    put(host,
-      h("h3", { class: "top" }, "Present: visual decks"),
-      h("p", { class: "deep-line" }, `Visual decks: ${d.ready} of ${d.lessons} ready; about ${usd(so.total)} at list price so far`
-        + `${so.complete ? "" : ", for the lines with a price"}. `
-        + (d.ahead ? `Drawing ahead of time: up to ${d.per_day} a day.`
-          : "Not drawn ahead of time: a lesson's deck is drawn when it is first opened in Present.")),
-      h("div", { class: "actions" }, button(d.ahead ? "Stop drawing ahead of time" : `Draw ahead of time (up to ${d.per_day} a day)`, toggle, "ghost sm")),
-      so.complete ? null : h("p", { class: "small bad" }, `So far: not the full cost. ${leftOut(so)}`),
-      state ? h("p", { class: "small muted" }, state) : null,
-      everyLessonCost(all, d.assumptions));
-  };
-  draw(first);
-  return host;
+  const d = first, so = d.so_far, all = d.every_lesson;
+  const checks = (d.failed || 0) - (d.stopped || 0);
+  const state = [d.ahead && d.per_day ? `Today: ${d.today} of ${d.per_day} drawn ahead of time.` : "",
+    d.drawing ? `${plural(d.drawing, "deck")} being drawn now.` : "",
+    d.waiting_upgrade ? `${plural(d.waiting_upgrade, "lesson")} ${d.waiting_upgrade === 1 ? "waits" : "wait"} until ${d.waiting_upgrade === 1 ? "it is" : "they are"} written again on the deeper template, so ${d.waiting_upgrade === 1 ? "its" : "each"} deck is drawn once.` : "",
+    checks > 0 ? `${plural(checks, "lesson")} did not pass the checks and ${checks === 1 ? "plays" : "play"} the deck built from the lesson.` : "",
+    d.stopped ? `${plural(d.stopped, "lesson")} stopped before ${d.stopped === 1 ? "it was" : "they were"} finished and ${d.stopped === 1 ? "plays" : "play"} the deck built from the lesson.` : "",
+    d.failed ? "Dojo draws each deck at most twice, a week apart." : ""].filter(Boolean).join(" ");
+  return h("div", { class: "deep-costs" },
+    h("h3", { class: "top" }, "Present: visual decks"),
+    h("p", { class: "deep-line" }, `Visual decks: ${d.ready} of ${d.lessons} ready; about ${usd(so.total)} at list price so far`
+      + `${so.complete ? "" : ", for the lines with a price"}. `
+      + (d.ahead ? `Drawing ahead of time: up to ${d.per_day} a day. Stop it on the To do page.`
+        : "Not drawn ahead of time: a lesson's deck is drawn when it is first opened in Present. Draw them all in advance on the To do page.")),
+    so.complete ? null : h("p", { class: "small bad" }, `So far: not the full cost. ${leftOut(so)}`),
+    state ? h("p", { class: "small muted" }, state) : null,
+    everyLessonCost(all, d.assumptions));
 }
 
 // What every lesson costs, and how Dojo estimates it: for Deeper Listen and the visual decks.
@@ -6688,7 +6990,7 @@ const dollars = (x) => (x > 0 && x < 0.01 ? "< $0.01" : `$${x.toFixed(2)}`);
 
 function driftRow(dr) {
   const host = h("div", { class: "row stackable" });
-  const paint = (d) => put(host, driftChanges(d, paint), h("div", { class: "col w430" }, refilmPanel(d, paint)));
+  const paint = (d) => put(host, driftChanges(d, paint), h("div", { class: "col w430" }, filmHistory(d)));
   if (dr && !dr.error) paint(dr);
   else put(host, h("section", { class: "panel grow" }, eyebrow("refresh", "Source changes"),
     h("p", { class: "sub top" }, (dr && dr.error) || "The source check could not be read.")));
@@ -6780,46 +7082,16 @@ function driftLab(x, paint, act = true) {
     h("span", { class: "chips" }, chip(label, kind), looked));
 }
 
-function refilmPanel(d, paint) {
-  const R = d.refilm, est = R.estimate, n = R.lessons.length;
-  const deeper = R.lessons.filter((x) => x.why === "deeper").length, changed = n - deeper;
-  const cost = est.usd === null ? "price not listed" : `about ${dollars(est.usd)} at list price`;
-  const status = h("p", { class: "small muted" });
-  const btn = n ? button(`Re-film ${plural(n, deeper ? "lesson" : "changed lesson")} (${cost})`, async () => {
-    if (!window.confirm(`Film ${plural(n, "lesson")} again? This costs ${cost}. The films are made one at a time.`)) return;
-    btn.disabled = true;
-    status.textContent = "Filing the films…";
-    try { paint(await api("/api/studio/drift/refilm", { method: "POST", body: { lessons: R.lessons.map((x) => x.id) } })); }
-    catch (e) { status.textContent = e.message; btn.disabled = false; }
-  }, "amber") : null;
-  if (btn && (est.usd === null || !est.voice_priced)) {   // nothing is filmed at a price Dojo cannot show completely: the voices are part of it
-    btn.disabled = true;
-    status.textContent = "The price list could not be read completely just now, so nothing can be approved.";
-  }
-  const pace = est.pace === "measured" ? "at the pace of your own videos" : "at an assumed pace of 14 characters a second";
-  const why = [changed ? `${plural(changed, "lesson")} after a source page changed` : null,
-    deeper ? `${plural(deeper, "lesson")} on the deeper template, from more official pages` : null].filter(Boolean).join(" and ");
-  const until = [changed ? "a changed lesson offers Present, Read and Listen" : null,
-    deeper ? "a deeper lesson shows the earlier film and says so" : null].filter(Boolean).join("; ");
-  const waiting = (x) => h("div", { class: "near" },
-    h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}/watch` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, x.skill),
-      x.why === "deeper" ? h("small", { class: "block muted" }, "deeper lesson") : null),
-    h("span", { class: "small muted" }, x.error ? "the last try did not work" : `${Number(x.characters).toLocaleString()} characters`));
+// The films the owner approved: what became of each, and what each approval was. Approving a film is on the To do page.
+function filmHistory(d) {
+  const R = d.refilm;
   const filmRow = (f) => {
     const [label, kind] = FILM_STATE[f.state] || [f.state, "line"];
     return h("div", { class: "near" }, h("span", null, f.title || f.skill, " ", h("span", { class: "mono muted" }, f.skill),
       f.state === "failed" && f.error ? h("small", { class: "block muted" }, f.error) : null), chip(label, kind));
   };
-  return panel(
-    h("div", { class: "panel-h" }, eyebrow("video", "Film again"), chip("Only when you say so", "amber")),
-    n ? [h("p", { class: "sub" }, `Written again: ${why}. `
-          + `The earlier ${n === 1 ? "version was" : "versions were"} filmed; the new ${n === 1 ? "one is" : "ones are"} not. Until then, Watch: ${until}.`),
-        h("div", { class: "actions top refilm" }, btn), pricesAge(est), status,
-        h("p", { class: "small muted top" }, `About ${est.minutes} minutes of video ${pace}. `,
-          est.voice_priced ? "The presenters' voices are included. " : "The presenters' voices have no listed price, so they are not included. ", est.label),
-        h("div", { class: "top" }, R.lessons.filter((x) => x.error).map(waiting), capped(R.lessons.filter((x) => !x.error), 5, "more lessons", waiting))]
-      : h("p", { class: "sub" }, "No changed lesson is waiting for a new video. Filming costs money, so Dojo never films on its own: when a filmed lesson is written again, it waits here for your go-ahead."),
-    R.films.length ? [h("h3", { class: "top" }, "Films you approved"), capped(R.films, 3, "earlier films", filmRow)] : null,
+  return panel(h("div", { class: "panel-h" }, eyebrow("video", "Films you approved")),
+    R.films.length ? capped(R.films, 3, "earlier films", filmRow) : h("p", { class: "sub" }, "No film was approved for these courses yet. Videos are decided on the To do page."),
     R.approvals.length ? h("p", { class: "small muted top" }, "Approved: ", R.approvals.map((a) =>
       `${fmtDate(a.at)}, ${plural(a.lessons.length, "lesson")}, ${a.usd === null || a.usd === undefined ? "price not listed" : "about " + dollars(a.usd)}`).join(" · ")) : null);
 }
@@ -6867,45 +7139,59 @@ function sourcingSkill(d) {
       : chip(`audit: ${d.audit.verdict}`, d.audit.verdict === "supported" ? "sage" : "amber")) : null));
 }
 
-// ---------------------------------------------------------------- Studio: the lab database (ADR 0023)
-// Performance monitoring of the lab database. The panel shows what Dojo last confirmed, never the live state, and its button is the
-// only way Dojo sets it: the one time it connects to the database for this. It is off until the owner presses it.
-const LAB_MON = { on: ["on", "sage"], off: ["off", "line"], unset: ["not turned on", "line"] };
+// ---------------------------------------------------------------- Studio: the lab database (ADR 0023, ADR 0025)
+// Performance monitoring of the lab database, in one line: its state and its button. The line shows what Dojo last confirmed, never the live
+// state, and its button is the only way Dojo sets it: the one time it connects to the database for this. What the switch costs is said where
+// it is pressed (the question) and behind "What is this?", not under the button for good.
+const LAB_HUB = "https://powerbi.com/workloads/fdh/databaseHub";
 const LAB_MON_ON = "Turn on performance monitoring for the lab database?\n\nThis wakes the database if it is paused, which uses about 2% of the month's free allowance. "
   + "Learn does not say whether monitoring keeps a free serverless database from pausing, so watch Free amount remaining in the Azure portal afterwards and turn it off if it falls while nobody uses labs.";
 const LAB_MON_OFF = "Turn off performance monitoring for the lab database?\n\nWhat it already collected is kept. This wakes the database if it is paused.";
+const LAB_MON_ABOUT = ["Microsoft collects the database's CPU, memory, waits and session counts: no queries and no table contents. You read it in the Fabric Database Hub, on its Performance page.",
+  "Turning it on wakes the database. It is on the free offer and pauses when idle, and Learn does not say whether monitoring keeps it awake. "
+  + "If Free amount remaining in the Azure portal falls while nobody uses labs, turn it off: when the free allowance runs out, the database is closed until next month."];
+const LAB_MON_WHY = { "database waking": "the database was waking up; try again in a minute" };
+// The time of day for today, the date for any other day.
+function clockOrDay(s) {
+  const d = new Date(s);
+  if (isNaN(d)) return "";
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
 
 function labRow(l) {
   if (!l || l.error) return h("div", { class: "row stackable" }, h("section", { class: "panel grow" }, eyebrow("scale", "Lab database"),
     h("p", { class: "sub top" }, (l && l.error) || "The lab database could not be read.")));
   if (!l.on || l.demo) return null;
-  const host = h("section", { class: "panel grow stack" });
-  const status = h("p", { class: "small muted", role: "status" });
+  const host = h("section", { class: "panel labmon" });
+  const msg = h("p", { class: "small muted labmon-msg", role: "status" });
   const draw = (m) => {
-    const [label, kind] = LAB_MON[m.observed] || ["not turned on yet", "line"];
-    const on = m.observed === "on";
+    const on = m.observed === "on", off = m.observed === "off";
+    const fresh = on && Date.now() - Date.parse(m.checked_at) < 30 * 60 * 1000;
     const go = button(on ? "Turn off" : "Turn on", async () => {
       if (!window.confirm(on ? LAB_MON_OFF : LAB_MON_ON)) return;
       go.disabled = true;
-      status.textContent = "Working…";
+      msg.textContent = "Working…";
       try {
         draw((await api("/api/studio/lab/monitoring", { method: "POST", body: { on: !on } })).monitoring);
-        status.textContent = "";
+        msg.textContent = "";
       } catch (e) {
-        status.textContent = e.message;
+        msg.textContent = e.message;
         go.disabled = false;
       }
     }, on ? "ghost sm" : "sm");
     put(host,
-      h("div", { class: "panel-h" }, eyebrow("scale", "Lab database"),
-        h("span", { class: "chips" }, chip(`performance monitoring: ${label}`, kind), m.error ? chip("last try failed", "rose") : null)),
-      h("p", { class: "sub" }, on
-        ? `Last confirmed on ${fmtDate(m.checked_at)}. See its CPU, waits and sessions in the Fabric Database Hub, on the Performance page; data shows about 10 minutes after it is turned on.`
-        : m.observed === "off" ? `Turned off, last confirmed ${fmtDate(m.checked_at)}.` : "Dojo has not confirmed it as on."),
-      m.error ? h("p", { class: "small bad" }, `The last try ${fmtDate(m.attempted_at)} did not work: ${m.error}.`) : null,
-      h("div", { class: "actions top" }, go), status,
-      h("p", { class: "small muted top" }, "This database is on the free offer and pauses when idle. Learn does not say whether monitoring keeps it awake. "
-        + "If its free allowance runs out, the database is closed until next month, so turn this off before that."));
+      h("div", { class: "labmon-row" },
+        h("div", { class: "labmon-l" }, eyebrow("scale", "Lab database"), h("b", null, "Performance monitoring"), chip(on ? "on" : "off", on ? "sage" : "line"),
+          h("span", { class: "small muted" }, on || off ? `confirmed ${clockOrDay(m.checked_at)}` : "Dojo has not turned it on"),
+          m.error ? chip("last try failed", "rose") : null),
+        h("div", { class: "actions" },
+          on ? h("a", { class: "btn ghost sm", href: LAB_HUB, target: "_blank", rel: "noopener noreferrer" }, "Open the Database Hub ↗") : null, go)),
+      fresh ? h("p", { class: "small muted labmon-msg" }, "The Database Hub shows the data about 10 minutes after it is turned on.") : null,
+      m.error ? h("p", { class: "small bad labmon-msg" }, `The last try at ${clockOrDay(m.attempted_at)} did not work: ${LAB_MON_WHY[m.error] || m.error}.`) : null,
+      msg,
+      h("details", { class: "how" }, h("summary", null, "What is this?"), LAB_MON_ABOUT.map((t) => h("p", { class: "small muted" }, t))));
   };
   draw(l.monitoring);
   return h("div", { class: "row stackable" }, host);
@@ -8792,6 +9078,10 @@ function filmPanel(st, onStatus, note) {
     const e = F.offer.estimate;
     const msg = h("p", { class: note ? "small bad" : "small", role: "status" }, note || "");
     const btn = button([icon("video", "sm"), `Film the lessons (${e.complete ? "about" : "more than"} ${usd(e.total)} at list price)`], async () => {
+      const ask = { lines: [{ label: `${plural(F.offer.lessons, "lesson")} of ${st.exam}`, usd: e.total }], title: (n, total) => `Film ${plural(F.offer.lessons, "lesson")} of ${st.exam}? About ${usd(total)}`,
+        confirm: () => `Film ${plural(F.offer.lessons, "lesson")}`,
+        notes: ["Azure's published price for the presenters' video and voice; the bill can differ a little. The films are made one at a time.", FILM_STAKE] };
+      if (!(await moneySheet(ask))) return;
       btn.disabled = true;
       try {
         onStatus(await api(`/api/exam-packages/${st.package}/film`, { method: "POST", body: { confirm: "FILM", offer: F.offer.token } }));
@@ -9600,7 +9890,7 @@ const routes = [
   [/^#\/record$/, viewRecord],
   [/^#\/play$/, viewPlay],
   [/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, viewPlan],
-  [/^#\/quality(?:\/(courses|activity|checks|costs))?$/, viewQuality],
+  [/^#\/quality(?:\/(todo|courses|money|health|activity|checks|costs))?$/, viewQuality],
   [/^#\/phone$/, viewPhone],
   [/^#\/about$/, viewAbout],
   [HELP_ROUTE, viewHelp],

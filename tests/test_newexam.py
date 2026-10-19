@@ -2013,7 +2013,7 @@ class ExamPageScreenTests(unittest.TestCase):
 
     def test_studio_shows_the_search_skill_by_skill(self):
         row = self.part("function sourcingRow(s) {")
-        self.assertIn("/api/studio/sourcing", self.part("async function studioChecks() {"))
+        self.assertIn("/api/studio/sourcing", self.part("async function studioHealth(opts) {"))
         self.assertIn("web search unavailable", row)
         self.assertIn("two different model families both accept it", row)
         skill = self.part("function sourcingSkill(d) {")

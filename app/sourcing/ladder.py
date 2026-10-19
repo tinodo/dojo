@@ -1046,6 +1046,7 @@ class Sourcer:
                                         for cited in [self._cited(s, doc)] for a in (doc or {}).get("accepted", [])],
                            "next": (doc or {}).get("next"), "blocked": (doc or {}).get("blocked"),
                            "failure": (doc or {}).get("failure"), "replacing": bool((doc or {}).get("replacing")),
+                           "settled": bool(doc and doc["state"] == "partial" and doc.get("stuck")),
                            "audit": self._audit_row(audit, s)})
         index = self.store.read("sourcing", pid, default=None) or {}
         total = sum(counts.values())
@@ -1098,6 +1099,26 @@ class Sourcer:
         s = self.status(pid)
         out = {k: s.get(k) for k in ("missing", "incomplete", "complete")} if s else {}
         self._summaries[pid] = (time.monotonic(), out)
+        return out
+
+    def unsettled(self, pid: str) -> dict[str, str]:
+        """The skills of an added exam whose pages may still change, with why: the search is still adding pages, an audit has not
+        looked yet, or both models refused the pages and the skill will be given others (ADR 0021). A lesson written from such
+        pages is not offered for filming: a film made now could be replaced. Kept for a few seconds, like `summary`."""
+        key = f"unsettled:{pid}"
+        hit = self._summaries.get(key)
+        if hit and time.monotonic() - hit[0] < SUMMARY_S:
+            return hit[1]
+        out: dict[str, str] = {}
+        for d in self.status(pid).get("details") or []:
+            audit = d.get("audit") or {}
+            if d["replacing"] or d["state"] == "searching" or (d["state"] == "partial" and not d["settled"]):
+                out[d["id"]] = "its pages are still being searched"
+            elif d["state"] == "legacy" and not audit:
+                out[d["id"]] = "its pages have not been checked yet"
+            elif d["state"] == "legacy" and audit.get("verdict") == "invalid" and audit.get("current", True):
+                out[d["id"]] = "its pages were refused and will be replaced"
+        self._summaries[key] = (time.monotonic(), out)
         return out
 
     def wait_s(self) -> float:

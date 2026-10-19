@@ -985,11 +985,39 @@ class DriftCheck:
                         "error": film.get("error") if film.get("state") == "failed" else None})
         return out
 
-    def film_offer(self, only: str) -> list[dict]:
-        """What Studio's Courses page films for a package when the owner presses its button: every newest
-        lesson without a video of its own, the ones filmed before and the ones never filmed."""
+    def owner_todo(self) -> dict:
+        """What only the owner can do about changed pages, for Studio's To do page without the whole history: the labs to look at, and
+        the lessons that wait for a new source because every official page of their skill is gone or moved."""
+        doc, by = self._doc(), self._by_skill()
+        return {"labs": self.flagged_labs(doc), "stuck": self._stuck(by, {})}
+
+    def film_candidates(self, only: str) -> list[dict]:
+        """Every newest lesson of a package without a video of its own that could be filmed: the ones filmed before and the
+        ones never filmed. Not the ones a changed page holds back, and not the ones already approved."""
         doc, by = self._doc(), self._by_skill()
         return self.refilm_candidates(doc, by, only) + self.unfilmed_candidates(only, doc, by)
+
+    def film_split(self, only: str) -> tuple[list[dict], dict]:
+        """The candidates, split into what Studio offers for a package and what it leaves out, and why. A lesson is left out
+        when it will be written again on the deeper template, or was written again less than QUIET_DAYS ago: a film made
+        for it now is likely to be replaced. `later` names them, with when each has been quiet long enough."""
+        quiet, scheduled = self.dojo.rewritten_recently(self.now()), self.dojo.scheduled_rewrites()
+        offer: list[dict] = []
+        later: dict = {"scheduled": [], "quiet": {}, "pages": {}}
+        for x in self.film_candidates(only):
+            if x["id"] in scheduled:
+                later["scheduled"].append(x["id"])
+            elif x["id"] in quiet:
+                later["quiet"][x["id"]] = quiet[x["id"]]
+            else:
+                offer.append(x)
+        return offer, later
+
+    def film_offer(self, only: str) -> list[dict]:
+        """What Studio's Courses page films for a package when the owner presses its button: every newest lesson without a
+        video of its own that is steady (`film_split`). The same rule holds for an added exam (app/newexam.py), so no
+        price is shown for a lesson that is likely to be replaced."""
+        return self.film_split(only)[0]
 
     @staticmethod
     def offer_token(lessons: list[dict]) -> str:
@@ -1050,7 +1078,8 @@ class DriftCheck:
     def approve(self, lesson_ids: list[str]) -> dict:
         """The owner pressed the button: film these lessons, each once, one at a time, through the
         ordinary video job. Only lessons still waiting count."""
-        waiting = {x["id"]: x for x in self.refilm_candidates()}
+        left = self.dojo.scheduled_rewrites() | set(self.dojo.rewritten_recently(self.now()))   # the rule of the offer (`film_split`) holds here too
+        waiting = {x["id"]: x for x in self.refilm_candidates() if x["id"] not in left}
         chosen = [x for x in dict.fromkeys(lesson_ids or []) if x in waiting]
         if not chosen:
             raise HTTPException(409, "No changed lesson is waiting to be filmed again.")
@@ -1146,15 +1175,18 @@ class DriftCheck:
         """Note which film jobs finished, then file the next approved film when none of ours is running and the owner has
         nothing running, and while the presenter videos have room, as the Preparer waits for it too. A lesson that was
         written again since the owner approved it is not filmed: its film is for a lesson nobody is taught, and the new
-        lesson waits for an approval of its own. True while approved films are left."""
+        lesson waits for an approval of its own, and one that is about to be written again waits for that. True while approved films are left."""
         with self._films:
             self._settle_films()
             films = self._doc()["films"]
             if not any(f.get("state") == "filed" for f in films.values()) and not self._owner_busy() and not self._storage_full():
+                scheduled = self.dojo.scheduled_rewrites()
                 for _, lesson_id in sorted((f.get("approved") or "", k) for k, f in films.items() if f.get("state") == "approved"):
                     if not self._current(lesson_id):
                         self._forget_film(lesson_id)
                         continue
+                    if lesson_id in scheduled:
+                        continue   # it will be written again on the deeper template: a film waits for that, and is then forgotten
                     try:
                         self.dojo.lesson(lesson_id)
                         job = (self.dojo.jobs.existing(self.owner, "video", lesson_id)
