@@ -820,13 +820,35 @@ class AuditTests(SourcingCase):
         book = self.book(UNSOURCED)
         self.assertEqual((book["state"], book["stuck"], book["replacing"]), ("partial", True, None), "the search is done with it, as before")
 
+    def given_up(self) -> tuple:
+        """What a failed upgrade of the skill's lesson left behind in the deeper lessons' state."""
+        deeper = self.nx.preparer.deeper
+        key = f"{self.pid}/{self.skill(UNSOURCED)['id']}"
+        record = deeper._doc()
+        record["skills"][key] = {"lesson": "lesson-0", "tries": 3, "last": iso(), "outcome": "failed", "given_up": iso(), "error": "The author did not answer."}
+        deeper._save(record)
+        return deeper, key
+
     def test_a_held_replacement_is_not_written_again_when_the_package_already_cites_the_new_pages(self):
         before, replaced = self.held_back()
         self.put_pages(replaced)   # written by a step that stopped before it saved the book
+        deeper, key = self.given_up()   # and before it cleared what failed for the lesson
         generation = self.generation()
         self.assertTrue(self.sourcer.step())
         self.assertEqual(self.skill(UNSOURCED)["sources"], replaced)
         self.assertEqual(self.generation(), generation, "nothing was written, so nothing is written again")
+        self.assertNotIn("replacement_waits", self.book(UNSOURCED))
+        self.assertNotIn(key, deeper._doc()["skills"], "the attempts at the old lesson are cleared all the same")
+
+    def test_a_failure_to_clear_the_attempts_is_tried_again_by_the_next_step(self):
+        before, replaced = self.held_back()
+        deeper, key = self.given_up()
+        with mock.patch.object(type(deeper), "start_again", side_effect=OSError("the disk is full")), self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        self.assertTrue(self.book(UNSOURCED)["replacement_waits"], "the book was not saved as settled")
+        self.assertIn(key, deeper._doc()["skills"])
+        self.assertTrue(self.sourcer.step(), "the next step settles it")
+        self.assertNotIn(key, deeper._doc()["skills"])
         self.assertNotIn("replacement_waits", self.book(UNSOURCED))
 
     def test_a_held_replacement_never_overwrites_pages_that_changed_since(self):
@@ -855,11 +877,7 @@ class AuditTests(SourcingCase):
     def test_replacing_pages_clears_what_failed_before_for_the_lesson(self):
         self.build()
         slug = self.legacy()
-        deeper = self.nx.preparer.deeper
-        key = f"{self.pid}/{self.skill(UNSOURCED)['id']}"
-        record = deeper._doc()
-        record["skills"][key] = {"lesson": "lesson-0", "tries": 3, "last": iso(), "outcome": "failed", "given_up": iso(), "error": "The author did not answer."}
-        deeper._save(record)
+        deeper, key = self.given_up()
         self.ai.grades = lambda role, title, text: "no" if slug.replace("-", " ") == title.lower() else "teaches"
         self.steps()
         self.assertIn(key, deeper._doc()["skills"], "while its pages stand, the attempts at its lesson stand")

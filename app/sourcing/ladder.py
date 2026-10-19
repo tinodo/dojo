@@ -867,7 +867,7 @@ class Sourcer:
         doc = w["doc"]
         pid = run.pid
         store = self.store
-        swapped = None   # the skill whose refused pages were replaced just now
+        swapped = settled = None   # the skill whose refused pages were replaced, now or by an earlier step; the answer when nothing is written
         with self._package:
             run.lease.check()   # an exam removed meanwhile (`forget`) is never written back
             raw = store.read("packages", pid, default=None)
@@ -887,10 +887,11 @@ class Sourcer:
             elif doc.get("replacing"):
                 refused, doc["replacing"] = doc["replacing"], None
                 doc.pop("replacement_waits", None)
-                if not _cites(current, refused):
-                    return self._justified(doc, current)   # no refused page is cited any more: the package changed since, and what it cites stays
-                skill["sources"] = fresh   # a film does not keep pages both models refused: it would go on teaching from them
                 swapped = skill["id"]
+                if _cites(current, refused):
+                    skill["sources"] = fresh   # a film does not keep pages both models refused: it would go on teaching from them
+                else:
+                    settled = self._justified(doc, current)   # none is cited any more: written by an earlier step, or changed since; what it cites stays
             elif doc.get("activated") and len(current) < MAX_ACCEPTED and not self._filmed(pid, skill["id"]):
                 more = [r for r in fresh if not any(same_page(r["url"], c.get("url")) for c in current)]
                 skill["sources"] = (current + more)[:MAX_ACCEPTED]
@@ -899,30 +900,29 @@ class Sourcer:
             else:
                 doc["activated"] = doc.get("activated") or {"at": iso(), "sources": len(current), "partial": partial, "already": True}
                 return self._justified(doc, current)
-            idx = run.books.index()
-            idx["generation"] = int(idx.get("generation") or 0) + 1
-            self.dojo.packages.add(raw)
-            run.books.save_index(idx)
-            doc["activated"] = {"at": iso(), "generation": idx["generation"], "sources": len(skill["sources"]), "partial": partial}
-            doc["cited"] = len(skill["sources"])
-            cited = list(skill["sources"])
+            if settled is None:
+                idx = run.books.index()
+                idx["generation"] = int(idx.get("generation") or 0) + 1
+                self.dojo.packages.add(raw)
+                run.books.save_index(idx)
+                doc["activated"] = {"at": iso(), "generation": idx["generation"], "sources": len(skill["sources"]), "partial": partial}
+                doc["cited"] = len(skill["sources"])
+                cited = list(skill["sources"])
         preparer = getattr(self.nx, "preparer", None)
         if preparer is not None:
             if swapped:
                 self._start_again(preparer, pid, swapped)
             preparer.wake()
-        return self._justified(doc, cited)
+        return settled if settled is not None else self._justified(doc, cited)
 
     @staticmethod
     def _start_again(preparer: Any, pid: str, sid: str) -> None:
         """The pages of a skill were replaced: a failed or given-up attempt at its lesson was made on the old pages, and
-        neither makes the new lesson wait nor stops it (app/deeper.py)."""
-        try:
-            deeper = getattr(preparer, "deeper", None)
-            if deeper is not None:
-                deeper.start_again(pid, sid)
-        except Exception:  # noqa: BLE001 - the pages are written: the lesson is merely later
-            log.info("could not clear the earlier attempts at the lesson of skill %s of %s", sid, pid)
+        neither makes the new lesson wait nor stops it (app/deeper.py). It runs on every settled replacement, also one an
+        earlier step wrote before it stopped, and a failure is not swallowed: the book is not saved, so the next step settles it again."""
+        deeper = getattr(preparer, "deeper", None)
+        if deeper is not None:
+            deeper.start_again(pid, sid)
 
     @staticmethod
     def _justified(doc: dict, cited: list[dict]) -> bool:

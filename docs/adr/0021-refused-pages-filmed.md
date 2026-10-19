@@ -40,9 +40,10 @@ thing is not worth keeping, and nothing in Dojo would ever have changed it.
   (`make_lesson`): the points of a lesson written from refused pages are no measure. Without this a correct new lesson with
   fewer checked points than the wrong one would be refused three times and given up, and the wrong lesson with its film would
   stay. The share of points that hold (75%) and two sections are still required.
-- **A failed or given-up attempt at the old lesson is cleared when its pages are replaced** (`DeeperLessons.start_again`):
-  attempts are kept for a lesson, not for the pages it is written from, so an earlier failure would otherwise make the new
-  pages wait a day or never be tried.
+- **A failed or given-up attempt at the old lesson is cleared when its pages are replaced** (`DeeperLessons.start_again`),
+  also when a step that stopped after writing the pages is settled, and a failure to clear it is not swallowed: the book is
+  not saved, so the next step settles it again. Attempts are kept for a lesson, not for the pages it is written from, so an
+  earlier failure would otherwise make the new pages wait a day or never be tried.
 - **Books held under the old rule are settled** (`Sourcer._resume_replacements`, called before any searching): a `partial`,
   `stuck` book with `replacing` and `replacement_waits`, accepted pages and a confirmed refusal on the audit of the present
   `VERIFIER_VERSION` gets its pages written, one skill a step, with files only and no model call. Its state becomes `covered`
