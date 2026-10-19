@@ -41,7 +41,8 @@ a course on pages that are not about one.
   (`pageVisit`, which the `hashchange` listener and the first page call), so leaving a page and coming back to the same address
   counts, and so does an address set that is not routed yet. A page that only draws itself again, as Play's and Plan's buttons
   do by calling `route()`, is not left: the choice made there still opens its course. The writes of the exam kept go one after
-  another (`keepExam`); of two quick choices only the last one draws the page. The Course page (`#/skills`) shows the new
+  another (`keepExam`); each choice takes a number and only the last one draws the page, also when it repeats an earlier
+  one (A, B, A). The Course page (`#/skills`) shows the new
   course in place, as Practice and Record do: only a skill or a lesson page, which belongs to the old course, goes to Today.
 
 ## Options considered

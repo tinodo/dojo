@@ -40,6 +40,7 @@ const reg = {};
 for (const id of ["exam", "exam-pill", "exam-code", "exam-title", "exam-when", "me-initials", "side"]) reg[id] = new El(id);
 const page = { hash: "#/today" };
 const calls = [];
+let quiet = false;   // a change of the address draws the page too, but the tests count only the drawings a choice asks for
 let apiImpl = async () => ({});
 const h = (tag, attrs, ...kids) => {
   const el = new El(tag);
@@ -56,7 +57,7 @@ const context = vm.createContext({
   state: null, h, put, icon: () => null, weeksTo: () => null, fmtDay: (d) => d,
   $: (id) => reg[id],
   api: (path, opts) => { calls.push(["api", opts && opts.method || "GET", path, opts && opts.body]); return apiImpl(path, opts); },
-  route: () => { context.state.nav += 1; calls.push(["route"]); },
+  route: () => { context.state.nav += 1; if (!quiet) calls.push(["route"]); },
   location: { get hash() { return page.hash; }, set hash(v) { calls.push(["hash", v]); page.hash = v; },
               replace(v) { calls.push(["replace", v]); page.hash = v; } },
   document: { querySelectorAll: (sel) => withClass(reg.side, sel.split(".").pop()) },
@@ -68,6 +69,10 @@ const OPEN = APP.indexOf("async function openExam(");
 const OPEN_END = APP.indexOf("\n}", OPEN) + 2;   // the first closing brace at the start of a line
 if (OPEN < 0 || OPEN_END < OPEN) throw new Error("openExam is not where it was");
 vm.runInContext(APP.slice(OPEN, OPEN_END) + "\nthis.shell.openExam = openExam;", context);
+const VISIT = APP.indexOf("function pageVisit() {");
+const VISIT_END = APP.indexOf("\n}", VISIT) + 2;
+if (VISIT < 0 || VISIT_END < VISIT) throw new Error("pageVisit is not where it was");
+vm.runInContext(APP.slice(VISIT, VISIT_END), context);
 
 const PACKS = [
   { id: "dp-800", exam: "DP-800", title: "Developing AI-enabled database solutions" },
@@ -76,14 +81,14 @@ const PACKS = [
 ];
 function start(role, enrolled) {
   context.state = { me: { name: "Tino Donders", role, enrolled, packages: PACKS, profile: { exam_dates: {}, active_package: "gh-300" } },
-    pid: "gh-300", nav: 0, visit: 0, pkg: null, pkgPid: null, pickedSkill: null };
+    pid: "gh-300", nav: 0, visit: 0, choice: 0, pkg: null, pkgPid: null, pickedSkill: null };
   apiImpl = async () => ({});
   calls.length = 0;
   page.hash = "#/today";
   S.fillExamSelect(); S.renderHeader(); S.renderSide();
 }
-// What a change of the address does: a visit (pageVisit), and what route() does at every drawing, the side bar and the picker.
-function go(hash) { context.state.visit += 1; context.state.nav += 1; page.hash = hash; S.markNav(); S.markScope(); }
+// A change of the address: the real pageVisit (a visit, then a drawing), and what route() draws, the side bar and the picker.
+function go(hash) { page.hash = hash; quiet = true; context.pageVisit(); quiet = false; S.markNav(); S.markScope(); }
 // The same page drawn again, as the buttons of Play and Plan do by calling route(): a drawing, not a visit.
 function redraw() { context.state.nav += 1; S.markNav(); S.markScope(); }
 function seen() {
@@ -233,6 +238,25 @@ start('owner');
 })();""")
         self.assertEqual(out, [["dp-800"], ["dp-800", "dp-300"], "dp-300", 1], "the page is drawn once, for the last choice")
 
+    def test_a_choice_made_again_after_another_still_draws_the_page_once(self):
+        out = run_node("""
+(async () => {
+  const log = [];
+  for (const hash of DATA) {
+    start('owner'); go(hash);
+    const pending = [];
+    apiImpl = (path, opts) => new Promise((resolve) => pending.push({ pid: opts.body.active_package, resolve }));
+    const done = [S.switchPackage('dp-800'), S.switchPackage('dp-300'), S.switchPackage('dp-800')];   // A, B, and A again
+    let resolved = 0;
+    for (let i = 0; i < 60 && resolved < 3; i++) { await tick(); if (pending[resolved]) { pending[resolved].resolve({}); resolved++; } }
+    await Promise.all(done);
+    log.push([hash, pending.map((p) => p.pid), calls.filter((c) => c[0] !== 'api'), context.state.pid]);
+  }
+  console.log(JSON.stringify(log));
+})();""", ["#/today", "#/plan"])
+        writes = ["dp-800", "dp-300", "dp-800"]
+        self.assertEqual(out, [["#/today", writes, [["route"]], "dp-800"], ["#/plan", writes, [["hash", "#/today"]], "dp-800"]])
+
     def test_a_late_answer_does_not_take_the_owner_off_the_page_he_went_to(self):
         out = run_node("""
 (async () => {
@@ -280,6 +304,23 @@ start('owner');
         self.assertEqual(out, [["#/play", [["hash", "#/today"]], "dp-800"], ["#/quality", [["hash", "#/today"]], "dp-800"],
                                ["#/plan", [["hash", "#/today"]], "dp-800"], ["#/today", [["route"]], "dp-800"],
                                ["#/skill/gh-300/d1.g1.s1", [["hash", "#/today"]], "dp-800"]])
+
+    def test_every_change_of_the_address_is_one_visit_and_a_redraw_is_none(self):
+        hashes = ["#/today", "#/today", "#/skills", "#/plan", "#/today", "#/play", "#/quality/costs"]
+        out = run_node("""
+start('owner');
+const visits = [];
+for (const hash of DATA) {
+  page.hash = hash;
+  const before = context.state.visit;
+  calls.length = 0;
+  context.pageVisit();                              // the hashchange listener, and the first page
+  visits.push([hash, context.state.visit - before, calls.length]);
+}
+const before = context.state.visit;
+redraw();                                           // a button of the page asking for it to be drawn again
+console.log(JSON.stringify([visits, context.state.visit - before]));""", hashes)
+        self.assertEqual(out, [[[h, 1, 1] for h in hashes], 0], "one visit and one drawing for each address, whatever it is")
 
     def test_a_redraw_then_leaving_still_stops_the_jump(self):
         out = run_node("""

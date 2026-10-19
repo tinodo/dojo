@@ -5,7 +5,7 @@
    The Content-Security-Policy forbids inline styles, so layout lives in app.css and the few
    measured lengths (bars, timelines) are set through the CSSOM with el.style.setProperty. */
 
-const state = { me: null, gate: null, pid: null, nav: 0, visit: 0, pkg: null, pkgPid: null, askDraft: "", pickedSkill: null, laterHours: 20, feedLink: null, calLink: null, timer: null, keys: null, deckOff: null, help: null, gateHelp: false };
+const state = { me: null, gate: null, pid: null, nav: 0, visit: 0, choice: 0, pkg: null, pkgPid: null, askDraft: "", pickedSkill: null, laterHours: 20, feedLink: null, calLink: null, timer: null, keys: null, deckOff: null, help: null, gateHelp: false };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const $view = () => document.getElementById("view");
 const $ = (id) => document.getElementById(id);
@@ -535,9 +535,10 @@ async function switchPackage(pid) {
   const from = location.hash;
   const open = onAllCourses();
   if (pid === state.pid && !open) return;
+  const mine = ++state.choice;
   if (pid !== state.pid) await choosePackage(pid);
-  // The owner went on while the choice was kept: it is made all the same. A newer choice draws the page, so two quick ones draw it once.
-  if (!here() || state.pid !== pid) return;
+  // The owner went on while the choice was kept: it is made all the same. Only the last choice draws the page, so quick ones draw it once.
+  if (!here() || mine !== state.choice) return;
   if (open || /^#\/(skill\/|lesson|item|answer|rehearsal\/)/.test(from)) location.hash = "#/today"; else route();
 }
 
