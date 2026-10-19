@@ -35,8 +35,12 @@ a course on pages that are not about one.
 - **A skill or a lesson of one of the owner's exams moves the picker to that exam** (`followExam`, as a link to a check or a
   practice exam already did), so a link from Studio or Plan into another exam no longer leaves the previous exam in the picker
   and in the "Course" crumb. A member's exam they do not study is left alone.
-- **A choice never takes the owner off the page he has gone on to,** and the writes of the exam kept go one after another
-  (`keepExam`): a slow answer cannot jump to Today after a click elsewhere, and two quick choices keep the last one.
+- **A slow answer never moves the owner, or changes the exam, after he has gone on.** `stillHere()` remembers the page change
+  and the address a choice was made on; a choice (`switchPackage`), a link from a calendar event (`openFor`), "Open" on an added
+  exam (`openExam`) and the exam a lesson page brings (`followExam`) look again after the wait. Leaving a page and coming back
+  to the same address is another visit, so it counts. The writes of the exam kept go one after another (`keepExam`), two quick
+  choices keep the last one and draw the page once. The Course page (`#/skills`) shows the new course in place, as Practice and
+  Record do: only a skill or a lesson page, which belongs to the old course, goes to Today.
 
 ## Options considered
 

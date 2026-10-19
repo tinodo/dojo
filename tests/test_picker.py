@@ -56,12 +56,13 @@ const context = vm.createContext({
   state: null, h, put, icon: () => null, weeksTo: () => null, fmtDay: (d) => d,
   $: (id) => reg[id],
   api: (path, opts) => { calls.push(["api", opts && opts.method || "GET", path, opts && opts.body]); return apiImpl(path, opts); },
-  route: () => { calls.push(["route"]); },
-  location: { get hash() { return page.hash; }, set hash(v) { calls.push(["hash", v]); page.hash = v; } },
+  route: () => { context.state.nav += 1; calls.push(["route"]); },
+  location: { get hash() { return page.hash; }, set hash(v) { calls.push(["hash", v]); page.hash = v; },
+              replace(v) { calls.push(["replace", v]); page.hash = v; } },
   document: { querySelectorAll: (sel) => withClass(reg.side, sel.split(".").pop()) },
 });
 vm.runInContext(APP.slice(START, END)
-  + "\nthis.shell = { onAllCourses, renderHeader, renderSide, fillExamSelect, markNav, markScope, switchPackage, examChosen, followExam, choosePackage };", context);
+  + "\nthis.shell = { onAllCourses, renderHeader, renderSide, fillExamSelect, markNav, markScope, switchPackage, examChosen, followExam, choosePackage, openFor };", context);
 const S = context.shell;
 
 const PACKS = [
@@ -71,14 +72,14 @@ const PACKS = [
 ];
 function start(role, enrolled) {
   context.state = { me: { name: "Tino Donders", role, enrolled, packages: PACKS, profile: { exam_dates: {}, active_package: "gh-300" } },
-    pid: "gh-300", pkg: null, pkgPid: null, pickedSkill: null };
+    pid: "gh-300", nav: 0, pkg: null, pkgPid: null, pickedSkill: null };
   apiImpl = async () => ({});
   calls.length = 0;
   page.hash = "#/today";
   S.fillExamSelect(); S.renderHeader(); S.renderSide();
 }
-// What route() does at every page change, after the hash is set.
-function go(hash) { page.hash = hash; S.markNav(); S.markScope(); }
+// What route() does at every page change: the page is counted, then the side bar and the picker are drawn for it.
+function go(hash) { context.state.nav += 1; page.hash = hash; S.markNav(); S.markScope(); }
 function seen() {
   const ex = withClass(reg.side, "ex");
   const name = (b) => b.kids[0].textContent;
@@ -153,9 +154,12 @@ start('owner');
   await S.switchPackage('gh-300'); log.push(calls.splice(0));                       // the course already chosen: nothing
   await S.switchPackage('dp-800'); log.push(calls.splice(0), context.state.pid);
   go('#/lesson/lesson-0123456789abcdef0123'); await S.switchPackage('dp-300'); log.push(calls.splice(0));   // a lesson of the old course is gone
+  go('#/skills'); await S.switchPackage('gh-300'); log.push(calls.splice(0));                              // the Course page shows the new course in place
+  go('#/skill/gh-300/d1.g1.s1'); await S.switchPackage('dp-800'); log.push(calls.splice(0));               // a skill of the old course is gone
   console.log(JSON.stringify(log));
 })();""")
-        self.assertEqual(out, [[], [PUT("dp-800"), ["route"]], "dp-800", [PUT("dp-300"), ["hash", "#/today"]]])
+        self.assertEqual(out, [[], [PUT("dp-800"), ["route"]], "dp-800", [PUT("dp-300"), ["hash", "#/today"]],
+                               [PUT("gh-300"), ["route"]], [PUT("dp-800"), ["hash", "#/today"]]])
 
     def test_choosing_a_course_on_studio_plan_or_play_opens_it(self):
         out = run_node("""
@@ -219,9 +223,9 @@ start('owner');
   pending[0].resolve({}); await tick();
   const second = pending.map((p) => p.pid);
   pending[1].resolve({}); await Promise.all([a, b]);
-  console.log(JSON.stringify([first, second, context.state.pid]));
+  console.log(JSON.stringify([first, second, context.state.pid, calls.filter((c) => c[0] === 'route').length]));
 })();""")
-        self.assertEqual(out, [["dp-800"], ["dp-800", "dp-300"], "dp-300"])
+        self.assertEqual(out, [["dp-800"], ["dp-800", "dp-300"], "dp-300", 1], "the page is drawn once, for the last choice")
 
     def test_a_late_answer_does_not_take_the_owner_off_the_page_he_went_to(self):
         out = run_node("""
@@ -236,6 +240,63 @@ start('owner');
   console.log(JSON.stringify([calls.filter((c) => c[0] !== 'api'), context.state.pid, seen().code]));
 })();""")
         self.assertEqual(out, [[], "dp-800", "DP-800"], "no jump to Today, no second drawing of the page; the choice is made all the same")
+
+    def test_leaving_a_page_and_coming_back_does_not_jump_later(self):
+        out = run_node("""
+(async () => {
+  start('owner'); go('#/plan');
+  let release;
+  apiImpl = () => new Promise((resolve) => { release = resolve; });
+  const done = S.switchPackage('dp-800');
+  await tick();
+  go('#/skills'); go('#/plan');                 // away and back, to the very page the choice was made on
+  release({}); await done;
+  console.log(JSON.stringify([calls.filter((c) => c[0] !== 'api'), context.state.pid]));
+})();""")
+        self.assertEqual(out, [[], "dp-800"], "the same hash is not the same visit")
+
+    def test_a_hash_that_is_set_but_not_routed_yet_is_a_move_too(self):
+        out = run_node("""
+(async () => {
+  start('owner'); go('#/quality');
+  let release;
+  apiImpl = () => new Promise((resolve) => { release = resolve; });
+  const done = S.switchPackage('dp-800');
+  await tick();
+  page.hash = '#/skills';                       // the address changed; the page change has not been routed yet
+  release({}); await done;
+  console.log(JSON.stringify(calls.filter((c) => c[0] !== 'api')));
+})();""")
+        self.assertEqual(out, [])
+
+    def test_a_late_exam_page_does_not_change_the_exam(self):
+        out = run_node("""
+(async () => {
+  start('owner'); go('#/skills');
+  S.followExam('dp-300', () => false); await tick();           // the lesson came back after the owner went on
+  const late = [calls.splice(0), context.state.pid];
+  S.followExam('dp-300', () => true); await tick();
+  console.log(JSON.stringify([late, calls.splice(0), context.state.pid]));
+})();""")
+        self.assertEqual(out, [[[], "gh-300"], [PUT("dp-300")], "dp-300"])
+
+    def test_a_calendar_link_opens_its_page_only_while_the_owner_is_there(self):
+        out = run_node("""
+(async () => {
+  const log = [];
+  for (const wander of [false, true]) {
+    start('owner'); go('#/check/for/dp-800');
+    let release;
+    apiImpl = () => new Promise((resolve) => { release = resolve; });
+    const opened = S.openFor('dp-800', '#/check');
+    await tick();
+    if (wander) go('#/skills');
+    release({}); await opened;
+    log.push(calls.filter((c) => c[0] !== 'api'));
+  }
+  console.log(JSON.stringify(log));
+})();""")
+        self.assertEqual(out, [[["replace", "#/check"]], []])
 
     def test_a_page_about_one_of_the_exams_moves_the_picker_to_it(self):
         out = run_node("""
@@ -268,7 +329,12 @@ class WiringTests(unittest.TestCase):
         skill = APP_JS.split("async function viewSkill(pid, sid) {", 1)[1].split("\n", 3)
         self.assertEqual(skill[1].strip(), "followExam(pid);")
         lesson = APP_JS.split("async function viewLesson(id, tab, section) {", 1)[1].split("\n}\n", 1)[0]
-        self.assertRegex(lesson, r"const L = await api\(`/api/lessons/\$\{id\}`\);\s+followExam\(L\.package\);")
+        self.assertRegex(lesson, r"const here = stillHere\(\);\s+const L = await api\(`/api/lessons/\$\{id\}`\);\s+followExam\(L\.package, here\);")
+
+    def test_a_slow_choice_moves_the_owner_only_while_he_is_still_there(self):
+        body = APP_JS.split("async function openExam(pid) {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("const here = stillHere();", body)
+        self.assertIn('if (here()) location.hash = "#/skills";', body)
 
     def test_the_exam_is_kept_in_one_place(self):
         self.assertEqual(APP_JS.count('body: { active_package: pid }'), 1, "every choice goes through keepExam, which writes in order")

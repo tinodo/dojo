@@ -520,27 +520,38 @@ async function choosePackage(pid) {
   await keepExam(pid);
 }
 
+// A slow answer moves the owner, or changes the exam picked, only while he is still on the page it was asked on. Every page
+// change counts (state.nav), also one that came back to the same page, and so does a hash set that is not routed yet.
+function stillHere() {
+  const nav = state.nav, hash = location.hash;
+  return () => state.nav === nav && location.hash === hash;
+}
+
 async function switchPackage(pid) {
   // Studio, Plan and Play have no page for one course: choosing a course there opens it, the one already chosen too.
+  // A skill or a lesson page is the old exam's: it goes to Today. The Course page, Practice and Record show the new exam in place.
+  const here = stillHere();
   const from = location.hash;
   const open = onAllCourses();
   if (pid === state.pid && !open) return;
   if (pid !== state.pid) await choosePackage(pid);
-  if (location.hash !== from) return;   // the owner went on to another page while the choice was kept: it is made all the same
-  if (open || /^#\/(skill|lesson|item|answer|rehearsal\/)/.test(from)) location.hash = "#/today"; else route();
+  if (!here()) return;   // the owner went on while the choice was kept: it is made all the same, and a second choice draws the page once
+  if (open || /^#\/(skill\/|lesson|item|answer|rehearsal\/)/.test(from)) location.hash = "#/today"; else route();
 }
 
 // A page about one of the owner's exams (a skill, a lesson) is that exam's page: the picker and the side bar follow it, as they
-// do for a link to a check or a practice exam.
-function followExam(pid) {
+// do for a link to a check or a practice exam. `here` is the `stillHere()` of a page that was asked for and has come back.
+function followExam(pid, here) {
+  if (here && !here()) return;
   if (pid && pid !== state.pid && myExams().some((p) => p.id === pid)) choosePackage(pid);
 }
 
 // A calendar event names its exam: #/check/for/<exam>, #/recall/for/<exam> and #/rehearsal/for/<exam>
 // switch to that exam first.
 async function openFor(pid, where) {
+  const here = stillHere();
   if (pid !== state.pid && myExams().some((p) => p.id === pid)) await choosePackage(pid);
-  location.replace(where);
+  if (here()) location.replace(where);
   return [];
 }
 
@@ -1189,8 +1200,9 @@ async function markViewed(id, modality, narration, retry = true) {
 
 async function viewLesson(id, tab, section) {
   tab = tab || "read";
+  const here = stillHere();
   const L = await api(`/api/lessons/${id}`);
-  followExam(L.package);
+  followExam(L.package, here);
   state.scrollTo = tab === "read" && section !== undefined ? `sec-${Number(section)}` : null;  // a link to one section
   if (tab === "read") markViewed(id, "read");
   const tabs = h("div", { class: "seg", role: "tablist" }, FORMATS.map((f) =>
@@ -8626,8 +8638,9 @@ async function viewAddExam(code) {
 
 // Opening an added (or built-in) exam's course from this page.
 async function openExam(pid) {
+  const here = stillHere();
   if (pid !== state.pid) await choosePackage(pid);
-  location.hash = "#/skills";
+  if (here()) location.hash = "#/skills";
 }
 
 // Asks the server again every few seconds for as long as `onStatus` says there is more to see.
