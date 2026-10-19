@@ -6410,10 +6410,10 @@ async function studioActivity() {
 
 // Checks: how Dojo checks its own work (what Studio was before it had tabs).
 async function studioChecks() {
-  const [log, a, v, dr, dl, sr] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
+  const [log, a, v, dr, dl, sr, lb] = await Promise.all([api("/api/quality").catch((e) => ({ error: e.message })), api("/api/about").catch(() => null),
     api("/api/studio/voices").catch((e) => ({ error: e.message })),
     api("/api/studio/drift").catch((e) => ({ error: e.message })), api("/api/studio/deeper").catch((e) => ({ error: e.message })),
-    api("/api/studio/sourcing").catch((e) => ({ error: e.message }))]);
+    api("/api/studio/sourcing").catch((e) => ({ error: e.message })), api("/api/studio/lab").catch((e) => ({ error: e.message }))]);
   // During a timed exam the log is closed, because blocked sentences are still lesson text.
   const q = Array.isArray(log) ? log : [];
   const who = { "02": a && a.models.author, "03": a && a.models.gate, "05": a && a.models.grader };
@@ -6426,6 +6426,7 @@ async function studioChecks() {
     driftRow(dr),
     deeperRow(dl),
     sourcingRow(sr),
+    labRow(lb),
     h("div", { class: "row stackable grow studio-log" },
       h("section", { class: "panel grow stack scroll" },
         h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
@@ -6840,6 +6841,50 @@ function sourcingSkill(d) {
     h("span", { class: "chips" }, chip(label, kind), d.audit ? (d.audit.current === false
       ? chip("audit: pages replaced", "sage")
       : chip(`audit: ${d.audit.verdict}`, d.audit.verdict === "supported" ? "sage" : "amber")) : null));
+}
+
+// ---------------------------------------------------------------- Studio: the lab database (ADR 0023)
+// Performance monitoring of the lab database. The panel shows what Dojo last confirmed, never the live state, and its button is the
+// only way Dojo sets it: the one time it connects to the database for this. It is off until the owner presses it.
+const LAB_MON = { on: ["on", "sage"], off: ["off", "line"], unset: ["not turned on", "line"] };
+const LAB_MON_ON = "Turn on performance monitoring for the lab database?\n\nThis wakes the database if it is paused, which uses about 2% of the month's free allowance. "
+  + "Learn does not say whether monitoring keeps a free serverless database from pausing, so watch Free amount remaining in the Azure portal afterwards and turn it off if it falls while nobody uses labs.";
+const LAB_MON_OFF = "Turn off performance monitoring for the lab database?\n\nWhat it already collected is kept. This wakes the database if it is paused.";
+
+function labRow(l) {
+  if (!l || l.error) return h("div", { class: "row stackable" }, h("section", { class: "panel grow" }, eyebrow("scale", "Lab database"),
+    h("p", { class: "sub top" }, (l && l.error) || "The lab database could not be read.")));
+  if (!l.on || l.demo) return null;
+  const host = h("section", { class: "panel grow stack" });
+  const status = h("p", { class: "small muted", role: "status" });
+  const draw = (m) => {
+    const [label, kind] = LAB_MON[m.observed] || ["not turned on yet", "line"];
+    const on = m.observed === "on";
+    const go = button(on ? "Turn off" : "Turn on", async () => {
+      if (!window.confirm(on ? LAB_MON_OFF : LAB_MON_ON)) return;
+      go.disabled = true;
+      status.textContent = "Working…";
+      try {
+        draw((await api("/api/studio/lab/monitoring", { method: "POST", body: { on: !on } })).monitoring);
+        status.textContent = "";
+      } catch (e) {
+        status.textContent = e.message;
+        go.disabled = false;
+      }
+    }, on ? "ghost sm" : "sm");
+    put(host,
+      h("div", { class: "panel-h" }, eyebrow("scale", "Lab database"),
+        h("span", { class: "chips" }, chip(`performance monitoring: ${label}`, kind), m.error ? chip("last try failed", "rose") : null)),
+      h("p", { class: "sub" }, on
+        ? `Last confirmed on ${fmtDate(m.checked_at)}. See its CPU, waits and sessions in the Fabric Database Hub, on the Performance page; data shows about 10 minutes after it is turned on.`
+        : m.observed === "off" ? `Turned off, last confirmed ${fmtDate(m.checked_at)}.` : "Dojo has not confirmed it as on."),
+      m.error ? h("p", { class: "small bad" }, `The last try ${fmtDate(m.attempted_at)} did not work: ${m.error}.`) : null,
+      h("div", { class: "actions top" }, go), status,
+      h("p", { class: "small muted top" }, "This database is on the free offer and pauses when idle. Learn does not say whether monitoring keeps it awake. "
+        + "If its free allowance runs out, the database is closed until next month, so turn this off before that."));
+  };
+  draw(l.monitoring);
+  return h("div", { class: "row stackable" }, host);
 }
 
 // ---------------------------------------------------------------- Studio: deeper lessons (ADR 0008)

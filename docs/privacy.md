@@ -68,16 +68,20 @@ below in writing (a decision taken by the build lead under the owner's standing 
 | Play duels: the two learner keys, the exam (and domain), the 10 questions, the invitation time (for expiry only), whether it was accepted, each player's quick-practice id and, once both finished, the two numbers right. A decline removes the invited key and nothing else | /home, `play/duels/<id>.json`. Shown only to the two players; the answers are in each player's own quick practice, without the other's name | 7 days after the invitation; at once when either player leaves Play, their record or Dojo, or is removed, or their membership ends; every duel when the owner switches circles off |
 | Lab tables a learner creates | Azure SQL Database in the same region, private endpoint, the learner's own schemas. The schema names use a random part stored by Dojo, never a directory id or the learner key, because every database user can list schema names | Reset (own schemas only, nothing else in the database), or deleted with the learner: on leave, or 30 days after removal, the lab schemas and the learner's database users are dropped at the next sync with the database. Each learner's SQL runs as their own database user, which can reach only their own schema for that lab. The owner (as operator) can read every schema. The database's automatic backups keep a copy for up to 7 days **(confirm the retention)** |
 | The owner's random lab name part | /home, `team/owner.json`, written at the owner's first lab use. Not tied to any account id; if the file is lost Dojo reads it back from the owner's database user | Kept, so the owner's labs survive a lost account |
+| Whether performance monitoring of the lab database is on (ADR 0023): "on", "off" or "not turned on" as Dojo last confirmed it, the database name, when it was confirmed or last tried, and why a try failed. No learner data | /home, `labs/monitoring.json` | Kept until the owner turns it on or off again |
+| Performance data about the lab database, only after the owner turns monitoring on (ADR 0023): CPU, memory, storage use and I/O, waits, performance counters, the database's properties and its active sessions (session and connection ids and a status), with the subscription, resource group and database names. For the database as a whole, never per learner. Learn says it holds no personal data or customer content and does not keep it at rest outside the database's geography; its schema has no query text, table contents or login name | Microsoft's monitoring service for Azure SQL Database, not Dojo's storage. The owner reads it in the Fabric Database Hub or with KQL; Dojo never reads it | Kept by Microsoft for a period Dojo does not control **(confirm the retention)**. Turning monitoring off stops new data and does not delete what was collected |
 | Shared content: lessons, deep lessons, questions' sources, narration, films, podcast episodes, exam packages, and a frozen summary (title, skills, scoring) of a removed exam so old attempts still show | /home | Not personal; kept |
 | The search for the official pages of an added exam's skills (ADR 0018): per skill the phrases tried, the pages found, each model's grade and the sentence it quoted, the steps made and the day's count of model calls; the exam's table-of-contents inventory; a lease file; the last web search self-test. Public pages and public exam wording only | /home, `sourcing/` and `inventory/` | Not personal. Removed with the exam; the inventory is read again after a day |
 | Application logs | /home/LogFiles | 7 days or 35 MB. In Azure, Dojo logs only warnings and errors, in both modes. It writes **no line per request**. An unexpected error writes one line with the method, the route pattern (for example `POST /api/items/{item_id}/grade`) and the error type, never the concrete path, a learner key, an item, attempt, job or session id, a token, a name or an email. A filter removes any such id that slips through. The web server (gunicorn) is started without an access log |
 | App Service automatic backups of /home | Taken hourly by the platform (Basic plan and higher); they include all of /home: every record, membership, request and meter file | 30 days. A backup larger than 30 GB cannot be restored |
 
 The first sign-in notice says where data is stored in these words: "On this web app's own storage in the
-operator's Azure region, in your own folder. Lab tables live in one Azure SQL database in the same region."
+operator's Azure region, in your own folder. Lab tables live in one Azure SQL database in the same region. If the
+operator turns on Microsoft's performance monitoring for it, Microsoft records the database's CPU, memory, storage, waits and
+session numbers in the same geography, not queries or table contents."
 In Azure, App Service reports the region, and the notice and the About page name it, for example "in Azure
-(Sweden Central)". A Dojo without a lab database says "This Dojo has no lab database." instead of the second
-sentence.
+(Sweden Central)". A Dojo without a lab database says "This Dojo has no lab database." instead of the last two
+sentences.
 
 The spoken audio of an answer is sent to Speech for transcription and is not stored by Dojo. In team mode,
 Dojo first decodes the recording in memory on its own server (at most 2 MB and 200 seconds) and sends
@@ -148,7 +152,9 @@ monitor: the operator's technical access (above) remains.
 - **No export or API of another person's data**, for any role. The owner's "Download my record" is the
   owner's own record.
 - **Honest limit:** the Azure bill and the AI resource's metrics show total use per day. With very few
-  members, a sharp change can hint at one person's use. Dojo adds nothing to that.
+  members, a sharp change can hint at one person's use. Dojo adds nothing to that. If the owner turns on performance
+  monitoring of the lab database, its CPU is sampled every 15 seconds and its active sessions every 30, so a burst of lab use can show there as
+  well, and with very few members that can hint at one person's use in the same way. Nothing in it names a person or holds a query.
 - **Play:** no admin page shows anyone's Play data. The admin role sees only whether circles are switched
   on (see "Play: circles, the board and duels" below).
 - **Peers** see nothing of each other in Team. Play's circles show only the display name the member chose,

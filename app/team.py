@@ -28,7 +28,7 @@ from .labs import SURROGATE, new_surrogate
 
 log = logging.getLogger("dojo")
 
-NOTICE_VERSION = 1
+NOTICE_VERSION = 2          # 2: the notice says what Microsoft's performance monitoring of the lab database records (ADR 0023)
 GRACE_DAYS = 30            # a removed member keeps export and delete this long, then the data is deleted
 REQUEST_DAYS = 30          # open and declined access requests are deleted after this
 TOMBSTONE_DAYS = 40        # longer than the 30-day App Service backups
@@ -1020,12 +1020,16 @@ class Team:
 # The same facts as docs/privacy.md, in the member's words. A change here that changes a fact is a new
 # NOTICE_VERSION, so every member is asked again.
 
+LAB_MONITORING = ("If the operator turns on Microsoft's performance monitoring for it, Microsoft records the database's CPU, "
+                   "memory, storage, waits and session numbers in the same geography, not queries or table contents.")
+
+
 def notice_view(team: "Team", models: dict[str, str], labs: bool = True) -> dict:
     od = team.owner_doc()
     operator = od.get("display_name") or od.get("entra_name") or "the owner of this Dojo"
     names = ", ".join(f"{v} ({k})" for k, v in models.items())
     stored = f"On this web app's own storage {where_stored()}, in your own folder. " + (
-        "Lab tables live in one Azure SQL database in the same region." if labs else "This Dojo has no lab database.")
+        f"Lab tables live in one Azure SQL database in the same region. {LAB_MONITORING}" if labs else "This Dojo has no lab database.")
     sections = [
         ("Who runs this Dojo",
          f"This Dojo is run by {operator}. They approved your access and can remove it. They are Global "

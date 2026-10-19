@@ -35,7 +35,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from starlette.routing import Match
 
 from .ai import Foundry, StubAI
@@ -358,6 +358,10 @@ class ResumeRequest(BaseModel):
 
 class LabRepair(BaseModel):
     confirm: bool = False
+
+
+class LabMonitoring(BaseModel):
+    on: StrictBool   # only true or false: a string or a number is refused
 
 
 class EndDate(BaseModel):
@@ -1847,10 +1851,38 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
                 "source_search": newexams.sourcer.diag(), "deeper_lessons": deeper.diag(),
                 "labs": {"on": True, "mode": "local demo" if lab_demo else "private Azure SQL",
                          "probe": "Use POST /api/diag/lab to connect; never run at startup.",
-                         "repair": "POST /api/diag/lab/repair {confirm: true} cleans dbo and escaped history tables."}
+                         "repair": "POST /api/diag/lab/repair {confirm: true} cleans dbo and escaped history tables.",
+                         "performance_monitoring": labs.monitoring()}   # what Dojo last confirmed: no connection
                 if labs is not None else {"on": False, "mode": "off: " + LABS_OFF},
                 "team_sync": team.sync_view() if settings.team else None,
                 "deeper_listen": costs.deep_line(), "present_deck": costs.deck_line()}
+
+    def _lab_view() -> dict:
+        """The lab database for Studio: whether Dojo has one, and what it last confirmed about its performance monitoring."""
+        if labs is None:
+            return {"on": False}
+        return {"on": True, "demo": lab_demo, "database": getattr(labs.runner, "database", None), "monitoring": labs.monitoring()}
+
+    @app.get("/api/studio/lab")
+    def studio_lab(learner: Learner = Admin) -> dict:
+        """Studio's Checks tab reads this. It is Dojo's own file, never the database: a page that is read and warmed on
+        its own must not wake a free database that pauses (ADR 0003, ADR 0023)."""
+        return _lab_view()
+
+    @app.post("/api/studio/lab/monitoring")
+    def studio_lab_monitoring(body: LabMonitoring, learner: Learner = Admin) -> dict:
+        """The owner turned performance monitoring of the lab database on or off (ADR 0023). This is the only thing that
+        connects to the database for it, and only when the owner asks."""
+        _labs_on()
+        try:
+            labs.set_monitoring(body.on)
+        except UserError:
+            raise
+        except Exception as exc:
+            log.warning("lab monitoring unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
+            raise HTTPException(503, "Waking the database, about a minute. Try again shortly." if is_waking(exc)
+                                else "The database is unavailable. Try again.") from exc
+        return _lab_view()
 
     @app.post("/api/diag/lab")
     def lab_probe(learner: Learner = Admin) -> dict:
