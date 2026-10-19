@@ -1228,6 +1228,17 @@ class DriftCheck:
             rewrite, pages = rewrite + len(held - stuck), pages + len(stuck)
         return rewrite, pages
 
+    def _stuck(self, by: dict, gone: dict[str, set[str]]) -> list[dict]:
+        """The lessons that wait, and use no rewrite, because every official page of their skill is gone or moved: the owner
+        updates the package's source. Named here and not only counted, so a long history of changes cannot hide or lose them."""
+        out = []
+        for pid in self.dojo.packages.ids():
+            latest = self._latest(pid, by)
+            held = {sid for sid, m in latest.items() if self.withheld(m["id"])}
+            stuck = held & self._gone_memo(pid, gone) if held else set()
+            out += [{"id": latest[sid]["id"], "package": pid, "skill": sid, "title": latest[sid].get("title")} for sid in sorted(stuck)]
+        return out
+
     @staticmethod
     def _counts(heads: list[dict | None]) -> dict[str, int]:
         """The cited pages Dojo has a copy of that it may use; those whose copy it may not use (stored before
@@ -1273,6 +1284,7 @@ class DriftCheck:
                       "waiting": sorted(h for h in doc["hosts"] if self._host_waits(doc, h, now))},
             "status": {k: self.state[k] for k in ("running", "current", "last", "note")},
             "rechecking": rewrite + for_pages, "rewrites": self._rewrites(doc, rewrite, for_pages),
+            "stuck": self._stuck(by, gone),
             "labs": self.flagged_labs(doc),
             "changes": changes, "formatting": formatting,
             "refilm": {"lessons": cands, "estimate": self.estimate(cands), "films": self._films_view(doc),

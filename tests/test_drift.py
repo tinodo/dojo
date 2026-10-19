@@ -191,6 +191,7 @@ class SetupTests(DriftCase):
                                              "left_today": drift_mod.DAILY_REWRITES, "waiting": 0, "waiting_for_pages": 0,
                                              "last": None})
         self.assertEqual(studio["rewrites"], block["rewrites"])
+        self.assertEqual(studio["stuck"], [])
         self.assertEqual(studio["limits"]["rewrites_per_day"], drift_mod.DAILY_REWRITES)
 
     def test_the_check_runs_in_azure_and_locally_only_when_asked(self):
@@ -1718,6 +1719,8 @@ class GoneRewriteTests(DriftCase):
         want = {"used_today": 1, "left_today": 2, "waiting": 0, "waiting_for_pages": len(gone)}
         self.assertEqual({k: studio["rewrites"][k] for k in want}, want)
         self.assertEqual(studio["rechecking"], len(gone))
+        self.assertEqual({x["skill"] for x in studio["stuck"]}, gone, "named, and not only counted")
+        self.assertTrue(all(x["package"] == PID and x["id"] and x["title"] for x in studio["stuck"]))
         change = next(c for c in studio["changes"] if c["url"] == URL)
         self.assertEqual({x["skill"]: (x["now"], x.get("why")) for x in change["lessons"]},
                          {sid: ("waiting", drift_mod.PAGES_GONE) for sid in gone})
@@ -1739,6 +1742,7 @@ class GoneRewriteTests(DriftCase):
         self.assertEqual(self.prep.rewrites(), [(PID, first), (PID, self.LATE)])
         self.assertEqual(self.prep.next_skill(), (PID, first))
         self.assertEqual(self.get("/api/studio/drift")["rewrites"]["waiting_for_pages"], len(gone) - 1)
+        self.assertEqual({x["skill"] for x in self.get("/api/studio/drift")["stuck"]}, gone - {first})
 
         # Back to the page it cited, which answers again but lost a quote the lessons use.
         self.dojo.packages.by_id = {**self.dojo.packages.by_id, PID: pkg}
@@ -1750,6 +1754,7 @@ class GoneRewriteTests(DriftCase):
         self.assertEqual(self.prep.rewrites(), [(PID, sid) for sid in order if sid in gone | {self.LATE}])
         rewrites = self.get("/api/studio/drift")["rewrites"]
         self.assertEqual((rewrites["waiting"], rewrites["waiting_for_pages"]), (len(gone) + 1, 0))
+        self.assertEqual(self.get("/api/studio/drift")["stuck"], [])
 
     def one_miss(self) -> None:
         """S's lesson is held for a quote its page lost, and the page then answers "not found" once. The next

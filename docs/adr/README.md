@@ -33,6 +33,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0021](0021-refused-pages-filmed.md) | A skill whose cited pages both models refuse twice gets the pages the search accepted for it and a new lesson even when its old lesson was filmed. The old film is not shown on the new lesson, which is offered for filming on the Courses page at its price like any lesson without a film. | Proposed (built) |
 | [0022](0022-course-picker-scope.md) | The exam picker says what a page is about: on Studio, Plan and Play, which show every exam together, it says "All courses" and choosing a course opens it; Studio's cards stop following the exam picked; a lesson or skill of another exam moves the picker to it; a choice never jumps pages late and its writes keep their order. | Proposed (built) |
 | [0023](0023-lab-performance-monitoring.md) | Microsoft's performance monitoring of the lab database is a switch only the owner presses, off until then. Dojo shows what it last confirmed and never connects to the free database to look, because Learn does not say whether monitoring keeps a serverless database awake. | Proposed (built) |
+| [0024](0024-studio-checks-short.md) | Studio's Checks tab is a few screens and what the owner presses is at the top: the lab database switch first, one action row for a lab to look at, long lists keep their newest rows under "Show the other N", and the log of blocked text is a box that scrolls. | Proposed (built) |
 
 ## Writing a new ADR
 

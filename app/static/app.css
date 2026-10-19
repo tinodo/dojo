@@ -143,6 +143,10 @@ p + p { margin-top: 7px; }
 .panel.tint { background: var(--card-2); }
 .panel.stack { display: flex; flex-direction: column; min-height: 0; }
 .panel.scroll { overflow-y: auto; }
+/* A log of any length is a box that scrolls, not a page that grows: the blocks of the page never shrink (see .main), so it needs its own cap.
+   Its keyboard focus has a ring dark enough to see (--amber-ink is about 6:1 on the canvas; the page-wide --ochre ring is about 2.7:1). */
+.panel.scroll.logbox { max-height: min(70vh, 640px); }
+.panel.logbox:focus-visible { outline: 2px solid var(--amber-ink); outline-offset: 2px; border-radius: var(--r); }
 .panel-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-h.tight { margin-bottom: 8px; }
 .hero { border-left: 4px solid var(--amber); }
@@ -1078,7 +1082,7 @@ p.small.bad { font-weight: 500; }
 .found-f span { display: inline-flex; align-items: center; gap: 6px; }
 .found-f svg { color: var(--ink-3); flex: none; }
 details.how { margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
-details.how summary { cursor: pointer; font-weight: 600; }
+details.how summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 details.how[open] summary { margin-bottom: 6px; }
 .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); min-width: 0; }

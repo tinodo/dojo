@@ -565,10 +565,10 @@ console.log(JSON.stringify([v.chips, v.text]));""")
 
 
 class WiringTests(unittest.TestCase):
-    def test_studios_checks_reads_the_lab_and_draws_it_after_the_pages_row(self):
+    def test_studios_checks_reads_the_lab_and_draws_it_first(self):
         body = APP_JS.split("async function studioChecks() {", 1)[1].split("\n}\n", 1)[0]
         self.assertIn('api("/api/studio/lab").catch((e) => ({ error: e.message }))', body)
-        self.assertRegex(body, r"sourcingRow\(sr\),\s+labRow\(lb\),")
+        self.assertRegex(body, r"return \[labRow\(lb\),\s+pipe,")   # what the owner presses comes first (ADR 0024)
 
     def test_the_button_posts_to_the_one_route(self):
         self.assertEqual(APP_JS.count("/api/studio/lab/monitoring"), 1)

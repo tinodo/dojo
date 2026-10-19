@@ -6421,14 +6421,15 @@ async function studioChecks() {
     h("span", { class: "num" }, num), h("b", null, icon(ic, "sm"), " ", name), h("small", null, note),
     who[num] ? h("div", { class: "who" }, chip(who[num], "line")) : null)));
   const blocked = q.filter((x) => x.text);
-  return [pipe,
+  // What the owner presses comes first (the lab database switch), then the checks, then the long history (ADR 0024).
+  for (const k of Object.keys(OPEN_MORE)) delete OPEN_MORE[k];
+  return [labRow(lb), pipe,
     h("div", { class: "row stackable" }, voicesPanel(v)),
     driftRow(dr),
     deeperRow(dl),
     sourcingRow(sr),
-    labRow(lb),
     h("div", { class: "row stackable grow studio-log" },
-      h("section", { class: "panel grow stack scroll" },
+      h("section", { class: "panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why" },
         h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
         !Array.isArray(log) ? h("p", { class: "sub" }, log.error || "The log could not be read.")
         : q.length ? q.map((x) => h("div", { class: "qentry" },
@@ -6668,6 +6669,17 @@ function everyLessonCost(all, assumptions) {
 
 // ---------------------------------------------------------------- Studio: source changes (ADR 0006)
 // What a changed page touched, and the one button that spends money on it: Dojo never films on its own.
+// A long list shows its first rows and keeps the rest behind one line, so a page stays a page. One row is never hidden behind a line
+// of its own. Whether the rest was opened is remembered while the block is drawn again after a press (and forgotten with the tab).
+const OPEN_MORE = {};
+function capped(list, shown, what, row) {
+  if (list.length <= shown + 1) return list.map((x) => row(x));
+  const memo = (OPEN_MORE[what] = OPEN_MORE[what] || { open: false });
+  return [list.slice(0, shown).map((x) => row(x)),
+    h("details", { class: "how", open: memo.open, ontoggle: (e) => { memo.open = e.target.open; } },
+      h("summary", null, `Show the other ${list.length - shown} ${what}`), list.slice(shown).map((x) => row(x)))];
+}
+
 const LESSON_NOW = { holds: ["still holds", "sage"], rechecking: ["re-checking", "amber"], waiting: ["waiting", "amber"], rewritten: ["written again", "sage"] };
 const LAB_NOW = { flagged: ["to look at", "amber"], looked: ["looked at", "sage"], clear: ["nothing to look at", "line"] };
 const FILM_NOW = { waiting: ["video waits for you", "amber"], remaking: ["video being remade", "line"], done: ["filmed again", "sage"] };
@@ -6685,7 +6697,7 @@ function driftRow(dr) {
 
 function driftChanges(d, paint) {
   const P = d.pages, L = d.limits, st = d.status || {}, R = d.rewrites;
-  const labs = d.labs || [];
+  const labs = d.labs || [], stuck = d.stuck || [];
   const now = !d.started ? "The check is not running in this copy of Dojo." : st.running ? "Reading a page now." : st.note ? `Now: ${st.note}.` : "";
   const waiting = P.waiting.length ? ` Leaving ${P.waiting.join(" and ")} alone for now, as asked.` : "";
   return h("section", { class: "panel grow stack" },
@@ -6703,7 +6715,9 @@ function driftChanges(d, paint) {
       `${plural(d.rechecking, "lesson")} ${d.rechecking === 1 ? "is" : "are"} being re-checked: held back from your podcast feed and written again from the page as it is now.`)) : null,
     labs.length ? h("p", { class: "conf top" }, icon("target", "xs"), h("span", null,
       `${plural(labs.length, "lab")} to look at: a page ${labs.length === 1 ? "it cites" : "they cite"} changed. A lab has no quotes to check, so compare its steps with the page, then press “I looked at it”.`)) : null,
-    d.changes.length ? h("div", { class: "top" }, d.changes.map((c) => driftChange(c, paint))) : h("p", { class: "sub top" }, "No cited page has changed its words so far."),
+    labs.length ? h("div", { class: "top" }, labs.map((x) => driftLab({ ...x, now: "flagged" }, paint))) : null,
+    stuck.length ? h("div", { class: "top" }, capped(stuck, 5, "lessons waiting for a source", driftStuck)) : null,
+    d.changes.length ? h("div", { class: "top" }, capped(d.changes, 4, "earlier changes", (c) => driftChange(c, paint))) : h("p", { class: "sub top" }, "No cited page has changed its words so far."),
     d.formatting.length ? [h("h3", { class: "top" }, "Formatting only, nothing to re-check"),
       d.formatting.map((f) => h("p", { class: "prow" }, icon("check", "xs"), h("span", null, ext(f.url, f.title || f.url), ` · ${f.date}`)))] : null,
     h("p", { class: "note top" }, d.record));
@@ -6729,7 +6743,7 @@ function driftChange(c, paint) {
       ? `No longer on the page (${c.removed.length} of ${c.removed_total} shown):` : "No longer on the page:"),
       c.removed.map((q) => h("p", { class: "blocked-line" }, `“${q}”`))] : null,
     c.lessons.length ? h("div", { class: "top" }, c.lessons.map(driftLesson)) : null,
-    labs.length ? h("div", { class: "top" }, labs.map((x) => driftLab(x, paint))) : null,
+    labs.length ? h("div", { class: "top" }, labs.map((x) => driftLab(x, paint, false))) : null,
     touched.length ? h("p", { class: "small ink2 top" }, touched.join(" · ")) : null,
     !c.lessons.length && !labs.length && !touched.length ? h("p", { class: "small muted top" }, "Nothing Dojo wrote used the words that changed.") : null);
 }
@@ -6743,12 +6757,20 @@ function driftLesson(x) {
     h("span", { class: "chips" }, chip(label, kind), film ? chip(film[0], film[1]) : null));
 }
 
+// A lesson that waits for the owner to update its package's source: named above the history, so no history can hide or lose it.
+function driftStuck(x) {
+  return h("div", { class: "near" },
+    h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, `${x.package} ${x.skill}`),
+      h("small", { class: "block muted" }, "Every official page of this skill is gone or moved: update the package's source.")),
+    chip("waiting", "amber"));
+}
+
 // A lab a changed page touched. Only a person can say whether its steps still match, so its flag stays
 // until the owner says they looked.
-function driftLab(x, paint) {
+function driftLab(x, paint, act = true) {
   const [label, kind] = LAB_NOW[x.now] || [x.now, "line"];
   const msg = h("small", { class: "block muted" });
-  const looked = x.now === "flagged" ? button("I looked at it", async () => {
+  const looked = act && x.now === "flagged" ? button("I looked at it", async () => {
     looked.disabled = true;
     try { paint(await api(`/api/studio/drift/labs/${x.id}/looked`, { method: "POST" })); }
     catch (e) { msg.textContent = e.message; looked.disabled = false; }
@@ -6779,23 +6801,25 @@ function refilmPanel(d, paint) {
     deeper ? `${plural(deeper, "lesson")} on the deeper template, from more official pages` : null].filter(Boolean).join(" and ");
   const until = [changed ? "a changed lesson offers Present, Read and Listen" : null,
     deeper ? "a deeper lesson shows the earlier film and says so" : null].filter(Boolean).join("; ");
+  const waiting = (x) => h("div", { class: "near" },
+    h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}/watch` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, x.skill),
+      x.why === "deeper" ? h("small", { class: "block muted" }, "deeper lesson") : null),
+    h("span", { class: "small muted" }, x.error ? "the last try did not work" : `${Number(x.characters).toLocaleString()} characters`));
+  const filmRow = (f) => {
+    const [label, kind] = FILM_STATE[f.state] || [f.state, "line"];
+    return h("div", { class: "near" }, h("span", null, f.title || f.skill, " ", h("span", { class: "mono muted" }, f.skill),
+      f.state === "failed" && f.error ? h("small", { class: "block muted" }, f.error) : null), chip(label, kind));
+  };
   return panel(
     h("div", { class: "panel-h" }, eyebrow("video", "Film again"), chip("Only when you say so", "amber")),
     n ? [h("p", { class: "sub" }, `Written again: ${why}. `
           + `The earlier ${n === 1 ? "version was" : "versions were"} filmed; the new ${n === 1 ? "one is" : "ones are"} not. Until then, Watch: ${until}.`),
-        R.lessons.map((x) => h("div", { class: "near" },
-          h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}/watch` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, x.skill),
-            x.why === "deeper" ? h("small", { class: "block muted" }, "deeper lesson") : null),
-          h("span", { class: "small muted" }, x.error ? "the last try did not work" : `${Number(x.characters).toLocaleString()} characters`))),
         h("div", { class: "actions top refilm" }, btn), pricesAge(est), status,
         h("p", { class: "small muted top" }, `About ${est.minutes} minutes of video ${pace}. `,
-          est.voice_priced ? "The presenters' voices are included. " : "The presenters' voices have no listed price, so they are not included. ", est.label)]
+          est.voice_priced ? "The presenters' voices are included. " : "The presenters' voices have no listed price, so they are not included. ", est.label),
+        h("div", { class: "top" }, R.lessons.filter((x) => x.error).map(waiting), capped(R.lessons.filter((x) => !x.error), 5, "more lessons", waiting))]
       : h("p", { class: "sub" }, "No changed lesson is waiting for a new video. Filming costs money, so Dojo never films on its own: when a filmed lesson is written again, it waits here for your go-ahead."),
-    R.films.length ? [h("h3", { class: "top" }, "Films you approved"),
-      R.films.map((f) => { const [label, kind] = FILM_STATE[f.state] || [f.state, "line"];
-        return h("div", { class: "near" }, h("span", null, f.title || f.skill, " ", h("span", { class: "mono muted" }, f.skill),
-          f.state === "failed" && f.error ? h("small", { class: "block muted" }, f.error) : null),
-          chip(label, kind)); })] : null,
+    R.films.length ? [h("h3", { class: "top" }, "Films you approved"), capped(R.films, 3, "earlier films", filmRow)] : null,
     R.approvals.length ? h("p", { class: "small muted top" }, "Approved: ", R.approvals.map((a) =>
       `${fmtDate(a.at)}, ${plural(a.lessons.length, "lesson")}, ${a.usd === null || a.usd === undefined ? "price not listed" : "about " + dollars(a.usd)}`).join(" · ")) : null);
 }
@@ -7074,7 +7098,7 @@ async function viewStudioLog() {
   const log = await api("/api/quality").catch((e) => ({ error: e.message }));
   const q = Array.isArray(log) ? log : [];
   return [pageHead("Studio log", "Everything the checker removed from what you were shown, and why. Nothing is dropped silently.", null, helpQ("how-judging-works")),
-    h("section", { class: "panel grow stack scroll" },
+    h("section", { class: "panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why" },
       h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
       !Array.isArray(log) ? h("p", { class: "sub" }, log.error || "The log could not be read.")
       : q.length ? q.map((x) => h("div", { class: "qentry" },
