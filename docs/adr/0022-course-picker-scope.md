@@ -35,12 +35,14 @@ a course on pages that are not about one.
 - **A skill or a lesson of one of the owner's exams moves the picker to that exam** (`followExam`, as a link to a check or a
   practice exam already did), so a link from Studio or Plan into another exam no longer leaves the previous exam in the picker
   and in the "Course" crumb. A member's exam they do not study is left alone.
-- **A slow answer never moves the owner, or changes the exam, after he has gone on.** `stillHere()` remembers the page change
-  and the address a choice was made on; a choice (`switchPackage`), a link from a calendar event (`openFor`), "Open" on an added
-  exam (`openExam`) and the exam a lesson page brings (`followExam`) look again after the wait. Leaving a page and coming back
-  to the same address is another visit, so it counts. The writes of the exam kept go one after another (`keepExam`), two quick
-  choices keep the last one and draw the page once. The Course page (`#/skills`) shows the new course in place, as Practice and
-  Record do: only a skill or a lesson page, which belongs to the old course, goes to Today.
+- **A slow answer never moves the owner, or changes the exam, after he has gone on.** `stillHere()` remembers the visit and the
+  address a choice was made on; a choice (`switchPackage`), a link from a calendar event (`openFor`), "Open" on an added exam
+  (`openExam`) and the exam a lesson page brings (`followExam`) look again after the wait. A visit is a change of the address
+  (`pageVisit`, which the `hashchange` listener and the first page call), so leaving a page and coming back to the same address
+  counts, and so does an address set that is not routed yet. A page that only draws itself again, as Play's and Plan's buttons
+  do by calling `route()`, is not left: the choice made there still opens its course. The writes of the exam kept go one after
+  another (`keepExam`); of two quick choices only the last one draws the page. The Course page (`#/skills`) shows the new
+  course in place, as Practice and Record do: only a skill or a lesson page, which belongs to the old course, goes to Today.
 
 ## Options considered
 

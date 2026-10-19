@@ -64,6 +64,10 @@ const context = vm.createContext({
 vm.runInContext(APP.slice(START, END)
   + "\nthis.shell = { onAllCourses, renderHeader, renderSide, fillExamSelect, markNav, markScope, switchPackage, examChosen, followExam, choosePackage, openFor };", context);
 const S = context.shell;
+const OPEN = APP.indexOf("async function openExam(");
+const OPEN_END = APP.indexOf("\n}", OPEN) + 2;   // the first closing brace at the start of a line
+if (OPEN < 0 || OPEN_END < OPEN) throw new Error("openExam is not where it was");
+vm.runInContext(APP.slice(OPEN, OPEN_END) + "\nthis.shell.openExam = openExam;", context);
 
 const PACKS = [
   { id: "dp-800", exam: "DP-800", title: "Developing AI-enabled database solutions" },
@@ -72,14 +76,16 @@ const PACKS = [
 ];
 function start(role, enrolled) {
   context.state = { me: { name: "Tino Donders", role, enrolled, packages: PACKS, profile: { exam_dates: {}, active_package: "gh-300" } },
-    pid: "gh-300", nav: 0, pkg: null, pkgPid: null, pickedSkill: null };
+    pid: "gh-300", nav: 0, visit: 0, pkg: null, pkgPid: null, pickedSkill: null };
   apiImpl = async () => ({});
   calls.length = 0;
   page.hash = "#/today";
   S.fillExamSelect(); S.renderHeader(); S.renderSide();
 }
-// What route() does at every page change: the page is counted, then the side bar and the picker are drawn for it.
-function go(hash) { context.state.nav += 1; page.hash = hash; S.markNav(); S.markScope(); }
+// What a change of the address does: a visit (pageVisit), and what route() does at every drawing, the side bar and the picker.
+function go(hash) { context.state.visit += 1; context.state.nav += 1; page.hash = hash; S.markNav(); S.markScope(); }
+// The same page drawn again, as the buttons of Play and Plan do by calling route(): a drawing, not a visit.
+function redraw() { context.state.nav += 1; S.markNav(); S.markScope(); }
 function seen() {
   const ex = withClass(reg.side, "ex");
   const name = (b) => b.kids[0].textContent;
@@ -255,6 +261,40 @@ start('owner');
 })();""")
         self.assertEqual(out, [[], "dp-800"], "the same hash is not the same visit")
 
+    def test_a_page_that_draws_itself_again_does_not_cancel_a_choice(self):
+        out = run_node("""
+(async () => {
+  const log = [];
+  for (const hash of DATA) {
+    start('owner'); go(hash);
+    let release;
+    apiImpl = () => new Promise((resolve) => { release = resolve; });
+    const done = S.switchPackage('dp-800');
+    await tick();
+    redraw();                                   // an action on the page draws the same page again; the owner has not gone anywhere
+    release({}); await done;
+    log.push([hash, calls.filter((c) => c[0] !== 'api'), context.state.pid]);
+  }
+  console.log(JSON.stringify(log));
+})();""", ["#/play", "#/quality", "#/plan", "#/today", "#/skill/gh-300/d1.g1.s1"])
+        self.assertEqual(out, [["#/play", [["hash", "#/today"]], "dp-800"], ["#/quality", [["hash", "#/today"]], "dp-800"],
+                               ["#/plan", [["hash", "#/today"]], "dp-800"], ["#/today", [["route"]], "dp-800"],
+                               ["#/skill/gh-300/d1.g1.s1", [["hash", "#/today"]], "dp-800"]])
+
+    def test_a_redraw_then_leaving_still_stops_the_jump(self):
+        out = run_node("""
+(async () => {
+  start('owner'); go('#/play');
+  let release;
+  apiImpl = () => new Promise((resolve) => { release = resolve; });
+  const done = S.switchPackage('dp-800');
+  await tick();
+  redraw(); go('#/skills');
+  release({}); await done;
+  console.log(JSON.stringify([calls.filter((c) => c[0] !== 'api'), context.state.pid]));
+})();""")
+        self.assertEqual(out, [[], "dp-800"])
+
     def test_a_hash_that_is_set_but_not_routed_yet_is_a_move_too(self):
         out = run_node("""
 (async () => {
@@ -298,6 +338,27 @@ start('owner');
 })();""")
         self.assertEqual(out, [[["replace", "#/check"]], []])
 
+    def test_opening_an_added_exam_goes_to_its_course_only_while_the_owner_is_still_on_the_page(self):
+        out = run_node("""
+(async () => {
+  const log = [];
+  for (const wander of [false, true]) {
+    start('owner'); go('#/add-exam/dp-300');
+    let release;
+    apiImpl = () => new Promise((resolve) => { release = resolve; });
+    const opened = S.openExam('dp-300');
+    await tick();
+    if (wander) go('#/today');
+    release({}); await opened;
+    log.push([calls.filter((c) => c[0] !== 'api'), context.state.pid]);
+  }
+  start('owner'); go('#/add-exam/gh-300');
+  await S.openExam('gh-300');                       // the exam already picked: nothing to keep, nothing to wait for
+  log.push([calls.splice(0), context.state.pid]);
+  console.log(JSON.stringify(log));
+})();""")
+        self.assertEqual(out, [[[["hash", "#/skills"]], "dp-300"], [[], "dp-300"], [[["hash", "#/skills"]], "gh-300"]])
+
     def test_a_page_about_one_of_the_exams_moves_the_picker_to_it(self):
         out = run_node("""
 (async () => {
@@ -331,10 +392,16 @@ class WiringTests(unittest.TestCase):
         lesson = APP_JS.split("async function viewLesson(id, tab, section) {", 1)[1].split("\n}\n", 1)[0]
         self.assertRegex(lesson, r"const here = stillHere\(\);\s+const L = await api\(`/api/lessons/\$\{id\}`\);\s+followExam\(L\.package, here\);")
 
-    def test_a_slow_choice_moves_the_owner_only_while_he_is_still_there(self):
-        body = APP_JS.split("async function openExam(pid) {", 1)[1].split("\n}\n", 1)[0]
-        self.assertIn("const here = stillHere();", body)
-        self.assertIn('if (here()) location.hash = "#/skills";', body)
+    def test_only_a_change_of_the_address_is_a_visit(self):
+        self.assertIn("nav: 0, visit: 0,", APP_JS)
+        self.assertIn('window.addEventListener("hashchange", pageVisit);', APP_JS)
+        self.assertNotIn('window.addEventListener("hashchange", route);', APP_JS)
+        visit = APP_JS.split("function pageVisit() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertRegex(visit, r"state\.visit \+= 1;\s+return route\(\);")
+        self.assertEqual(APP_JS.count("state.visit += 1"), 1, "nothing else counts a visit: a direct route() is a drawing")
+        self.assertNotIn("state.visit", APP_JS.split("async function route() {", 1)[1].split("\n}\n", 1)[0])
+        init = APP_JS.split("async function init() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertTrue(init.rstrip().endswith("pageVisit();"), "the first page is a visit too")
 
     def test_the_exam_is_kept_in_one_place(self):
         self.assertEqual(APP_JS.count('body: { active_package: pid }'), 1, "every choice goes through keepExam, which writes in order")

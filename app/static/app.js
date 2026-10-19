@@ -5,7 +5,7 @@
    The Content-Security-Policy forbids inline styles, so layout lives in app.css and the few
    measured lengths (bars, timelines) are set through the CSSOM with el.style.setProperty. */
 
-const state = { me: null, gate: null, pid: null, nav: 0, pkg: null, pkgPid: null, askDraft: "", pickedSkill: null, laterHours: 20, feedLink: null, calLink: null, timer: null, keys: null, deckOff: null, help: null, gateHelp: false };
+const state = { me: null, gate: null, pid: null, nav: 0, visit: 0, pkg: null, pkgPid: null, askDraft: "", pickedSkill: null, laterHours: 20, feedLink: null, calLink: null, timer: null, keys: null, deckOff: null, help: null, gateHelp: false };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const $view = () => document.getElementById("view");
 const $ = (id) => document.getElementById(id);
@@ -520,11 +520,12 @@ async function choosePackage(pid) {
   await keepExam(pid);
 }
 
-// A slow answer moves the owner, or changes the exam picked, only while he is still on the page it was asked on. Every page
-// change counts (state.nav), also one that came back to the same page, and so does a hash set that is not routed yet.
+// A slow answer moves the owner, or changes the exam picked, only while he is still on the page it was asked on. Leaving it counts
+// (state.visit), also coming back to the same address, and so does an address set that is not routed yet. A page that draws itself
+// again (an action on it asks route() for that, state.nav) is not left: what was waited for is still wanted after it.
 function stillHere() {
-  const nav = state.nav, hash = location.hash;
-  return () => state.nav === nav && location.hash === hash;
+  const visit = state.visit, hash = location.hash;
+  return () => state.visit === visit && location.hash === hash;
 }
 
 async function switchPackage(pid) {
@@ -535,7 +536,8 @@ async function switchPackage(pid) {
   const open = onAllCourses();
   if (pid === state.pid && !open) return;
   if (pid !== state.pid) await choosePackage(pid);
-  if (!here()) return;   // the owner went on while the choice was kept: it is made all the same, and a second choice draws the page once
+  // The owner went on while the choice was kept: it is made all the same. A newer choice draws the page, so two quick ones draw it once.
+  if (!here() || state.pid !== pid) return;
   if (open || /^#\/(skill\/|lesson|item|answer|rehearsal\/)/.test(from)) location.hash = "#/today"; else route();
 }
 
@@ -9565,6 +9567,12 @@ async function route() {
   }
 }
 
+// A visit is a change of the address, or the page the app opens on. route() alone draws the same page again, as an action on it asks.
+function pageVisit() {
+  state.visit += 1;
+  return route();
+}
+
 // A membership can change while the page is open (removed, paused, a new notice): ask again and show the gate.
 const GATE_CODES = new Set(["not_member", "removed", "paused", "notice"]);
 async function gateAgain() {
@@ -9616,8 +9624,8 @@ async function init() {
   registerWorker();
   window.addEventListener("hashchange", stopEveryMicrophone);  // going to another page stops any recording
   window.addEventListener("pagehide", stopEveryMicrophone);
-  window.addEventListener("hashchange", route);
-  route();
+  window.addEventListener("hashchange", pageVisit);
+  pageVisit();
 }
 
 document.addEventListener("DOMContentLoaded", init);
