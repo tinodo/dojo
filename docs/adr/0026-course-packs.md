@@ -168,14 +168,17 @@ The place has gaps, and the design closes each one. They were found by reading `
   `Preparer.next_skill` and the check in `new_lesson` ask `skills_spoken_for`, and `DeeperLessons.search_targets` leaves out `skills_waiting`.
   `skills_spoken_for` must not replace `lesson_skills`. `lesson_skills` is also what the readiness page, the study plan's moves, Courses' "ready"
   count and the practice exam use to mean "taught" (`app/readiness.py`, `app/exam.py`, `app/newexam.py`, `app/learning.py`), and a waiting lesson is
-  not taught. Changing it would make Dojo say that a skill is taught when no learner can open a lesson for it.
+  not taught. Changing it would make Dojo say that a skill is taught when no learner can open a lesson for it. A lesson that was left out at the
+  door, or dropped by the check, is not waiting any more, so its skill is free again and Dojo may write it.
 - **A lesson already being written.** Asking at selection time is not enough: Preparer picks a skill and then spends about a minute writing it,
   and `make_lesson` saves without asking again (fact 14). A pack adopted in that minute would be followed by a newer lesson that hides it. So
-  writing a lesson for a skill (a first lesson or a rewrite, by a worker or by a press) and adopting for a skill share **one claim for each
-  skill**, kept in memory under the Store's lock. It is taken before the writing starts and before the adopting starts, and given back when either
-  ends. Whoever finds it taken skips that skill: adoption names the skill in its report as "Dojo was writing this lesson itself", and a writer is
-  never interrupted. A claim dies with the process, and on start an interrupted adoption is finished or rolled back before any request or worker,
-  so no claim has to be rebuilt.
+  writing a lesson for a skill and adopting for a skill share **one claim for each skill**, kept in memory under the Store's lock. The claim is
+  taken inside `make_lesson`, the only place a lesson file is written (`app/learning.py`), so its four callers are covered by one change: the
+  new-lesson route and the rewrite route (`app/main.py`), and Preparer's step and Preparer's upgrade (`app/prepare.py`). It is taken before the
+  writing starts and before the adopting starts, and given back when either ends. Whoever finds it taken skips that skill: adoption names the skill
+  in its report as "Dojo was writing this lesson itself", and a `make_lesson` that finds it taken writes nothing and stops with a plain message.
+  A writer is never interrupted. A claim dies with the process, and on start an interrupted adoption is finished or rolled back before any request
+  or worker, so no claim has to be rebuilt.
 - **An exam Dojo does not have yet.** If the package file of an exam that is not in `packages/` went there when the pack was brought in, the
   question pool and the other services would start spending on an exam with no lesson, and learners would see it empty. So it waits in
   `packs/<id>/` too, and becomes `packages/<exam>.json` only at adoption. Until then nothing in Dojo knows the exam, and Studio shows it on the
@@ -193,9 +196,11 @@ The place has gaps, and the design closes each one. They were found by reading `
 - **Services that would spend before the owner has looked.** Preparer and the Deeper lessons search start by themselves a few minutes after a start
   (fact 6), and a finished course saves money only if it is brought in before they reach its skills. So **a Dojo that first starts with no lesson
   at all holds those two until the owner has answered one question** (section 6). Dojo decides this once, at that start, and writes it down, so the
-  hold lasts until he answers, and one answer ends it for both. A Dojo that already has a lesson at its first start with this change is never asked.
-  The hold covers those two services only. The question pool is not held, because a pack carries no questions (fact 4) and holding it would save
-  nothing. A lesson that a person asks for is a press with a price and is not held.
+  hold lasts until he answers, and one answer ends it for both. The hold is one for the whole Dojo, not one for each exam: the card names the exams
+  that still have a finished course he has not brought in, and the answer that ends it is the owner's press, with its price shown first. A Dojo that
+  already has a lesson at its first start with this change is never asked. The hold covers those two services only. The question pool is not held,
+  because a pack carries no questions (fact 4) and holding it would save nothing. A lesson that a person asks for is a press with a price and is not
+  held.
 
 It is two small functions, one claim for each skill, one hold and one rule for removal, and a test for each, not a skip in eight modules.
 
@@ -203,28 +208,33 @@ A pack goes through four steps. In team mode only the owner presses them. Member
 in" (step 2) and "check and use" (steps 3 and 4 in one press).
 
 1. **Available.** It is in a list. Nothing is downloaded.
-2. **Brought in.** Dojo downloads the groups of files the owner chose (words only until R2 is answered), checks them at the door (section 3) and keeps
-   them under `packs/<id>/`. Bringing in calls no model and writes nothing into `content/`, `media/` or `packages/`. The owner can read what is
-   waiting, as plain text, on the card.
-3. **Checked here.** The owner presses one button with its price. A second model family re-checks each claim against its quote and excerpt, as
-   when Dojo writes a lesson (EG-14), and, when the pack has audio and films (R2), the listener transcribes them and compares them with the approved
-   words. Pack adoption has its own bar: a lesson in which fewer than three quarters of the claims the gate judged hold is dropped. That is stricter
-   than a first lesson that Dojo writes itself, which keeps its best attempt (fact 14), and the same as the bar for a deeper-template rewrite
-   (`KEPT_SHARE`). When a dropped line changes a lesson's words, the audio and film made from the old words are dropped with it, because their names
-   no longer match. **The owner may put adoption off. He cannot skip its checks:** every adopted lesson has passed the gate, and every adopted
-   recording has passed the listener.
+2. **Brought in.** Dojo downloads the groups of files the owner chose (the official library has words only until R2 is answered), checks them at the
+   door (section 3) and keeps them under `packs/<id>/`. Bringing in calls no model and writes nothing into `content/`, `media/` or `packages/`. The
+   owner can read what is waiting, as plain text, on the card.
+3. **Checked here.** The owner presses one button with its price. A second model family re-checks each element of the pack's lesson against its
+   quote and excerpt, as when Dojo writes a lesson (EG-14), and, when the pack has audio and films (R2), the listener transcribes them and compares
+   them with the approved words. Pack adoption has **its own bar, new in this ADR**. It is measured on what the pack published, not on what an
+   author wrote: of the points, misconceptions, self-check questions and slides the pack's lesson holds, at least three quarters must pass the
+   gate, an element the gate gave no verdict on counts as not passing (as in `gate_elements`), and what remains must still have at least two
+   sections and the minimum slides (`MIN_SLIDES`). It uses the same threshold as `KEPT_SHARE` and is not the same check as the deeper-template
+   rewrite's, which compares with the lesson it replaces (`make_lesson`, `app/learning.py`). A lesson below the bar is dropped. That is stricter than
+   a first lesson that Dojo writes itself, which keeps its best attempt whatever its score (fact 14). When a dropped line changes a lesson's words,
+   the audio and film made from the old words are dropped with it, because their names no longer match. **The owner may put adoption off. He cannot
+   skip its checks:** every adopted lesson has passed the gate, and every adopted recording has passed the listener.
 4. **Adopted.** Lessons that pass are moved into `content/` and their media into `media/`, in the order of section 3. From that moment they are
-   Dojo's own lessons: every reader and every worker sees them, Preparer rewrites them when a page changes, and opening one can narrate or draw
-   what is missing. All of that costs money in the way it already does. The owner is told so on the sheet before he presses.
+   Dojo's own lessons: every reader and every worker sees them. Preparer then voices the lessons that have no audio and speaks their Deeper Listen,
+   rewrites a lesson when a page changes, and opening a lesson can draw a deck it lacks (`app/prepare.py`). All of that costs money in the way it
+   already does. The sheet prices the voicing and says what else starts, before the owner presses.
 
 What the owner and the learners see:
 
 - **Before adoption nothing is visible to a learner,** whoever published the pack. That follows from the place, and it keeps EG-14 and EG-19:
   no learner is taught from a lesson no one checked here, and no teaching event is recorded for one.
 - **A skill whose lesson is waiting says so, and no press spends on it.** Where a learner's skill page would offer to write the lesson, it says "A
-  finished lesson for this skill is waiting for the owner's check.", and the owner's page says it waits for his check on To do. `POST /api/lessons`
-  answers 409 with the same words to everyone, the owner included, so any other press that would start a lesson for it, such as a next step on
-  Today, gets the same sentence and spends nothing. No lesson is written that makes the finished one pointless.
+  lesson for this skill is waiting for the owner to check it.", and the owner's page says "A lesson for this skill is waiting for your check. Decide
+  on To do." `POST /api/lessons` answers 409 with the sentence for the person who pressed, the owner included, so any other press that would start a
+  lesson for it, such as a next step on Today, gets the same sentence and spends nothing. No lesson is written that makes the finished one
+  pointless.
 - **There is no shortcut for a trusted publisher.** EG-19 asks for a blocking gate before anything learner-visible. Trust (section 4) decides
   something else: whether films are accepted without a plain yes from the owner, and which publisher's name shows first. It is the owner's
   decision in settings, and never read from a field in the pack.
@@ -260,7 +270,7 @@ pure function with tests (EG-33). The checks run when a pack is brought in, and 
 | 4 | **Ids, dates and links.** New local ids and the adoption time as `created`. Links to other lessons are dropped. An id that exists is refused, never overwritten (section 2). | free | a far-future date that outranks every later lesson; a foreign replacement link; overwriting |
 | 5 | **Quotes.** Dojo reads the official pages itself through `Sources.get` (official hosts only, its own limits and backoff) and finds every quote word for word. Snapshots in a pack are never read (fact 7). Dojo records the date of the copy of the page each quote was found in, and a quote counts as found only when the read was fresh: a copy under a week old counts, a copy marked `stale` does not. The line on a lesson (section 6) shows that date. A lesson with a quote that is not found is left out and counted, with the plain words "its quotes could not be found". A missing quote may mean that the documentation has changed, or that the text never existed: Dojo reports only that the quote could not be found. | no model money; takes fetch time | forged or invented quotes; ads and free text that no official page backs |
 | 6 | **Media shape.** Expected container structure is checked with bounded work, with limits on duration and size. The name must equal the hash Dojo rebuilds from the lesson's words, voices and settings. A mismatch drops the media. The server decodes nothing; the browser plays. This does not prove a file harmless, and it does not rule out a polyglot file. The fingerprint (check 2) ties the bytes to the manifest, and the listener (check 8) checks what is said. | free | the wrong kind of file, oversize files, media on the wrong lesson |
-| 7 | **Claims** (required before adoption, priced). The second model family re-checks each claim. A lesson with fewer than three quarters of the claims it judged holding is dropped. | priced | a true quote used for a false claim, which the quote check cannot see |
+| 7 | **Claims** (required before adoption, priced). The second model family re-checks each element of the lesson. At least three quarters must pass, a missing verdict counts as a fail, and two sections and the minimum slides must remain (section 2, step 3). Otherwise the lesson is dropped. | priced | a true quote used for a false claim, which the quote check cannot see |
 | 8 | **Listener** (required before adoption, priced). The delivered-meaning check on audio and film: transcribe and compare with the approved words. A mismatch drops the media. | priced | audio or film that does not say the approved words. Nothing checks the pictures of a film |
 | 9 | **Ceilings.** At most 400 skills, as for an added exam. Limits per file and per pack. Films must fit the film budget. | free | spend and disk exhaustion |
 
@@ -353,93 +363,116 @@ cost?* And a third: *How do I give one of mine away?*
 
 Words on the face: **finished course** for the thing, **library** for the place it comes from, **bring in** for fetching it so that it waits, and
 **check and use** for the step that makes the lessons his. Never "pack", "adopt" or "door" on the face, never "list" for the library's file ("list
-price" is Dojo's own wording for a price and stays), and not "claims" or "listener": the check is described by what it does. When the publisher is the
-owner of this Dojo his pages say "you" and "your library", and otherwise the publisher's name.
+price" is Dojo's own wording for a price and stays), and not "claims" or "listener": the check is described by what it does. One word for one
+thing: a price of nothing is "costs nothing", never "free". A library has the name its list gives it, and the official one is "the Dojo library".
+A course says who made it: "by Tino", or "by you" when the maker is the owner of this Dojo.
 
 Studio's rules decide where things go. **Courses has no buttons** (`docs/user-guide.md`), so nothing here is a button there; one line there says what
 waits. **To do** is where the owner decides what to spend, so every action is a card on To do. The one other place is **Add an exam**, because that
 is where he is already deciding whether to build. ADR 0025 gives To do two groups, *Needs you · costs nothing* and *Optional · costs money*. This ADR
-adds a third, **Optional · free**, for what costs nothing and can wait. That group is new.
+adds a third between them, **Optional · costs nothing**, for what costs nothing and can wait. It is hidden when it has nothing in it. The group is
+new, so the user guide's paragraph on To do changes with it.
 
-**To do, "Optional · free": "Finished courses in your library."** One row for each finished course that fits an exam he has, built in or added.
-That includes GH-300 and DP-800, which have no Add an exam page. A course for an exam he does not have is offered on Add an exam, below.
+**To do, "Optional · costs nothing": "Finished courses in the library."** One row for each finished course that fits an exam he has, built in or
+added. That includes GH-300 and DP-800, which have no Add an exam page. A course for an exam he does not have is offered on Add an exam, below.
 
-- Row: "AZ-900 · 62 lessons · made 12 October by you · [Bring in the finished course · free]".
-- Sheet: "Bring in the finished course of AZ-900 from your library?" Lines: "You have lessons for 2 of the 62 skills. Those 2 keep your
+- Row: "AZ-900 · 62 lessons · made 12 October by Tino · [Bring in the finished course · costs nothing]".
+- Sheet: "Bring in the finished course of AZ-900 from the Dojo library?" Lines: "You have lessons for 2 of the 62 skills. Those 2 keep your
   lesson." "Dojo downloads the other 60 lessons and finds every quote on the official pages, word for word. That uses no AI model, takes a few
   minutes and costs nothing." "The lessons then wait where learners cannot see them, and Dojo does not use them until you check them. While they
-  wait, Dojo does not write lessons for these skills itself." Buttons: "Bring in 60 lessons · free", "Cancel" (focused).
-- After it ran, the course moves to the card below: "57 lessons are waiting for your check. 3 were left out because their quotes could not be
-  found: [their names]. Nobody sees them."
+  wait, Dojo does not write lessons for the skills they cover." "Using them later costs money: at most about $14 for 60 lessons at list prices, for
+  the check and for voicing them. You see the exact price first." Buttons: "Bring in 60 lessons · costs nothing", "Cancel" (focused).
+- While it runs: "Bringing in AZ-900: 23 of 60 lessons read. You can leave this page." If it stops: "Bringing in stopped. Nothing was changed. Try again
+  later."
+- After it ran, the course moves to the card below: "57 lessons are waiting for your check. 3 were left out: [name · reason]. They are not used, and
+  Dojo can write those lessons itself · costs money."
 - Voices and films, when the finished course has them (the official library has none until R2 is answered): the sheet gets one more line with an
-  unticked box, "Also bring in the voices and films of 41 lessons · 410 MB". Dojo downloads them only when the box is ticked.
-- States. Library not reached: "Could not reach your library just now. Last read on 20 October. Nothing was changed. Try again later." Never read:
-  "Could not reach your library just now. Dojo has not read it yet. Nothing was changed." None for any of his exams: nothing is shown. Two for one
-  exam: two rows, each with its publisher and date. A partial fit: the counts above.
+  unticked box, "Also bring in the voices and films of 41 lessons · 410 MB". Dojo downloads them only when the box is ticked. When he already has every
+  lesson, the sheet says "You have lessons for all 62 skills. The finished course has a voice or film for 41 of them that yours lack." and the button
+  is "Bring in 41 voices and films · costs nothing".
+- States. Library not reached: "Could not reach the Dojo library just now. Last read on 20 October. Nothing was changed. Try again later." Never read:
+  "Could not reach the Dojo library just now. Dojo has not read it yet. Nothing was changed." None for any of his exams: the group is not shown. Two for
+  one exam: two rows, each with its library and maker. A partial fit: the counts above.
 - True when: the finished course waits in `packs/` (section 2), the counts come from the library's entry, the owner's skills and the door's free
-  checks, and the group "Optional · free" exists, which ADR 0025 does not have. No dollar number is shown here, and none is in a library (section 4).
+  checks, the price line comes from the price code of the next card, and the group "Optional · costs nothing" exists, which ADR 0025 does not have.
 
 **To do, "Optional · costs money": "Finished courses waiting for your check."**
 
-- Row: "AZ-900 · 57 lessons waiting · [Check and use 57 lessons · about $4.30]". Two quiet links under it: "Read what is waiting" (each lesson as plain
+- Row: "AZ-900 · 57 lessons waiting · [Check and use 57 lessons · about $13.30]". Two quiet links under it: "Read what is waiting" (each lesson as plain
   text, for the owner only) and "Remove them".
-- Sheet: "Check and use 57 lessons of AZ-900?" Lines: "A second AI model checks that what each lesson says matches its quotes · about $4.30." "This is
-  separate from Page check, which looks at the pages, not at what the lessons say." "Lessons that pass become your lessons. Learners see them, Dojo
-  rewrites them when an official page changes, and opening one can make its missing voice or diagram. All of that costs money, as it does for your
-  other lessons." "In all: about $4.30 at list prices." Cancel is focused. Two more lines appear only when they are true: "This also adds AZ-900 to
-  your exams." and "9 of these lessons are written the older way. Dojo rewrites those later, and each rewrite costs money."
-- Voices and films, only if he brought them in: the same sheet gets one more line, "The voices and films of 41 lessons are played back and compared
-  with the words · about $1.20", the total becomes "In all: about $5.50 at list prices", and a line says "These films need 410 MB of your 6 GB film
-  room." Not enough room: "These films need 1.2 GB. You have 0.4 GB free. Check and use the lessons now and the films later, or delete 6 films
-  (the ones watched longest ago)?" Where a skill already has a lesson whose narration is the same: "1 skill keeps your lesson and adds its missing
-  voice or film."
-- States. A partial pass: "Checked: 54 of 57 lessons passed and are now yours. 3 did not pass and nobody sees them. About $4.30 at list prices."
-  Remove them: "Remove the 57 waiting lessons of AZ-900? Nothing else changes. Dojo can then write these lessons itself · costs money." Cancel is
-  focused.
+- Sheet: "Check and use 57 lessons of AZ-900?" Lines, each with its price: "A second AI model checks that what each lesson says matches its quotes ·
+  about $4.30." "Afterwards, by itself, as for all your lessons: voicing them and their Deeper Listen · about $9.00." "In all: about $13.30 at list
+  prices." Then: "This is separate from Page check, which looks at the pages, not at what the lessons say." "Lessons that pass become your lessons, and
+  learners see them. Dojo also rewrites them when an official page changes, which costs money each time and is not in the price." "A lesson that does
+  not pass is not used, and checking it costs the same." Cancel is focused. Two more lines appear only when they are true: "This also adds AZ-900 to
+  your exams. Dojo then makes practice questions for it in the background, within its daily limit, which costs money and is not in the price." and "9
+  of these lessons are written the older way. Dojo rewrites those later, and each rewrite costs money."
+- Voices and films, only if he brought them in: the sheet adds "The voices and films of 41 lessons are played back and compared with the words · about
+  $1.20", and the voicing line shrinks to the lessons that came without audio, "Afterwards, by itself: voicing the other 16 lessons and their Deeper
+  Listen · about $2.50", so the total becomes "In all: about $8.00 at list prices". If the check removes a sentence from a lesson, that lesson's voice
+  and film are dropped, and the sheet says so. Films need room: "These films need 410 MB of your 6 GB film room." Not enough room: "These films need
+  410 MB. You have 400 MB free. Check and use the lessons now and the films later, or delete 2 films (the ones watched longest ago)?" Where a skill
+  already has a lesson whose narration is the same: "1 skill keeps your lesson and adds its missing voice or film." From a library he has not trusted,
+  one more unticked box: "Use the films from <maker> as well. Dojo checks what they say, not the pictures."
+- States. A partial pass: "Checked: 54 of 57 lessons passed and are now yours. 3 did not pass and are not used. About $4.30 at list prices for the check."
+  Remove them: "Remove the 57 waiting lessons of AZ-900? Nothing else changes." and, only for an exam he has, "Dojo can then write these lessons itself ·
+  costs money." Cancel is focused.
 - True when: the check is priced by a function beside `Costs.deeper_estimate` that counts one check for each lesson (and, for audio, the voice check's
-  transcription), the sheet's total is the sum of its lines, the number of lessons on an older template is read from the lesson files, and adoption
-  works as in section 2.
+  transcription), the voicing line by the narration and Deeper Listen speech lines of the same price code and worded "by itself" only when this Dojo
+  prepares ahead of time (`prepare_on` in `app/main.py`) and "when a lesson is opened" otherwise, the sheet's total is the sum of its lines, the
+  number of lessons on an older template is read from the lesson files, "Review all" never includes this button (checking changes what learners
+  see, so it is pressed on its own), and adoption works as in section 2.
 
 **Add an exam,** after he types the code and the page shows the price of building it (the number it already shows, from `Costs.course_estimate`):
-when a finished course for that exam is in his library, the page says "A finished course for AZ-900 is in your library. 62 lessons, made 12 October
-by you." The one gold button is "Bring in the finished course · free". Under a closed "Other way": "Build it yourself · about $25". The sheet is the
-one above, with the extra line "AZ-900 is added to your exams when you check and use the lessons." The skills are the ones Dojo reads from the
-official study guide itself (section 3), and a lesson whose skill is not in that reading is left out and counted.
+when a finished course for that exam is in the library, the page says "A finished course for AZ-900 is in the Dojo library. 62 lessons, made 12 October
+by Tino." The one gold button is "Bring in the finished course · costs nothing". Under a closed "Other way": "Build it yourself · about $25". The
+sheet is the one above, with the extra line "AZ-900 is added to your exams when you check and use the lessons." The skills are the ones Dojo reads from
+the official study guide itself (section 3), and a lesson whose skill is not in that reading is left out and counted.
 
 **Before Dojo starts writing lessons on a new Dojo.** Preparer and the Deeper lessons search start by themselves 120 and 600 seconds after a start
 and then spend money with no question asked (fact 6). A finished course saves money only when it comes first. So a Dojo that first starts with no
-lesson at all holds those two until the owner has answered one question (section 2). It is the first card in *Needs you · costs nothing* on To do, and
-the owner's Today has one line with a link to it: "Dojo is waiting for one answer from you before it writes any lesson." The card: "Before Dojo
-starts writing lessons: is there a finished course for your exams in your library? Bringing one in costs nothing. Dojo writes no lesson by itself
-until you answer, and each lesson it writes costs money." Buttons: "Look in the library first", which opens the card above and leaves the question
-standing, and "No, let Dojo write them · costs money", which ends the hold. Once a finished course is waiting, the second button reads "Let Dojo write
-the other lessons · costs money". If the library cannot be reached, the card says so, with the date it was last read, and the hold stays. The hold does
-not cover a lesson that a person asks for: that is a press, and in team mode it has the member's budget (`app/budget.py`).
+lesson at all holds those two until the owner has answered one question (section 2). The question is one card at the top of To do, above the groups,
+and it stays there until he answers. The owner's Today has one line with a link to it, "Dojo is waiting for one answer from you before it writes any
+lesson.", and a member's Today says "The owner has not started the lessons yet." The card: "Before Dojo starts writing lessons: is there a finished
+course for your exams in the library? Bringing one in costs nothing. Dojo writes no lesson by itself until you answer, and each lesson it writes costs
+money." Buttons: "Look in the library first", which opens the group below and leaves the question standing, and "No, let Dojo write them · about $29",
+which opens the usual sheet: "Finding pages, writing, checking and voicing 72 lessons of GH-300 and DP-800 · about $29 at list prices." and "Not
+included: Deeper Listen and practice questions, which Dojo makes in the background within daily limits, diagrams, which are drawn when a lesson is
+opened or ahead of time if you turned that on, and films, which only your press starts." Cancel is focused, and pressing the sheet's button ends the
+hold. Once something is brought in or used, the card says "Dojo still writes no lesson by itself. The library also has finished courses for: DP-800."
+and the second button reads "Let Dojo write the other lessons · about $…". If the library has nothing for his exams: "Nothing for your exams is in the
+library yet." with only the second button. If it cannot be reached: "Could not reach the Dojo library just now. Last read on 20 October. Dojo still
+writes no lesson by itself." with "Try again" and the second button. The hold does not cover a lesson that a person asks for: that is a press, and in
+team mode it has the member's budget (`app/budget.py`). True when: the hold and its one-time record exist (section 2), the sheet's lines come from
+`Costs.course_estimate`, and the Today lines read the record.
 
 **Courses, one line and no button,** among the words under *What each number counts* that list what is missing or waiting: "57 lessons from a finished
-course are waiting for your check. They are not counted above. Decide on To do." The words *To do* are a link. So the Courses numbers stay true:
-waiting lessons are in no count.
+course are waiting for your check, so these skills show no lesson yet and Dojo is not writing them. They are not counted above. Decide on To do." The
+words *To do* are a link. So the Courses numbers stay true: waiting lessons are in no count.
 
-**Share a course** is one card on To do, "Optional · free", with a row for each exam that has lessons: "AZ-900 · 62 lessons · [Make files to share · free]".
-The sheet: "Make files of AZ-900 that someone else can bring in?" with a box "I have the right to share this", the line "Lessons are shared under
-the licence set in Settings, CC BY 4.0 until you change it. Quoted passages stay under their pages' terms.", and the button "Make the files · free",
-off until the box is ticked. After: "Made: 62 lessons and their diagrams. The files are made on this Dojo. Nothing is uploaded. Download them:" with a
-link for each group of files and its size. Words only until R2 is answered. True when: the exporter writes allow-listed fields only, the list of files
-is shown before anything is saved, and the licence setting exists (it is new).
+**Share a course** is not a card. It is a closed section at the end of To do, with a row for each exam that has lessons: "AZ-900 · 62 lessons · [Make
+files to share · costs nothing]". The sheet: "Make files of AZ-900 that someone else can bring in?" with a box "I have the right to share this", the line
+"Lessons are shared under the licence set in Settings, CC BY 4.0 until you change it. Quoted passages stay under their pages' terms.", and the button
+"Make the files · costs nothing", off until the box is ticked. A second button, "Make a copy for myself · costs nothing", needs no box and includes
+voices and films, because nothing leaves his hands (R2 does not apply to it). He can keep that copy in a private library of his own and bring it back
+from there. After: "Made: 62 lessons and their diagrams. The files are made on this Dojo. Nothing is uploaded. Download them:" with a link for each
+group of files and its size. A pack that leaves his hands is words only until R2 is answered. True when: the exporter writes allow-listed fields only,
+the list of files is shown before anything is saved, and the licence setting exists (it is new).
 
-**On a lesson from a finished course, one line under the title,** after the check: "From Tino's library, made 12 October. Quotes matched the official
-pages on 14 October. Checked on this Dojo on 21 October." The name is the publisher's. If only part of the check passed, the line names what passed.
-A lesson that has not passed is not used, so it needs no line.
+**On a lesson from a finished course, one line under the title,** after the check: "From the Dojo library, made by Tino on 12 October. Unofficial, not
+affiliated with or endorsed by Microsoft or GitHub. Written by AI from official pages as of 12 October. Dojo matched the quotes to the pages on 14
+October and checked the lesson on 21 October." The library and the maker are the publisher's words, shown as text. A lesson that has not passed is not
+used, so it needs no line. True when: the door and the check write those dates on the lesson.
 
-**To do, "Needs you · costs nothing", when a library withdraws a course:** "Your library withdrew AZ-900 on 3 November. Reason given: a lesson was
-wrong. The lessons from it stay until you decide." Buttons "Remove 54 lessons…" and "Keep them". The sheet: "This removes 50 lessons and their voices
+**To do, "Needs you · costs nothing", when a library withdraws a course:** "The Dojo library withdrew AZ-900 on 3 November. Reason given: a lesson was
+wrong. The lessons from it stay until you decide." Buttons "Remove 50 lessons…" and "Keep them". The sheet: "This removes 50 lessons and their voices
 and films. 4 that you have rewritten stay. Learners lose these 50 lessons. Practice already done stays." Cancel is focused. "Keep them": the card
-goes away and Dojo does not ask again about this course. If the lessons still wait: "Your library withdrew AZ-900 on 3 November. Reason given: a
+goes away and Dojo does not ask again about this course. If the lessons still wait: "The Dojo library withdrew AZ-900 on 3 November. Reason given: a
 lesson was wrong. The 57 lessons you brought in have not been checked yet." Buttons "Remove them" and "Keep them". The reason is the publisher's text
-and is shown as text.
+and is shown as text. True when: the card reads the library's status and the lesson files that nothing has replaced.
 
-All of these pages are the owner's. In team mode a member sees only the line on a lesson and the sentence on a skill whose lesson is waiting
-(section 2).
+All of these pages are the owner's. In team mode a member sees only the line on a lesson, the sentence on a skill whose lesson is waiting (section 2),
+and, until the owner has answered the first question, the line on Today.
 
 ### 7. Build order
 
@@ -449,21 +482,21 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 1. **The format, the builder and the validator,** as pure functions with golden tests (`app/packs.py`), and a script that makes a pack from a Dojo's
    data folder and checks a pack file. No routes and no pages. It is useful to the owner alone: a portable copy of finished work, including the
    films that are on the share now.
-2. **The importer and the waiting place:** `packs/`, the door, the journal, adoption, the claim for each skill, the rule for an exam that is removed
-   while a pack waits, the cache refresh and the recovery on start, the two small functions `skills_waiting` and `skills_spoken_for` that stop
-   Preparer, the Deeper lessons search and `new_lesson` spending on a skill whose lesson is waiting, one admin-only route in the route inventory, the
-   sentence on a skill whose lesson is waiting, and the one line on a lesson. It is useful to the owner alone too: it puts back films that the 6 GB
-   cap deleted, instead of buying them again at about $1 a minute.
+2. **The importer and the waiting place:** `packs/`, the door, the journal, adoption, the claim for each skill (taken inside `make_lesson`), the rule for
+   an exam that is removed while a pack waits, the cache refresh and the recovery on start, the two small functions `skills_waiting` and
+   `skills_spoken_for` that stop Preparer, the Deeper lessons search and `new_lesson` spending on a skill whose lesson is waiting, one admin-only route
+   in the route inventory, the sentence on a skill whose lesson is waiting, and the one line on a lesson. It is useful to the owner alone too: it puts
+   back films that the 6 GB cap deleted, instead of buying them again at about $1 a minute.
    That works when the lesson text is unchanged, because the film's name is a hash of the lesson's SSML and the presenter's settings. Dojo
    rebuilds that name, finds the pack's file and adopts it. If the lesson was rewritten since, the new words need a new film and the old one cannot
    be used. `app/avatar.py` stays frozen: the importer only calls `media_id_for`. Tests with hostile packs (path tricks, archive bombs, id collisions,
    a far-future date, a foreign `upgrade_of`, forged quotes, the wrong media, a kill between every pair of writes), with a Preparer that writes the
    same skill while the pack is adopted, with an exam removed while its pack waits, with a search that ends while entries are adopted, and with a
    Dojo that has no money cap.
-3. **The owner's pages,** as section 6: two reviews of the words, a build against made-up answers, every state looked at on desktop and on a phone,
-   and node tests in the pattern of `tests/test_studio_v2.py`.
+3. **The owner's pages,** as section 6, including the copy he keeps for himself with voices and films: two reviews of the words, a build against
+   made-up answers, every state looked at on desktop and on a phone, and node tests in the pattern of `tests/test_studio_v2.py`.
 4. **The list reader,** the settings for lists, trust and the licence, the official library repository and its CI, and the first-start question with
-   its hold on Preparer and the Deeper lessons search, until the owner has answered it (section 6).
+   its hold on Preparer and the Deeper lessons search, until the owner has pressed the button that lets Dojo write lessons (section 6).
 5. **Other publishers:** signing (the lead decides the library, EG-43), the trust list, revocation, the scans in the list's CI, the complaints and
    take-down routine, and the legal check (R1).
 6. **Later:** a choice per skill to use a newer or another publisher's lesson instead of the local one, mirrors, private lists, corrections sent
@@ -472,14 +505,16 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 ## What it changes
 
 - **Code:** a new `app/packs.py`; admin routes in `app/main.py` and the route inventory; cards in `app/studio.py` and `app/static`; one line on a
-  lesson and the sentence on a skill whose lesson is waiting in `app/learning.py` and the pages; tests for each; the user guide, the privacy sheet,
-  the operations page and the module table of `docs/architecture.md`. Waiting lessons are not in `content/`, so no service needs a skip for
-  them. Three callers ask the two small functions (Preparer, the Deeper lessons search and `new_lesson`) and two services ask the first-start hold
-  (Preparer and the Deeper lessons search). Adoption takes the claim for each skill and, for a built-in exam, Deeper lessons' overlay lock.
-  `app/avatar.py` stays frozen. No new dependency until another publisher needs signing.
+  lesson and the sentence on a skill whose lesson is waiting in `app/learning.py` and the pages; tests for each; the user guide (including its
+  paragraph on To do and its new group), the privacy sheet, the operations page and the module table of `docs/architecture.md`. Waiting lessons are
+  not in `content/`, so no service needs a skip for them. Three callers ask the two small functions (Preparer, the Deeper lessons search and
+  `new_lesson`) and two services ask the first-start hold (Preparer and the Deeper lessons search). Adoption and `make_lesson` share the claim for
+  each skill, and adoption takes Deeper lessons' overlay lock for a built-in exam. `app/avatar.py` stays frozen. No new dependency until another
+  publisher needs signing.
 - **Data:** `packs/<id>/` (waiting files, the journal, the import record), settings for lists, trusted publishers and the licence, and the one-time
   answer to the first-start question.
-- **Money:** bringing in costs no model money. A check costs what the price code shows first. After adoption the lessons cost what any lesson costs.
+- **Money:** bringing in costs no model money. A check costs what the price code shows first, and so does the voicing that follows it. After adoption
+  the lessons cost what any lesson costs.
   Hosting costs the owner nothing (static files, release assets).
 - **Privacy:** a pack holds no learner data. The exporter writes allow-listed fields only, and the owner reads the list of files before he shares.
   Dojo's server downloads packs and lists, so the host sees the server's address and never a learner's. `docs/privacy.md` says so when this is
@@ -494,7 +529,7 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 | Hostile text in a lesson | Waiting lessons are shown to no learner. Text is stored and shown as text under the strict content security policy. An allow-listed schema drops unknown fields. Every quote is found again on the official page. A second model checks the claims before any lesson is used, whoever published it. |
 | A true quote used for a false claim | The quote check cannot see it. The priced claims check can. The line on a lesson says which checks were done. |
 | A wrong or hostile media file | Shape checks, the name bound to the words, the fingerprint, and the listener, which every adopted recording passes. Nothing checks pictures or proves a file harmless, so films from a publisher the owner has not trusted also need his plain yes. |
-| Spending | Bringing in calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them. A skill with a waiting lesson is spoken for, so Preparer and `new_lesson` do not write it, and the Deeper lessons search leaves it out (section 2). On a new Dojo, Preparer and that search wait for one answer from the owner (section 6). Ceilings and the film budget. The sheet says what adoption will start. Outside team mode there is no money cap (fact 6). |
+| Spending | Bringing in calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them. A skill with a waiting lesson is spoken for, so Preparer and `new_lesson` do not write it, and the Deeper lessons search leaves it out (section 2). On a new Dojo, Preparer and that search wait for one press from the owner, with its price shown first (section 6). The sheet prices the check and the voicing that follows it, and says what else starts (rewrites, and practice questions for a new exam). Ceilings and the film budget. Outside team mode there is no money cap (fact 6). |
 | Preparer writing a skill while its pack is adopted | One claim for each skill, taken by both. Whoever finds it taken skips the skill, and adoption names it. A kill test and a race test (section 7). |
 | A lesson that outranks or overwrites another | New local ids and dates, foreign links dropped, one claim for each skill, an existing id refused. |
 | A taken-over publisher account | Trust belongs to the source address, not to a name. For the owner's library the root is the code's own repository, which already deploys the Dojo. For others, signing keys and revocation. Withdrawal. |
@@ -520,9 +555,10 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 ## Decisions made, and decisions left to the owner
 
 Made by the lead in this ADR, under AGENTS.md rule 3: the licence suggestion for a publisher's own text is CC BY 4.0 with quotes excluded; the
-words on the face are "finished course", "library", "bring in" and "check and use"; a new Dojo's Preparer and Deeper lessons search wait for one
-answer from the owner, and the question pool does not; signing waits until another publisher asks, and the lead then picks the library under
-EG-43.
+words on the face are "finished course", "library", "bring in" and "check and use", and a price of nothing is "costs nothing"; a new Dojo's
+Preparer and Deeper lessons search wait, as one hold for the whole Dojo, for one press from the owner with its price shown first, and the question
+pool does not wait; a pack that stays with the owner may carry voices and films, because nothing is handed on; signing waits until another
+publisher asks, and the lead then picks the library under EG-43.
 
 Left to the owner, because the guardrails reserve them (EG-39, EG-41):
 
