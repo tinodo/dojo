@@ -522,7 +522,7 @@ console.log(JSON.stringify([visible(top), visible(groups), outside(groups, isCls
         self.assertIn("Last month: $212.40.", top)
         self.assertIn("Busiest days: Thu, Oct 15 $87.00.", top)
         self.assertEqual(partial, 1, "the last day is drawn as still arriving")
-        self.assertIn("Cost of each day this month", label)
+        self.assertIn("Cost of each day shown", label)
         self.assertEqual(rows, 4)
         for word in ("Pay per use", "Always on", "Partly always on", "No charge so far"):
             self.assertIn(word, groups)

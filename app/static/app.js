@@ -6592,7 +6592,7 @@ const BILL_KIND = { use: ["Pay per use", "line"], always: ["Always on", "amber"]
 
 function dayBars(days, currency) {
   const top = Math.max(...days.map((d) => d.total), 1);
-  return h("div", { class: "bill-bars", role: "img", "aria-label": `Cost of each day this month: from ${money(Math.min(...days.map((d) => d.total)), currency)} to ${money(top, currency)}` },
+  return h("div", { class: "bill-bars", role: "img", "aria-label": `Cost of each day shown: from ${money(Math.min(...days.map((d) => d.total)), currency)} to ${money(top, currency)}` },
     days.map((d) => {
       const bar = h("i", { class: d.partial ? "partial" : null });
       bar.style.setProperty("height", `${Math.max(2, (100 * Math.max(d.total, 0)) / top)}%`);
