@@ -447,6 +447,34 @@ class MakeTests(StudioCase):
         self.assertIn("cannot tell just now which lessons are about to be rewritten", films["error"])
         self.assertEqual((decks["what"], decks["ok"]), ("diagrams", True), "each selection starts on its own")
 
+    def test_films_done_or_obsolete_read_nothing_when_the_rewrite_list_cannot_be_read(self):
+        a, b = self.ready()
+        self.press(self.videos()["offer"]["token"])
+        films = self.app.state.newexams
+        self.film(a)
+        self.film(b)   # both approved films are made: nothing is pending
+        with self.unreadable_books():
+            self.assertIsNone(films.next_film(), "no film is pending, so nothing has to be known about the rewrites")
+            with mock.patch.object(self.app.state.preparer, "_quiet_for", return_value=1e9):
+                self.assertFalse(self.app.state.preparer._film(), "and the Preparer is not told there is work")
+
+    def test_an_approval_for_a_lesson_written_again_since_is_forgotten_by_stop_but_not_counted(self):
+        a, b = self.ready()
+        self.press(self.videos()["offer"]["token"])
+        self.narrate(self.rewrite(a, self.skills[0]))   # a is no longer the newest of its skill: its approval will never be filmed
+        films = self.app.state.newexams
+        r = self.c.post(f"/api/studio/film/{self.pid}/stop", headers=POST)
+        self.assertEqual(r.json()["stopped"], 1, "only the film that was really waiting is counted")
+        self.assertEqual(films._doc(self.pid)["film"]["approved"], [], "the obsolete approval is gone too")
+
+    def test_the_sourcing_status_is_read_once_for_the_pages_row_and_the_films_offer(self):
+        self.ready()
+        sourcer = self.app.state.newexams.sourcer
+        sourcer._summaries.clear()
+        with mock.patch.object(sourcer, "status", wraps=sourcer.status) as status:
+            self.read("courses")
+        self.assertEqual(status.call_count, 1, "every skill's document is read to make it")
+
     def test_an_approved_lesson_a_changed_page_holds_back_still_waits_and_stop_forgets_it(self):
         a, b = self.ready()
         self.press(self.videos()["offer"]["token"])

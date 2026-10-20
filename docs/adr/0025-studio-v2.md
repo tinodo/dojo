@@ -52,17 +52,18 @@ for any reason, or (d) for an added exam, its skill's pages may still be replace
 looked yet, or both models refused them: ADR 0018, ADR 0021). A lesson written for the first time is steady at once unless (d) holds.
 The rule is applied where the offer is made, in both paths (built-in courses: `DriftCheck.film_split`; added exams:
 `NewExams._lessons` and `_queue`), so the token, the price and the approval always describe the same lessons. The filers skip an approved
-lesson that has since been scheduled for a rewrite (and, for an added exam, one whose skill's pages are unsettled again); the older
-"film again" endpoint follows the same rule. When the list of lessons about to be rewritten cannot be read, nothing is offered and nothing
-is filed (the round is tried again a minute later); an approval is refused in plain words; the Courses reading keeps its other parts and
-the To do page says the films could not be read; Stop and the exam page work as before. The lesson page's **Film this lesson** stays: it is the owner choosing one lesson, and it says when the lesson is likely to be
+lesson that has since been scheduled for a rewrite (and, for an added exam, one whose skill's pages are unsettled again). When the list
+of lessons about to be rewritten cannot be read, nothing is offered and nothing is filed (the round is tried again soon, and the list is
+read only when a film is really pending, so approvals that are done or obsolete read nothing); an approval is refused in plain words; the
+Courses reading keeps its other parts and the To do page says the films could not be read; Stop and the exam page work as before, and
+Stop forgets every approval that has not started, also one for a lesson written again since. The lesson page's **Film this lesson** stays: it is the owner choosing one lesson, and it says when the lesson is likely to be
 replaced. The server refuses it (409) for a lesson that is not the newest of its skill or that a changed page holds back. The exam page
 has no button that spends any more: it says how many written lessons are not filmed, how many are left out and why, and links to the To
 do page. The two older ways to approve a film, `POST /api/exam-packages/{pid}/film` and `POST /api/studio/drift/refilm`, are retired and
 answer 410: they approved lessons by their ids and not at the price shown, so `POST /api/studio/film/{pid}` is the only way to approve
 a film. The exam page counts a lesson a changed page holds back among the lessons left out, and an approval for such a lesson is still
 waiting, so Stop forgets it too. The page says nothing about what will happen: it says what was left out and when it comes back. No
-verdict, no forecast.
+verdict, no forecast. This supersedes what ADR 0020 and ADR 0009 say of the two retired approvals.
 
 **Money asks first, in a sheet.** Every button that spends opens a dialog (`moneySheet`) that names the lines, the price, what was left
 out, what a rewrite later would do, and the room the videos need. Cancel has the focus, so Enter never spends; Escape and a click beside

@@ -311,7 +311,7 @@ class HealthTabTests(unittest.TestCase):
 })();""")
         some, one, none = out
         self.assertIn("3 sentences were stopped before reaching you; the latest on Day(2026-10-03).", some, "the latest, whatever the order of the log")
-        self.assertIn("1 sentence was stopped before reaching you; the latest on Day(2026-10-03).", one.replace("2026-10-03", "2026-10-03") if False else one.replace("Day(2026-10-03)", "Day(2026-10-03)"))
+        self.assertIn("1 sentence was stopped before reaching you; the latest on Day(2026-10-03).", one, "the one entry given")
         self.assertIn("Nothing was stopped lately.", none)
 
     def test_a_web_search_that_was_never_tested_is_not_called_fine(self):

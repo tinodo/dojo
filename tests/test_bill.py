@@ -266,6 +266,15 @@ class BillTests(BillCase):
         self.assertNotIn("groups", v)
         self.assertNotIn("total", v.get("month", {}))
 
+    def test_an_empty_reading_kept_across_the_month_end_is_not_this_months(self):
+        bill = self.bill(Azure(month=[], last=[[480.0, "USD"]]))
+        self.assertEqual(bill.view()["state"], "empty")
+        self.now += timedelta(days=13)   # 1 November: nothing was read since the first of October
+        shown = bill._present(bill._load(), self.now)
+        self.assertEqual(shown["state"], "error", "\"nothing yet this month\" was said of October")
+        self.assertIn("reading this month's bill", shown["reason"])
+        self.assertNotIn("previous", shown)
+
     def test_without_the_role_the_tab_says_what_is_missing_and_asks_again_in_a_few_minutes(self):
         azure = Azure(status=403)
         bill = self.bill(azure)

@@ -390,7 +390,8 @@ class Sourcer:
         next write (its lease is revoked)."""
         with self._lock:
             lease = self._leases.pop(pid, None)
-            self._summaries.pop(pid, None)
+            for key in (pid, f"status:{pid}", f"unsettled:{pid}"):
+                self._summaries.pop(key, None)
         if lease is not None:
             lease.revoke()
         for name in self.store.names("sourcing", pid):
@@ -1101,6 +1102,17 @@ class Sourcer:
         self._summaries[pid] = (time.monotonic(), out)
         return out
 
+    def status_kept(self, pid: str) -> dict:
+        """`status`, kept for a few seconds like `summary`: Studio reads it for a course's pages row and again for its films offer, and every
+        skill's document is read to make it."""
+        key = f"status:{pid}"
+        hit = self._summaries.get(key)
+        if hit and time.monotonic() - hit[0] < SUMMARY_S:
+            return hit[1]
+        out = self.status(pid)
+        self._summaries[key] = (time.monotonic(), out)
+        return out
+
     def unsettled(self, pid: str) -> dict[str, str]:
         """The skills of an added exam whose pages may still change, with why: the search is still adding pages, an audit has not
         looked yet, or both models refused the pages and the skill will be given others (ADR 0021). A lesson written from such
@@ -1110,7 +1122,7 @@ class Sourcer:
         if hit and time.monotonic() - hit[0] < SUMMARY_S:
             return hit[1]
         out: dict[str, str] = {}
-        for d in self.status(pid).get("details") or []:
+        for d in self.status_kept(pid).get("details") or []:
             audit = d.get("audit") or {}
             if d["replacing"] or d["state"] == "searching" or (d["state"] == "partial" and not d["settled"]):
                 out[d["id"]] = "its pages are still being searched"

@@ -688,12 +688,15 @@ class NewExams:
             self._settle(doc)
             film = doc.setdefault("film", {})
             waiting, _ = self._queue(film, self._lessons(pid, self._media(), {}, set()))   # which lessons wait does not depend on the rewrite rules: Stop works without them
-            if not waiting:
+            started = set(film.get("filed") or {}) | set(film.get("failed") or {})
+            forgotten = [x for x in film.get("approved") or [] if x not in started]   # also an approval for a lesson written again since: it will never be filmed
+            if not forgotten:
                 return 0
-            film["approved"] = [x for x in film.get("approved") or [] if x not in waiting]
+            film["approved"] = [x for x in film.get("approved") or [] if x not in forgotten]
             self.store.write("package-builds", pid, value=doc)
-        log.info("the owner stopped %d approved film(s) of an added exam that had not started", len(waiting))
-        return len(waiting)
+        stopped = sum(1 for x in forgotten if x in waiting)
+        log.info("the owner stopped %d approved film(s) of an added exam that had not started", stopped)
+        return stopped
 
     def next_film(self) -> str | None:
         """The next lesson the owner approved for filming that is still not filmed, or None. When films are approved and Dojo cannot tell
@@ -706,8 +709,6 @@ class NewExams:
             film = (doc or {}).get("film") or {}
             if not film.get("approved"):
                 continue
-            if scheduled is None:
-                scheduled = self.dojo.scheduled_rewrites()   # approved, then about to be written again on the deeper template: it waits for that
             unsettled = self.sourcer.unsettled(pid)   # an audit may have refused its pages since the approval: that lesson will be replaced
             newest: dict[Any, tuple[str, str]] = {}   # a lesson written again since the approval is not filmed: the new one waits for its own
             for m in self.dojo.lesson_index():
@@ -715,13 +716,21 @@ class NewExams:
                     newest[m.get("skill")] = (m.get("created") or "", m["id"])
             present = {v[1] for v in newest.values()}
             skill_of = {v[1]: skill for skill, v in newest.items()}
+            pending = []
             for lesson in film["approved"]:
                 if skill_of.get(lesson) in unsettled:
                     continue
-                if lesson in (film.get("filed") or {}) or lesson in (film.get("failed") or {}) or lesson not in present or self._held(lesson) or lesson in scheduled:
+                if lesson in (film.get("filed") or {}) or lesson in (film.get("failed") or {}) or lesson not in present or self._held(lesson):
                     continue
                 films = list(self.checker.plan(lesson)["films"].values())
                 if films and not all(self.dojo.avatar.exists(f) for f in films):
+                    pending.append(lesson)
+            if not pending:
+                continue   # every approval of this exam is done, obsolete or held: nothing to choose, nothing to read
+            if scheduled is None:
+                scheduled = self.dojo.scheduled_rewrites()   # approved, then about to be written again on the deeper template: it waits for that
+            for lesson in pending:
+                if lesson not in scheduled:
                     return lesson
         return None
 

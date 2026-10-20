@@ -255,8 +255,8 @@ MCQ_CHARS = {1: 6000, 2: 4000, 3: 3000}
 # Watch, for a lesson written again on the deeper template that has no video of its own (ADR 0008).
 EARLIER_FILM = ("Filmed from an earlier version of this lesson. The lesson was written again on {date} to teach the whole "
                 "skill from more official pages; this video, and the slides and sources beside it, are still the earlier "
-                "version. Read, Listen and Present give the new one. Dojo never films on its own: Studio's Film again "
-                "button shows the price first.")
+                "version. Read, Listen and Present give the new one. Dojo never films on its own: the Film button on "
+                "Studio's To do page shows the price first.")
 KEPT_SHARE = 0.75         # the share of what the author model wrote that must hold: a lesson, its Deeper Listen, its visual deck
 
 # Deeper Listen (ADR 0007): a longer two-voice narration of the whole lesson, for Listen and the podcast.

@@ -3451,7 +3451,7 @@ function lessonWatch(L) {
 }
 
 // The video of the earlier version, said plainly. Filming the new version costs money, so it happens
-// only from Studio's Film again button, which shows the price first: there is no film button here.
+// only from the Film button on Studio's To do page, which shows the price first: there is no film button here.
 function earlierWatch(L, E) {
   return h("div", { class: "col grow" },
     h("section", { class: "panel" },

@@ -768,7 +768,7 @@ class Costs:
                 + (f": {deep_again} such {'lesson' if deep_again == 1 else 'lessons'}, at about {round(deep_chars):,} "
                    f"characters and {DEEP_ROUNDS:g} rounds each, as on that line, are counted here." if deep_again
                    else "; no such lesson is waiting now."),
-                "A presenter video is never filmed again on its own: Studio's Film again button shows its price first.",
+                "A presenter video is never filmed again on its own: the Film button on Studio's To do page shows its price first.",
             ],
         }
 

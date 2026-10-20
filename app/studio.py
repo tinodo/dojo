@@ -300,7 +300,7 @@ class Studio:
         return len({mid for x in lesson_ids for mid in self._to_film(self.checker.plan(x), media)["films"].values()})
 
     def _search(self, pid: str) -> dict | None:
-        st = self.newexams.sourcer.status(pid)
+        st = self.newexams.sourcer.status_kept(pid)
         if not st:
             return None
         details = st.get("details") or []
