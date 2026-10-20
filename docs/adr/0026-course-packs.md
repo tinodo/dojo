@@ -439,8 +439,9 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
   prepare ahead of time), it says instead: "This is separate from Page check, which looks at the pages, not at what the lessons say." Two more lines
   appear only when they are true: "This also adds AZ-900 to your exams." and "9 of these lessons are written the older way. Dojo rewrites those later,
   and their Deeper Listen is made again after it." One closing line gathers what is not in the price and names only the items that apply: "Not in the
-  price: rewrites when a page changes; diagrams, which are drawn when a lesson is opened; films, which only your press starts; practice questions for
-  a new exam; searches for more official pages for some skills; and rewriting the 9 older lessons. Each of these costs money." Cancel is focused.
+  price: rewrites when a page changes; diagrams a lesson lacks, which are drawn when it is opened; films, which only your press starts; practice
+  questions for a new exam; searches for more official pages for some skills; and rewriting the older lessons. Each of these costs money." Cancel is
+  focused.
 - Voices and films, only if he brought them in: the sheet adds "The voices and films of 41 lessons are played back and compared with the words · about
   $1.20", and the voicing line shrinks to the lessons that came without audio, "Afterwards, by itself, in the background, as for all your lessons:
   voicing the other 16 lessons and their Deeper Listen · about $2.50", so the total becomes "In all: about $15.70 at list prices". If the check
