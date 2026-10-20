@@ -117,8 +117,8 @@ information, not "fine". The lab database switch is one visible line above the s
   The last design review asked for it; it needs a second token and a second price.
 - A summary line for each day on the Activity page, and a one-line card for a finished course on a phone.
 - Where the Defender charge comes from: it is switched on for the subscription, and the bill only says what each line is billed by.
-- A snapshot of the sourcing books for one reading: the lessons of an added exam are listed once now, but the books are read once for the
-  pages row and again for the films offer.
+- A snapshot for the whole request: the lessons of an added exam are listed once and the sourcing status is kept eight seconds and shared
+  by the pages row and the films offer, but an approval after that reads the books again.
 
 ## Consequences
 

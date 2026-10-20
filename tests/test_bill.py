@@ -274,6 +274,10 @@ class BillTests(BillCase):
         self.assertEqual(shown["state"], "error", "\"nothing yet this month\" was said of October")
         self.assertIn("reading this month's bill", shown["reason"])
         self.assertNotIn("previous", shown)
+        broken = self.bill(Azure(status=500))   # the refresh that view() starts fails: the page must not say one is under way
+        broken.refresh()
+        again = broken._present(broken._load(), self.now)
+        self.assertEqual((again["state"], again["reason"]), ("error", bill_mod.FAILED), "it says what happened, not that a read is running")
 
     def test_without_the_role_the_tab_says_what_is_missing_and_asks_again_in_a_few_minutes(self):
         azure = Azure(status=403)

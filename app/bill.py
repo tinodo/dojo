@@ -236,8 +236,10 @@ class Bill:
         out = dict(summary)
         out["read_at"] = doc.get("read_at")
         out["current_month"] = now.date().isoformat()[:7]   # the page says "last month" when the reading is of another
-        if out["state"] == "empty" and doc.get("month") != out["current_month"]:   # "nothing yet this month" was said of another month: the new one is being read
-            return {"state": "error", "reason": "Dojo is reading this month's bill. Look again in a minute.", "detail": None, "read_at": doc.get("read_at")}
+        if out["state"] == "empty" and doc.get("month") != out["current_month"]:   # "nothing yet this month" was said of another month
+            reading = attempt.get("state") not in ("throttled", "failed")   # a refresh is under way unless the last one failed or Azure said to wait
+            return {"state": "error", "reason": "Dojo is reading this month's bill. Look again in a minute." if reading else (attempt.get("reason") or FAILED),
+                    "detail": None, "read_at": doc.get("read_at")}
         stale = attempt.get("state") in ("throttled", "failed") or (
             bool(doc.get("read_at")) and parse_iso(doc["read_at"]) + timedelta(seconds=2 * FRESH_S) <= now)
         out["stale"] = stale
