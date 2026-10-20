@@ -205,8 +205,8 @@ The place has gaps, and the design closes each one. They were found by reading `
   which skips a skill it has already judged). A skill with an adopted lesson but no page in the package would be searched. So adoption writes the
   pack's pages for each adopted skill into the exam's package, through `packages.validate` and under the lock the Sourcer takes when it writes pages
   it accepts (`Sourcer._package`, `Packages.add`), and until then the Sourcer leaves the skill out. That is all adoption does to the Sourcer. It never
-  writes the Sourcer's own records. For an exam the Sourcer has no record of, which is every exam a pack brings in, the pages arrive as pages it has
-  not judged, so it audits them itself afterwards, with its own two models and its own daily limit. The audit is a report with a verdict for Studio,
+  writes the Sourcer's own records. For a skill the Sourcer has no verdict for, which is every skill of an exam it has never worked on, the pages arrive
+  as pages it has not judged, so it audits them itself afterwards, with its own two models and its own daily limit. The audit is a report with a verdict for Studio,
   and pages that both models refuse twice, a day apart, put their skill back into the search (`_audit`). The pack's word decides none of it. For a
   skill the Sourcer has already judged, no new audit starts, and the sheet counts only the skills it will audit. A skill the Sourcer had given up on
   (exhausted or partial) may look for more pages again, as for any added exam. That is the Sourcer's usual work and is not priced here.
@@ -432,16 +432,15 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
 - Sheet: "Check and use 57 lessons of AZ-900?" Lines, each with its price: "A second AI model checks each lesson, its Deeper Listen and its
   diagrams against their quotes · about $9.40." "Afterwards, by itself, in the background, as for all your lessons: voicing them and their Deeper
   Listen · about $9.00." "Afterwards, by itself, in the background, as its daily limit allows: two AI models check that the 124 official pages the
-  lessons cite teach their skills · about $2.60." "In all: about $21.00 at list prices." Then, for an added exam: "The page check in the last line is
-  the one Dojo runs for every exam you add. Page check on this page is for the original courses." and "Dojo may also look for more official pages for
-  some skills. That costs money and is not in the price." For a built-in exam there is no page-check line, and the sheet says instead: "This is
-  separate from Page check, which looks at the pages, not at what the lessons say."
-  "Lessons that pass become your lessons, and learners see them. Dojo also rewrites them when an official page changes, which costs money each time
-  and is not in the price." "A lesson that does not pass is not used, and checking it costs the same. A Deeper Listen or a diagram that does not
-  pass is left out alone, and Dojo makes it again later at its usual price." "A diagram a lesson lacks is drawn when the lesson is opened, and films
-  are made only when you press. Neither is in the price." Cancel is focused. Two more lines appear only when they are true: "This also adds AZ-900 to
-  your exams. Dojo then makes practice questions for it in the background, within its daily limit, which costs money and is not in the price." and "9
-  of these lessons are written the older way. Dojo rewrites those later, each rewrite costs money, and their Deeper Listen is made again after it."
+  lessons cite teach their skills · about $2.60." "In all: about $21.00 at list prices." Then: "Lessons that pass become your lessons, and learners
+  see them." "A lesson that does not pass is not used, and checking it costs the same. A Deeper Listen or a diagram that does not pass is left out
+  alone, and Dojo makes it again later at its usual price." Where the page-check line is shown, the sheet also says: "The page-check line above is the
+  one Dojo runs for every exam you add. Page check on this page is for the original courses." Where it is not (a built-in exam, or a Dojo that does not
+  prepare ahead of time), it says instead: "This is separate from Page check, which looks at the pages, not at what the lessons say." Two more lines
+  appear only when they are true: "This also adds AZ-900 to your exams." and "9 of these lessons are written the older way. Dojo rewrites those later,
+  and their Deeper Listen is made again after it." One closing line gathers what is not in the price and names only the items that apply: "Not in the
+  price: rewrites when a page changes; diagrams, which are drawn when a lesson is opened; films, which only your press starts; practice questions for
+  a new exam; searches for more official pages for some skills; and rewriting the 9 older lessons. Each of these costs money." Cancel is focused.
 - Voices and films, only if he brought them in: the sheet adds "The voices and films of 41 lessons are played back and compared with the words · about
   $1.20", and the voicing line shrinks to the lessons that came without audio, "Afterwards, by itself, in the background, as for all your lessons:
   voicing the other 16 lessons and their Deeper Listen · about $2.50", so the total becomes "In all: about $15.70 at list prices". If the check
@@ -459,7 +458,8 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
 - True when: the check is priced by functions beside `Costs.deeper_estimate` that count one check for each lesson, each Deeper Listen script and each
   deck (the `check`, `deep_gate` and `deck_gate` calls of the price tables) and, for audio, the voice check's transcription; the page-check line,
   shown only for an added exam and only when this Dojo prepares ahead of time (the Sourcer runs inside `Preparer.step`), by `Costs.pagecheck_estimate`
-  for the pages of the skills the Sourcer has not judged, which is all of them when the course brings the exam in (section 2); the voicing line by the
+  for the pages of the skills the Sourcer has no verdict for, counted from its own records, even for an exam that is not installed yet (an interrupted
+  build can leave records, section 2); the voicing line by the
   narration and Deeper Listen speech lines of the same price code. That line reads "by itself, in the background" only when this Dojo prepares ahead of
   time (`prepare_on` in `app/main.py`), because only Preparer speaks Deeper Listen (`app/prepare.py`). Otherwise it names only the slide narration
   made when a lesson is opened (`app/main.py`, `/api/lessons/{id}/audio`) and says "Deeper Listen is not voiced on this Dojo". The line counts the
