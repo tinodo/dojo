@@ -75,6 +75,7 @@ from .prepare import Preparer
 from .readiness import advice_log, advise, store_advice
 from .selftest import SelfTest
 from .sources import Sources
+from .bill import Bill
 from .studio import Studio
 from .speech import (AUDIO_TYPES, MAX_AUDIO_BYTES, MEDIA_ID, NORMALIZE_MAX_BYTES, TRANSCRIBE_ERRORS, AudioRefused, Speech, StubSpeech,
                      normalize)
@@ -252,6 +253,9 @@ class SettingsRequest(BaseModel):
     enrolled: list[Annotated[str, Field(pattern=PKG)]] | None = Field(default=None, max_length=50)
 
 
+FILM_MOVED = "Films are approved on Studio's To do page now, at the price it shows. This address is no longer used."
+
+
 class DeleteRequest(BaseModel):
     confirm: Literal["DELETE"]
 
@@ -261,10 +265,6 @@ class LabSql(BaseModel):
 
 class LabHint(BaseModel):
     index: int = Field(ge=0, le=1)
-
-
-class RefilmRequest(BaseModel):
-    lessons: list[Annotated[str, Field(pattern=ID)]] = Field(min_length=1, max_length=200)
 
 
 # The plan's rules are checked in plan.check_rules, which says in plain words what is wrong.
@@ -567,6 +567,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     pool.budget = budget
     pagecheck = PageCheck(dojo, owner, costs)   # the two-model check of the pages a course cites, when the owner asks (ADR 0019)
     studio = Studio(dojo, newexams, checker, costs, preparer, drift, pool, budget, owner, pagecheck)   # Studio's course overview and activity (ADR 0019)
+    bill = Bill(store, tokens, settings.ai_resource_id)   # what Azure charged for the resource group, for the Money tab (ADR 0025)
     team.on_sweep.append(lambda: budget.prune([owner.key] + [m.key for m in team.active_learners()]))
     social = PlaySocial(settings, store, team, play)   # circles and the witness room (ADR 0010)
     board = Board(social)                  # the effort board: weekly bands, no order
@@ -619,6 +620,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             team.start()
         if settings.in_azure:
             studio.warm()   # reads Studio's two views once, so the first visit does not wait for them (ADR 0019)
+            bill.warm()     # and the bill, if the last reading on the share is old (ADR 0025)
         social.start()   # Play's sweeper: lapsed invitations and old shared copies, in both modes (ADR 0010)
         # Nudges call no model, so they also run with the stub when asked.
         if settings.in_azure or os.environ.get("DOJO_PUSH") == "1":
@@ -648,6 +650,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     app.state.team = team
     app.state.budget = budget
     app.state.studio = studio
+    app.state.bill = bill
     app.state.pagecheck = pagecheck
     app.state.background = background
     app.state.five = five
@@ -1342,9 +1345,16 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
 
     @app.post("/api/lessons/{lesson_id}/video")
     def lesson_video(lesson_id: str, learner: Learner = Admin) -> dict:
-        """Film every slide of this lesson. Asking again while it runs returns the same job."""
+        """Film every slide of this lesson. Asking again while it runs returns the same job. This is the owner choosing one lesson, with its
+        price on the button (ADR 0025), so a lesson that is likely to be replaced may be filmed; one that certainly is, is not: an older
+        version of its skill's lesson, or a lesson a changed source page holds back (it is being written again)."""
         _no_help_during_exam(learner, "Lessons are closed")
-        dojo.lesson(_check_id(lesson_id))
+        lesson = dojo.lesson(_check_id(lesson_id))
+        newest = (dojo.lessons_for(lesson["package"], lesson["skill"]) or [{}])[0].get("id")
+        if newest and newest != lesson_id:
+            raise HTTPException(409, "A newer version of this lesson has been written, so this one is no longer what the skill teaches. Film the newer one.")
+        if drift.withheld(lesson_id):
+            raise HTTPException(409, "A source page changed, so Dojo is writing this lesson again. Film its new version when it is ready.")
         running = dojo.jobs.existing(learner, "video", lesson_id)
         return running or dojo.jobs.start(learner, "video", dojo.lesson_video, learner, lesson_id, ref=lesson_id,
                                           busy_message="This lesson is already being filmed.")
@@ -1767,6 +1777,12 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         view = costs.view()
         return {**view, "budget_flags": budget.flags()} if budget.active else view
 
+    @app.get("/api/studio/bill")
+    def studio_bill(learner: Learner = Admin) -> dict:
+        """What Azure charged for Dojo's resource group this month (ADR 0025). It is money, not lesson text, so a timed exam does not close
+        it. There is no way to force a new reading from here: Azure throttles, and Dojo reads it every few hours."""
+        return bill.view()
+
     @app.get("/api/studio/drift")
     def studio_drift(learner: Learner = Admin) -> dict:
         # The removed quotes are words from the official pages that lessons taught.
@@ -1774,10 +1790,9 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         return drift.summary()
 
     @app.post("/api/studio/drift/refilm")
-    def studio_refilm(body: RefilmRequest, learner: Learner = Admin) -> dict:
-        """The owner's go-ahead to spend money on filming these changed lessons again."""
-        _no_help_during_exam(learner, "Filming is closed")
-        return drift.approve(body.lessons)
+    def studio_refilm(learner: Learner = Admin) -> dict:
+        """Retired (ADR 0025): it approved lessons by their ids and not at the price shown. Films are approved on Studio's To do page."""
+        raise HTTPException(410, FILM_MOVED)
 
     @app.post("/api/studio/drift/labs/{lab}/looked")
     def studio_lab_looked(lab: str, learner: Learner = Admin) -> dict:
@@ -1956,9 +1971,9 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         return newexams.sourcing(_check_id(pid, PKG))
 
     @app.post("/api/exam-packages/{pid}/film")
-    def exam_film(pid: str, body: FilmRequest, learner: Learner = Admin) -> dict:
-        """The owner approved filming at the price shown. Only that set of lessons is filmed."""
-        return newexams.approve_film(learner, _check_id(pid, PKG), body.offer)
+    def exam_film(pid: str, learner: Learner = Admin) -> dict:
+        """Retired (ADR 0025): its token named the lessons and not the price. Films are approved on Studio's To do page."""
+        raise HTTPException(410, FILM_MOVED)
 
     @app.post("/api/exam-packages/{pid}/remove")
     def exam_remove(pid: str, body: RemoveExamRequest, learner: Learner = Admin) -> dict:

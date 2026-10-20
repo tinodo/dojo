@@ -533,9 +533,11 @@ class LabsOffTests(unittest.TestCase):
         self.assertIn('const labsOn = () => !state.me || state.me.labs !== false;', script)
         self.assertIn('const LABS_OFF = "Labs are not set up on this Dojo.";', script)
         links = [line for line in script.splitlines() if "#/lab/${" in line]
-        self.assertEqual(len(links), 4, "the course panel, the skill drawer, the skill page and Studio's drift list")
+        self.assertEqual(len(links), 6, "the course panel, the skill drawer, the skill page, Studio's drift list and the To do card's two links")
+        self.assertIn("function labCard(l, act) {\n  const here = labsOn();", script.replace("\r\n", "\n"), "the To do card draws its links only where labs are on")
         for line in links:
-            self.assertIn("labsOn()", line + script.splitlines()[script.splitlines().index(line) - 1], line.strip())
+            near = line + script.splitlines()[script.splitlines().index(line) - 1]
+            self.assertTrue("labsOn()" in near or "here ?" in near, line.strip())
 
     def test_the_plan_schedules_no_lab_when_labs_are_off(self):
         from app.labs import LABS

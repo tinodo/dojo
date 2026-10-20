@@ -1,6 +1,7 @@
-"""Studio's Checks tab is a page of a few screens, and what the owner has to press is at the top of it (ADR 0024).
+"""Studio's source-change history and its Health tab are pages of a few screens, and what the owner has to press is never behind a closed
+section (ADR 0024, ADR 0025).
 
-The parts of app.js that draw it run in node, with a page that keeps the elements it is told to make, so the tests look at the
+The parts of app.js that draw them run in node, with a page that keeps the elements it is told to make, so the tests look at the
 tree the page would get and not at text: a row behind "Show the other N" is in the tree and must not be counted as shown."""
 import json
 import re
@@ -30,7 +31,7 @@ const fs = require('fs'), vm = require('vm');
 const APP = fs.readFileSync(PATH, 'utf8');
 const cut = (from, to) => { const a = APP.indexOf(from), b = APP.indexOf(to, a); if (a < 0 || b < a) throw new Error("not where it was: " + from); return APP.slice(a, b); };
 const DRIFT = cut("// A long list shows its first rows", "// ---------------------------------------------------------------- Studio: official pages for every skill (ADR 0018)");
-const CHECKS = cut("async function studioChecks() {", "// Costs: what building a course costs");
+const HEALTH = cut("// ---------------------------------------------------------------- Health", "// What Dojo's own voices actually said (EG-19)");
 
 const flat = (list) => list.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
 class El { constructor(tag, attrs) { this.tag = tag; this.attrs = attrs || {}; this.kids = []; this.textContent = ""; this.disabled = false; } }
@@ -56,19 +57,30 @@ const context = vm.createContext({
   api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (a instanceof Error) throw a; return a; },
   window: { confirm: (message) => { asked.push(message); return confirms.length ? confirms.shift() : true; } },
 });
-vm.runInContext(DRIFT + "\nthis.part = { OPEN_MORE, capped, driftRow, driftChanges, driftChange, refilmPanel };", context);
+vm.runInContext(DRIFT + "\nthis.part = { OPEN_MORE, capped, driftRow, driftChanges, driftChange, filmHistory };", context);
 const P = context.part;
 // The tab on its own: every block it draws is a marker that says which it is, so the order of the page is what is looked at.
-const studioChecks = async (api) => {
+const studioHealth = async (api, opts) => {
   const tab = vm.createContext({
     h, icon: () => null, chip: (label, kind) => h("span", { chip: kind }, label), eyebrow: (icon, label) => h("p", { eyebrow: icon }, label),
+    panel: (...kids) => h("section", { class: "panel" }, ...kids), plural: (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`,
     fmtDate: (s) => `D(${s})`, PIPE: [["01", "Read", "n", "x"]], NOT_A_PREDICTION: "n", OPEN_MORE: P.OPEN_MORE, api,
     voicesPanel: () => mark("voices"), driftRow: () => mark("drift"), deeperRow: () => mark("deeper"), sourcingRow: () => mark("sourcing"),
-    labRow: () => mark("lab"),
+    labRow: () => mark("lab"), document: { getElementById: () => null }, Date, fmtDay: (s) => `Day(${s})`,
   });
-  return vm.runInContext(CHECKS + "\nstudioChecks();", tab);
+  return vm.runInContext(HEALTH + `\nstudioHealth(${JSON.stringify(opts || {})});`, tab);
 };
-const tabApi = async (path) => (path === "/api/quality" ? [] : path === "/api/about" ? { models: { author: "a", gate: "g", grader: "r" } } : {});
+const voices = (flagged) => ({ lessons: 9, listen: { lessons: 9, flagged }, watch: { flagged: 0 }, deep: { flagged: 0 } });
+const deeperView = (failures) => ({ today: { used: 3 }, limits: { per_day: 20 }, failures: failures || [] });
+const sources = (ok) => ({ exams: [], web_search: { ok } });
+const tabApi = async (path, over) => {
+  const o = Object.assign({}, tabApiOver);
+  if (path in o) { const v = o[path]; if (v instanceof Error) throw v; return v; }
+  return path === "/api/quality" ? [] : path === "/api/about" ? { models: { author: "a", gate: "g", grader: "r" } } : path === "/api/studio/voices" ? voices(0)
+    : path === "/api/studio/drift" ? drift([]) : path === "/api/studio/deeper" ? deeperView() : path === "/api/studio/sourcing" ? sources(true)
+    : path === "/api/studio/courses" ? { courses: [], todo: { labs: [], stuck: [], builds: [] } } : { on: true };
+};
+let tabApiOver = {};
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
 const change = (i, extra) => ({ kind: "changed", date: `2026-10-${String(10 + (i % 15)).padStart(2, "0")}`, url: `https://learn.microsoft.com/p${i}`, title: `Page ${i}`,
@@ -165,73 +177,157 @@ console.log(JSON.stringify(order.slice(0, 3)));""")
 (async () => {
   const d = drift(Array.from({ length: 20 }, (_, i) => change(i)));
   all(P.driftRow(d), isTag("details"))[0].attrs.ontoggle({ target: { open: true } });
-  await studioChecks(tabApi);
+  await studioHealth(tabApi);
   console.log(JSON.stringify([Object.keys(P.OPEN_MORE).length, all(P.driftRow(d), isTag("details"))[0].attrs.open || false]));
 })();""")
         self.assertEqual(out, [0, False])
 
 
 @unittest.skipUnless(NODE, "node is not installed")
-class FilmAgainTests(unittest.TestCase):
-    def test_the_button_comes_first_with_its_price_age_under_it_and_the_lessons_after(self):
-        out = run_node("""
-const d = drift([], { refilm: { lessons: Array.from({ length: 12 }, (_, i) => lesson(i)), estimate, films: [], approvals: [] } });
-const section = P.refilmPanel(d, () => {});
-const kids = section.kids.flatMap((k) => (typeof k === "string" ? [] : [k]));
-const at = (pred) => kids.findIndex(pred);
-const actions = at(isCls("refilm")), age = at((k) => k.attrs.marker === "age"), list = at((k) => k.tag === "div" && k.attrs.class === "top");
-console.log(JSON.stringify([actions, age, list, actions < age && age < list]));""")
-        self.assertEqual(out[3], True, out)
-        self.assertEqual(out[1], out[0] + 1, "the price age stays right under the button")
+class FilmHistoryTests(unittest.TestCase):
+    """Approving a film is on the To do page (ADR 0025); what became of the films that were approved stays with the source changes."""
 
-    def test_five_lessons_show_and_the_rest_wait_but_a_failed_one_is_always_shown(self):
-        out = run_node("""
-const lessons = [...Array.from({ length: 11 }, (_, i) => lesson(i)), lesson(11, { error: "The film did not finish." })];   // the failed one is last
-const section = P.refilmPanel(drift([], { refilm: { lessons, estimate, films: [], approvals: [] } }), () => {});
-const shown = outside(section, isCls("near")).map(text), hidden = all(section, isTag("details")).flatMap((d) => all(d, isCls("near"))).length;
-console.log(JSON.stringify([shown.length, shown[0], hidden, all(section, isTag("summary")).map(text)]));""")
-        self.assertEqual(out[0], 6, "the failed lesson and five more")
-        self.assertIn("Lesson 11", out[1])
-        self.assertIn("the last try did not work", out[1])
-        self.assertEqual((out[2], out[3]), (6, ["Show the other 6 more lessons"]))
-
-    def test_what_is_approved_is_every_lesson_not_the_ones_shown(self):
-        out = run_node("""
-(async () => {
-  const lessons = Array.from({ length: 12 }, (_, i) => lesson(i));
-  const d = drift([], { refilm: { lessons, estimate, films: [], approvals: [] } });
-  answers = [d];
-  const section = P.refilmPanel(d, () => {});
-  const button = all(section, isTag("button"))[0];
-  await button.attrs.onclick(); await tick();
-  console.log(JSON.stringify([calls.map((c) => [c[0], c[1], (c[2] || {}).lessons]), text(button)]));
-})();""")
-        self.assertEqual(out[0], [["/api/studio/drift/refilm", "POST", [f"lesson-{i}" for i in range(12)]]])
-        self.assertIn("Re-film 12 changed lessons", out[1])
-
-    def test_twelve_approved_films_show_three(self):
+    def test_twelve_approved_films_show_three_and_say_what_became_of_each(self):
         out = run_node("""
 const films = Array.from({ length: 12 }, (_, i) => film(i, i === 11 ? { state: "failed", error: "No room." } : {}));
-const section = P.refilmPanel(drift([], { refilm: { lessons: [], estimate, films, approvals: [] } }), () => {});
+const section = P.filmHistory(drift([], { refilm: { lessons: [], estimate, films, approvals: [] } }));
 console.log(JSON.stringify([outside(section, isCls("near")).length, all(section, isTag("details")).flatMap((d) => all(d, isCls("near"))).length,
-  all(section, isTag("summary")).map(text)]));""")
-        self.assertEqual(out, [3, 9, ["Show the other 9 earlier films"]])
+  all(section, isTag("summary")).map(text), all(section, isTag("button")).length]));""")
+        self.assertEqual(out, [3, 9, ["Show the other 9 earlier films"], 0], "no button here: a film is approved on the To do page")
+
+    def test_with_nothing_approved_it_points_to_the_page_where_videos_are_decided(self):
+        out = run_node("""
+const approved = P.filmHistory(drift([], { refilm: { lessons: [], estimate, films: [], approvals: [{ at: "2026-10-19T10:00:00Z", lessons: ["a", "b"], usd: 3.5 }] } }));
+const none = P.filmHistory(drift([], { refilm: { lessons: [], estimate, films: [], approvals: [] } }));
+console.log(JSON.stringify([text(approved), text(none)]));""")
+        self.assertIn("D(2026-10-19T10:00:00Z), 2 lessons, about $3.5", out[0])
+        self.assertIn("Videos are decided on the To do page", out[1])
 
 
 @unittest.skipUnless(NODE, "node is not installed")
-class ChecksTabTests(unittest.TestCase):
-    def test_the_lab_switch_is_the_first_thing_on_the_tab(self):
+class HealthTabTests(unittest.TestCase):
+    def test_the_summary_comes_first_then_the_lab_switch_then_the_closed_sections(self):
         out = run_node("""
 (async () => {
-  const body = await studioChecks(tabApi);
-  const first = (el) => (el.attrs.marker || (cls(el).includes("pipe") ? "pipe" : all(el, (e) => e.attrs.marker).map((e) => e.attrs.marker)[0] || cls(el).join(" ")));
-  console.log(JSON.stringify(body.map(first)));
+  const body = await studioHealth(tabApi);
+  const names = (el) => (el.tag === "details" ? el.attrs.id : el.attrs.marker || (cls(el).includes("panel") ? "summary" : "?"));
+  console.log(JSON.stringify([body.flat(Infinity).map(names), all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).map((d) => !!d.attrs.open)]));
 })();""")
-        self.assertEqual(out, ["lab", "pipe", "voices", "drift", "deeper", "sourcing", "row stackable grow studio-log"])
+        self.assertEqual(out[0], ["summary", "lab", "health-changes", "health-voices", "health-rewrites", "health-sources", "health-blocked"])
+        self.assertEqual(out[1], [False] * 5, "every section starts closed")
+
+    def test_the_old_blocked_text_link_opens_its_section(self):
+        out = run_node("""
+(async () => {
+  const body = await studioHealth(tabApi, { open: "blocked" });
+  const open = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).filter((d) => d.attrs.open).map((d) => d.attrs.id);
+  console.log(JSON.stringify(open));
+})();""")
+        self.assertEqual(out, ["health-blocked"])
+
+    def test_the_summary_is_honest_about_what_it_could_and_could_not_read(self):
+        out = run_node("""
+(async () => {
+  const sentence = async (over) => { tabApiOver = over; const body = await studioHealth(tabApi); return text(body.flat(Infinity)[0]); };
+  const fine = await sentence({});
+  const labText = await sentence({ "/api/studio/drift": drift([], { labs: [lab()] }) });
+  const unread = await sentence({ "/api/studio/voices": new Error("boom"), "/api/studio/sourcing": new Error("down") });
+  const both = await sentence({ "/api/studio/drift": drift([], { labs: [lab()], stuck: [{ id: "l", package: "p", skill: "s", title: "T" }] }), "/api/studio/voices": new Error("boom") });
+  const stale = await sentence({ "/api/studio/drift": drift([], { pages: { cited: 9, gone: 0, moved: 0, unchecked: 0, read_today: 0, last_read: new Date(Date.now() - 3 * 86400000).toISOString(), waiting: [] } }) });
+  const web = await sentence({ "/api/studio/sourcing": sources(false) });
+  console.log(JSON.stringify([fine, labText, unread, both, stale, web]));
+})();""")
+        fine, lab_text, unread, both, stale, web = out
+        self.assertIn("Everything Dojo checked is working.", fine)
+        self.assertNotIn("could not be read", fine)
+        self.assertIn("1 lab to look at.", lab_text)
+        self.assertNotIn("working", lab_text)
+        self.assertIn("Everything Dojo could read is working.", unread, "a check that could not be read is not a thing to look at")
+        self.assertIn("2 of 7 checks could not be read: voices, lesson sources.", unread)
+        self.assertIn("2 things to look at.", both)
+        self.assertIn("1 of 7 checks could not be read: voices.", both)
+        self.assertIn("The daily read of the cited pages has not read a page for 3 days.", stale, "a check that stopped is not 'fine'")
+        self.assertIn("Web search for finding pages does not work.", web)
+
+    def test_slides_worth_a_listen_are_information_not_a_thing_to_look_at(self):
+        out = run_node("""
+(async () => {
+  tabApiOver = { "/api/studio/voices": voices(171) };
+  const body = await studioHealth(tabApi);
+  const sections = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details"));
+  const voicesChip = all(sections.find((d) => d.attrs.id === "health-voices"), (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip]);
+  console.log(JSON.stringify([text(body.flat(Infinity)[0]), voicesChip, text(sections.find((d) => d.attrs.id === "health-voices").kids[0])]));
+})();""")
+        self.assertIn("Everything Dojo checked is working.", out[0])
+        self.assertEqual(out[1], [["for information", "line"]])
+        self.assertIn("171 passages were read a little differently from the text", out[2])
+
+    def test_the_voice_line_says_out_of_how_many(self):
+        out = run_node("""
+(async () => {
+  tabApiOver = { "/api/studio/voices": { lessons: 9, listen: { lessons: 9, flagged: 120, slides: 1180 }, watch: { flagged: 20, turns: 60 }, deep: { flagged: 31, parts: 700 } } };
+  const body = await studioHealth(tabApi);
+  console.log(JSON.stringify(text(all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-voices").kids[0])));
+})();""")
+        self.assertIn("9 lessons heard again; 171 of 1940 passages were read a little differently from the text.", out)
+
+    def test_what_needs_the_owner_on_the_to_do_page_is_not_called_fine_here(self):
+        out = run_node("""
+(async () => {
+  const sentence = async (over) => { tabApiOver = over; const body = await studioHealth(tabApi); return text(body.flat(Infinity)[0]); };
+  const course = (failed) => ({ package: "p", exam: "XY-110", make: { videos: { failed } } });
+  const build = await sentence({ "/api/studio/courses": { courses: [], todo: { labs: [], stuck: [], builds: [{ package: "xy", exam: "XY-110", state: "stopped" }] } } });
+  const films = await sentence({ "/api/studio/courses": { courses: [course(2)], todo: { labs: [], stuck: [], builds: [] } } });
+  const monitoring = await sentence({ "/api/studio/lab": { on: true, demo: false, monitoring: { observed: "on", error: "database waking" } } });
+  const clear = await sentence({});
+  console.log(JSON.stringify([build, films, monitoring, clear]));
+})();""")
+        build, films, monitoring, clear = out
+        self.assertIn("The build of XY-110 stopped.", build)
+        self.assertIn("2 films did not work last time.", films)
+        self.assertIn("The last try to change the lab database's performance monitoring did not work.", monitoring)
+        self.assertIn("Everything Dojo checked is working.", clear)
+        self.assertRegex(clear, r"Opened \d{1,2}:\d\d(?:\s[AP]M)?\. Checked: source changes, voices, rewrites from more pages, lesson sources, blocked sentences, lab database, courses\.", "it says when the page was opened and what it checked")
+
+    def test_the_counts_say_what_is_kept_not_the_cap_as_a_fact(self):
+        out = run_node("""
+(async () => {
+  tabApiOver = { "/api/quality": Array.from({ length: 400 }, (_, i) => ({ kind: "lesson", part: "p", at: "2026-10-01T00:00:00Z", text: `t${i}`, reason: "r" })) };
+  const body = await studioHealth(tabApi);
+  const blocked = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-blocked");
+  console.log(JSON.stringify(text(blocked.kids[0])));
+})();""")
+        self.assertIn("The last 400 are kept", out)
+        self.assertIn("400 or more sentences were stopped before reaching you; the latest on Day(2026-10-01).", out)
+        self.assertNotIn("400 entries", out)
+
+    def test_the_blocked_line_says_how_many_were_stopped_and_when_or_that_none_were(self):
+        out = run_node("""
+(async () => {
+  const line = async (log) => { tabApiOver = { "/api/quality": log }; const body = await studioHealth(tabApi);
+    return text(all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-blocked").kids[0]); };
+  const some = [3, 1, 2].map((d) => ({ kind: "lesson", part: "p", at: `2026-10-0${d}T10:00:00Z`, text: `t${d}`, reason: "r" }));
+  console.log(JSON.stringify([await line(some), await line([some[0]]), await line([])]));
+})();""")
+        some, one, none = out
+        self.assertIn("3 sentences were stopped before reaching you; the latest on Day(2026-10-03).", some, "the latest, whatever the order of the log")
+        self.assertIn("1 sentence was stopped before reaching you; the latest on Day(2026-10-03).", one, "the one entry given")
+        self.assertIn("Nothing was stopped lately.", none)
+
+    def test_a_web_search_that_was_never_tested_is_not_called_fine(self):
+        out = run_node("""
+(async () => {
+  tabApiOver = { "/api/studio/sourcing": { exams: [{ exam: "DP-300" }], web_search: null } };
+  const body = await studioHealth(tabApi);
+  const sec = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-sources");
+  console.log(JSON.stringify([text(sec.kids[0]), all(sec.kids[0], (e) => e.attrs && e.attrs.chip !== undefined).map((e) => e.attrs.chip)]));
+})();""")
+        self.assertIn("web search has not been tested yet", out[0])
+        self.assertEqual(out[1], ["line"], "for information, not 'fine'")
 
     def test_the_log_is_a_box_that_scrolls_and_can_be_reached_by_keyboard(self):
         self.assertEqual(APP_JS.count('"panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why"'), 2,
-                         "the owner's Checks tab and a member's Studio log")
+                         "the owner's Health tab and a member's Studio log")
         rule = next(line for line in APP_CSS.splitlines() if line.startswith(".panel.scroll.logbox"))
         self.assertIn("max-height: min(70vh, 640px)", rule)
         ring = next(line for line in APP_CSS.splitlines() if line.startswith(".panel.logbox:focus-visible"))
@@ -243,7 +339,7 @@ class ChecksTabTests(unittest.TestCase):
 
     def test_nothing_else_draws_the_lab_switch(self):
         self.assertEqual(APP_JS.count("labRow(lb)"), 1)
-        self.assertLess(APP_JS.index("labRow(lb), pipe,"), APP_JS.index("driftRow(dr),"))
+        self.assertIn("return [healthTop(parts, look), labRow(lb), sections];", APP_JS)
 
 
 class WordsTests(unittest.TestCase):
@@ -253,7 +349,7 @@ class WordsTests(unittest.TestCase):
             self.assertIn(word, adr)
         self.assertIn("(0024-studio-checks-short.md)", (ROOT / "docs" / "adr" / "README.md").read_text("utf-8"))
         guide = (ROOT / "docs" / "user-guide.md").read_text("utf-8")
-        self.assertIn("is at the top of the Checks tab", guide)
+        self.assertIn("is on the Health tab, above its sections", guide, "the switch moved with the Checks tab (ADR 0025)")
         self.assertIn("Show the other", guide)
 
 

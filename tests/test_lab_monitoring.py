@@ -430,7 +430,7 @@ class LabsOffTests(unittest.TestCase):
 HARNESS = r"""
 const fs = require('fs'), vm = require('vm');
 const APP = fs.readFileSync(PATH, 'utf8');
-const START = APP.indexOf("const LAB_MON = ");
+const START = APP.indexOf("const LAB_HUB = ");
 const END = APP.indexOf("// ---------------------------------------------------------------- Studio: deeper lessons (ADR 0008)");
 if (START < 0 || END < START) throw new Error("the lab panel is not where it was");
 const flat = (list) => list.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
@@ -444,7 +444,6 @@ let answers = [], confirms = [];
 const context = vm.createContext({
   h, put, button: (label, onclick, kind) => h("button", { onclick, kind }, label),
   chip: (label, kind) => h("span", { chip: kind }, label), eyebrow: (icon, label) => h("p", { eyebrow: icon }, label),
-  fmtDate: (s) => `D(${s})`,
   api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (a instanceof Error) throw a; return a; },
   window: { confirm: (message) => { asked.push(message); return confirms.shift(); } },
 });
@@ -459,6 +458,7 @@ const view = (l) => {
 };
 const tick = () => new Promise((r) => setTimeout(r, 5));
 const mon = (extra) => ({ observed: null, checked_at: null, attempted_at: null, error: null, database: null, ...extra });
+const LONG_AGO = "2026-01-05T10:00:00Z", WHEN = "2026-01-06T10:00:00Z";   // not today: the line says the day, not the time
 const lab = (m, extra) => ({ on: true, demo: false, database: "sqldb-lab", monitoring: mon(m), ...extra });
 """
 
@@ -485,29 +485,32 @@ class PanelTests(unittest.TestCase):
 
     def test_each_state_says_what_dojo_last_confirmed(self):
         out = run_node("""
-const states = [{}, {observed: 'unset', checked_at: 'T1'}, {observed: 'off', checked_at: 'T2'}, {observed: 'on', checked_at: 'T3'}];
+const states = [{}, {observed: 'unset', checked_at: LONG_AGO}, {observed: 'off', checked_at: LONG_AGO}, {observed: 'on', checked_at: LONG_AGO}];
 console.log(JSON.stringify(states.map((m) => { const v = view(lab(m)); return [v.chips, v.labels, v.text]; })));""")
         never, unset, off, on = out
-        self.assertEqual((never[0], never[1]), ([["performance monitoring: not turned on yet", "line"]], ["Turn on"]))
-        self.assertIn("Dojo has not confirmed it as on.", never[2])
-        self.assertEqual((unset[0], unset[1]), ([["performance monitoring: not turned on", "line"]], ["Turn on"]))
-        self.assertEqual((off[0], off[1]), ([["performance monitoring: off", "line"]], ["Turn on"]))
-        self.assertIn("Turned off, last confirmed D(T2).", off[2])
-        self.assertEqual((on[0], on[1]), ([["performance monitoring: on", "sage"]], ["Turn off"]))
-        self.assertIn("Last confirmed on D(T3).", on[2])
-        self.assertIn("Fabric Database Hub, on the Performance page", on[2])
-        self.assertNotIn("onfirmed on D(T", never[2] + unset[2], "nothing is claimed that was never confirmed")
+        self.assertEqual((never[0], never[1]), ([["off", "line"]], ["Turn on"]))
+        self.assertIn("Dojo has not turned it on", never[2])
+        self.assertEqual((unset[0], unset[1]), ([["off", "line"]], ["Turn on"]))
+        self.assertIn("Dojo has not turned it on", unset[2])
+        self.assertEqual((off[0], off[1]), ([["off", "line"]], ["Turn on"]))
+        self.assertIn("confirmed", off[2])
+        self.assertEqual((on[0], on[1]), ([["on", "sage"]], ["Turn off"]))
+        self.assertIn("confirmed", on[2])
+        self.assertIn("Open the Database Hub", on[2], "a link to where its data is read, not a button")
+        self.assertNotIn("confirmed", never[2] + unset[2], "nothing is claimed that was never confirmed")
         for state in out:
+            self.assertIn("What is this?", state[2])
             self.assertIn("free offer and pauses when idle", state[2])
             self.assertIn("does not say whether monitoring keeps it awake", state[2])
+            self.assertIn("Fabric Database Hub, on its Performance page", state[2])
 
     def test_a_failed_try_is_shown_beside_what_was_confirmed(self):
         out = run_node("""
-const v = view(lab({observed: 'on', checked_at: 'T3', attempted_at: 'T4', error: 'database waking'}));
+const v = view(lab({observed: 'on', checked_at: LONG_AGO, attempted_at: WHEN, error: 'database waking'}));
 console.log(JSON.stringify([v.chips, v.text]));""")
-        self.assertEqual(out[0], [["performance monitoring: on", "sage"], ["last try failed", "rose"]])
-        self.assertIn("Last confirmed on D(T3).", out[1])
-        self.assertIn("The last try D(T4) did not work: database waking.", out[1])
+        self.assertEqual(out[0], [["on", "sage"], ["last try failed", "rose"]])
+        self.assertIn("confirmed", out[1])
+        self.assertIn("did not work: the database was waking up; try again in a minute.", out[1])
 
     def test_nothing_is_sent_until_the_owner_has_confirmed_and_the_question_says_what_it_costs(self):
         out = run_node("""
@@ -528,26 +531,26 @@ console.log(JSON.stringify([v.chips, v.text]));""")
 (async () => {
   const v = view(lab({}));
   confirms = [true];
-  answers = [{ monitoring: mon({ observed: 'on', checked_at: 'T9' }) }];
+  answers = [{ monitoring: mon({ observed: 'on', checked_at: WHEN }) }];
   await v.buttons[0].attrs.onclick(); await tick();
   console.log(JSON.stringify([calls, text(v.el), find(v.el, (e) => e.tag === 'button').map((b) => text(b))]));
 })();""")
         self.assertEqual(out[0], [["/api/studio/lab/monitoring", "POST", {"on": True}]])
-        self.assertIn("Last confirmed on D(T9).", out[1])
+        self.assertIn("confirmed", out[1])
         self.assertEqual(out[2], ["Turn off"])
 
     def test_pressing_turn_off_posts_false(self):
         out = run_node("""
 (async () => {
-  const v = view(lab({ observed: 'on', checked_at: 'T3' }));
+  const v = view(lab({ observed: 'on', checked_at: LONG_AGO }));
   confirms = [true];
-  answers = [{ monitoring: mon({ observed: 'off', checked_at: 'T9' }) }];
+  answers = [{ monitoring: mon({ observed: 'off', checked_at: WHEN }) }];
   await v.buttons[0].attrs.onclick(); await tick();
-  console.log(JSON.stringify([calls, asked, text(v.el)]));
+  console.log(JSON.stringify([calls, asked, v.el.kids.length ? find(v.el, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip]) : []]));
 })();""")
         self.assertEqual(out[0], [["/api/studio/lab/monitoring", "POST", {"on": False}]])
         self.assertIn("What it already collected is kept", out[1][0])
-        self.assertIn("Turned off, last confirmed D(T9).", out[2])
+        self.assertEqual(out[2], [["off", "line"]])
 
     def test_a_refusal_shows_its_reason_and_the_button_can_be_pressed_again(self):
         out = run_node("""
@@ -565,10 +568,10 @@ console.log(JSON.stringify([v.chips, v.text]));""")
 
 
 class WiringTests(unittest.TestCase):
-    def test_studios_checks_reads_the_lab_and_draws_it_first(self):
-        body = APP_JS.split("async function studioChecks() {", 1)[1].split("\n}\n", 1)[0]
-        self.assertIn('api("/api/studio/lab").catch((e) => ({ error: e.message }))', body)
-        self.assertRegex(body, r"return \[labRow\(lb\),\s+pipe,")   # what the owner presses comes first (ADR 0024)
+    def test_studios_health_reads_the_lab_and_draws_it_above_the_closed_sections(self):
+        body = APP_JS.split("async function studioHealth(opts) {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn('read("/api/studio/lab")', body)
+        self.assertIn("return [healthTop(parts, look), labRow(lb), sections];", body)   # a switch is never inside a closed section (ADR 0025)
 
     def test_the_button_posts_to_the_one_route(self):
         self.assertEqual(APP_JS.count("/api/studio/lab/monitoring"), 1)

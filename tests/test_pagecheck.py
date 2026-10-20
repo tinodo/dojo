@@ -265,19 +265,19 @@ class StudioShowsItTests(PageCheckCase):
 
 class PageCheckScreenTests(unittest.TestCase):
     def test_the_button_says_the_price_asks_first_and_changes_nothing(self):
-        block = part("function pageCheckBlock(x, act) {")
-        self.assertIn("window.confirm(", block)
-        self.assertIn("changes nothing", block)
+        block = part("function pageCheckRow(x, act) {")
+        self.assertIn("moneySheet(ask)", block)
+        self.assertIn("Nothing changes", block)
         self.assertIn("/api/studio/pagecheck/${x.package}", block)
-        self.assertIn("price not listed", block)
+        self.assertIn("The price is not available just now", block)
         self.assertIn("runJob(", block)
+        self.assertNotIn("window.confirm(", block)
 
-    def test_the_card_shows_the_check_and_reads_again_after_it(self):
-        self.assertIn("pageCheckBlock(x, act)", part("function courseCard(x, c, act) {"))
-        self.assertIn("pageCheckList(x)", part("function courseCard(x, c, act) {"))
-        courses = part("async function studioCourses() {")
-        self.assertIn("/api/studio/courses?fresh=true", courses)
-        self.assertIn("/api/studio/courses?fresh=true", part("function pageCheckBlock(x, act) {"))
+    def test_the_to_do_page_offers_the_check_and_the_course_shows_what_it_found(self):
+        self.assertIn("pageChecksCard(c, act)", part("async function studioTodo() {"))
+        self.assertIn("pageCheckList(x)", part("function courseCard(x, c) {"))
+        self.assertIn("pagesLine(x)", part("function courseCard(x, c) {"))
+        self.assertIn("/api/studio/courses?fresh=true", part("function pageCheckRow(x, act) {"))
         self.assertIn("whose pages were not confirmed", part("function pageCheckList(x) {"))
 
 

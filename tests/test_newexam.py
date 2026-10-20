@@ -657,16 +657,22 @@ class AddedExamTests(unittest.TestCase):
             self.assertFalse(prep._film())
         self.assertIsNone(films.next_film())
         self.assertFalse(self.videos())
-        # Approving needs the word and exactly the set of lessons that was priced.
-        path = "/api/exam-packages/xy-110/film"
-        self.assertEqual(c.post(path, json={"offer": offer["token"]}, headers=POST).status_code, 422)
+        # Approving needs the word and exactly the set of lessons and the price Studio's To do page showed. The exam page's own address is retired.
+        retired = c.post("/api/exam-packages/xy-110/film", json={"confirm": "FILM", "offer": offer["token"]}, headers=POST)
+        self.assertEqual(retired.status_code, 410, "its token named the lessons and not the price")
+        self.assertEqual(c.get("/api/exam-packages/xy-110").json()["film"]["approved"], 0, "the retired address approved nothing")
+        self.app.state.studio._seen.clear()
+        shown = next(x for x in c.get("/api/studio/courses").json()["courses"] if x["package"] == "xy-110")["make"]["videos"]["offer"]
+        path = "/api/studio/film/xy-110"
+        self.assertEqual(c.post(path, json={"offer": shown["token"]}, headers=POST).status_code, 422)
         self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": "0" * 16}, headers=POST).status_code, 409)
-        self.assertEqual(c.post("/api/exam-packages/gh-300/film", json={"confirm": "FILM", "offer": offer["token"]},
-                                headers=POST).status_code, 404)
-        approved = post(c, path, {"confirm": "FILM", "offer": offer["token"]})["film"]
+        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": offer["token"]}, headers=POST).status_code, 409, "the exam page's token names no price")
+        self.assertEqual(c.post("/api/studio/film/no-such-exam", json={"confirm": "FILM", "offer": shown["token"]}, headers=POST).status_code, 404)
+        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": shown["token"]}, headers=POST).status_code, 200)
+        approved = c.get("/api/exam-packages/xy-110").json()["film"]
         self.assertEqual((approved["approved"], approved["waiting"], approved["offer"]), (1, 1, None))
-        self.assertEqual(approved["approvals"][-1]["total"], offer["estimate"]["total"])
-        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": offer["token"]}, headers=POST).status_code, 422)
+        self.assertEqual(approved["approvals"][-1]["total"], shown["usd"], "what is written down is the price the page showed")
+        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": shown["token"]}, headers=POST).status_code, 409)
         self.assertFalse(self.videos(), "approving files nothing by itself")
         # The film waits until the owner's own work has been quiet for three minutes...
         self.assertLess(prep._quiet_for(), 180)
@@ -2013,7 +2019,7 @@ class ExamPageScreenTests(unittest.TestCase):
 
     def test_studio_shows_the_search_skill_by_skill(self):
         row = self.part("function sourcingRow(s) {")
-        self.assertIn("/api/studio/sourcing", self.part("async function studioChecks() {"))
+        self.assertIn("/api/studio/sourcing", self.part("async function studioHealth(opts) {"))
         self.assertIn("web search unavailable", row)
         self.assertIn("two different model families both accept it", row)
         skill = self.part("function sourcingSkill(d) {")
@@ -2050,7 +2056,9 @@ class EstimateScreenTests(unittest.TestCase):
         warning = build.index("f.estimate.complete ? null : h(\"p\", { class: \"conf bad top\" }")
         self.assertIn("`Building costs more than ${usd(f.estimate.total)}. ${leftOut(f.estimate)}`", build[warning:])
         self.assertLess(warning, build.index('h("div", { class: "actions top" }, go)'), "right above the button")
-        self.assertIn('e.complete ? "about" : "more than"', self.part("function filmPanel(st, onStatus, note) {"))
+        film = self.part("function filmPanel(st, onStatus, note) {")
+        self.assertNotIn("estimateRows", film, "the exam page shows no price: it spends nothing, videos are decided on Studio's To do page")
+        self.assertIn('linkButton("Decide on the To do page"', film)
 
     def test_studio_shows_the_model_list_prices(self):
         panel = self.part("function costsPanel(c) {")
@@ -2076,9 +2084,6 @@ class EstimateScreenTests(unittest.TestCase):
         self.assertLess(build.index("Writing and narration run by themselves"), start, "said before the price, not between it and the button")
         self.assertEqual(build[start:button].count('h("p"'), 1)
         self.assertIn("f.estimate.complete ? null", build[start:button])
-        film = self.part("function filmPanel(st, onStatus, note) {")
-        start, button = film.index('estimateRows(e, "About, at list price")'), film.index('h("div", { class: "actions top" }, btn)')
-        self.assertEqual(film[start:button], 'estimateRows(e, "About, at list price")),\n      ')
         studio = self.part("function costsPanel(c) {")
         self.assertLess(studio.index('h("div", { class: "costrow total" }'), studio.index("pricesAge(c),"))
         self.assertLess(studio.index("pricesAge(c),"), studio.index("Model list prices, not in this total"))

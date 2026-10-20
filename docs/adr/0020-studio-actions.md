@@ -38,7 +38,8 @@ The Courses page is the page to press buttons on, and it is short.
 - **Who keeps the films.** An exam the owner added keeps them in its build document (`NewExams`), a built-in course in the
   drift check's state (`DriftCheck`, which already files approved films one at a time). A lesson belongs to exactly one of them:
   the drift check no longer offers the lessons of an added exam. `POST /api/studio/film/{pid}` takes the token and hands the
-  approval to whichever keeps that course (`NewExams.approve_film`, `DriftCheck.approve_offer`); the old buttons keep working.
+  approval to whichever keeps that course (`NewExams.approve_film`, `DriftCheck.approve_offer`); the old buttons kept working then
+  (ADR 0025 retired their two endpoints: they answer 410).
 - **Filing.** Both keep filing one film at a time through the ordinary video job, and both now start it atomically for a lesson
   (`Jobs.start(busy_message=...)`), so two callers cannot film the same lesson at once. The drift check checks again, when it
   is a lesson's turn, that the lesson is still the newest of its skill and not held back, and drops the approval otherwise: a
@@ -90,7 +91,8 @@ The Courses page is the page to press buttons on, and it is short.
   the offer should leave those lessons out until they are written again.
 - The older film buttons (**Film this lesson**, **Film again** in Checks, the exam page's **Film the lessons**) still approve by lesson
   ids and do not check the room at the press; both keepers pause at the filing, while presenter videos are 90% full, and the lesson
-  page shows its price. Binding all of them to a priced offer would be a change to those pages, not to this one.
+  page shows its price. Binding all of them to a priced offer would be a change to those pages, not to this one. (ADR 0025 did it: the
+  Checks and exam-page buttons and their endpoints are gone; only **Film this lesson** is left, and it asks with its price.)
 - Stopping a film that is already being made, and a second film queue that runs two films at once.
 - Whether the page check of an original course should be able to replace a page. It only reports.
 

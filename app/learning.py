@@ -243,7 +243,9 @@ VIEW_REPEAT_MINUTES = 30  # one play; evidence.VIEW_MINUTES counts a view as tea
 # The lesson template every new lesson is written to (ADR 0008). A lesson without a "template" field was
 # written to template 1: one page, 3-5 sections. Template 2 is deeper and uses every page of the skill.
 LESSON_TEMPLATE = 2
-MIN_SLIDES = 4              # a lesson keeps at least this many checked slides, or as many as were written when that is fewer
+REWRITES_UNREADABLE = "Dojo cannot tell just now which lessons are about to be rewritten, so it offers and approves no film. Try again in a few minutes."
+QUIET_DAYS = 7              # a lesson written again is offered for filming only after this many days: a page that changed once may change again
+MIN_SLIDES = 4               # a lesson keeps at least this many checked slides, or as many as were written when that is fewer
 NO_VERDICT = "The checker gave no verdict"
 # How much of each official page the models are shown, by how many pages the skill cites (ADR 0008).
 # A page is cut to the parts most related to the skill; a median page (about 15,000 characters) fits whole
@@ -253,8 +255,8 @@ MCQ_CHARS = {1: 6000, 2: 4000, 3: 3000}
 # Watch, for a lesson written again on the deeper template that has no video of its own (ADR 0008).
 EARLIER_FILM = ("Filmed from an earlier version of this lesson. The lesson was written again on {date} to teach the whole "
                 "skill from more official pages; this video, and the slides and sources beside it, are still the earlier "
-                "version. Read, Listen and Present give the new one. Dojo never films on its own: Studio's Film again "
-                "button shows the price first.")
+                "version. Read, Listen and Present give the new one. Dojo never films on its own: the Film button on "
+                "Studio's To do page shows the price first.")
 KEPT_SHARE = 0.75         # the share of what the author model wrote that must hold: a lesson, its Deeper Listen, its visual deck
 
 # Deeper Listen (ADR 0007): a longer two-voice narration of the whole lesson, for Listen and the podcast.
@@ -1201,6 +1203,39 @@ Narration is a natural spoken conversation between two voices: "guide" explains,
                                                "offered": [u for u in d.get("offered") or [] if isinstance(u, str)] or used}
         present = set(names)
         return [m for n, m in self._lesson_meta.items() if n in present]
+
+    def rewritten_recently(self, now: datetime | None = None) -> dict[str, str]:
+        """The lessons that replaced an earlier lesson of their skill less than QUIET_DAYS ago, for any reason (a source page
+        changed, refused pages were replaced, the deeper template), each with when it has been quiet long enough to be filmed.
+        A lesson written for the first time is not here: there is nothing it replaced, and a film is only wasted by a rewrite."""
+        now = now or utcnow()
+        index = self.lesson_index()
+        first: dict[tuple[Any, Any], str] = {}   # when the oldest lesson of each skill was written: one made later was written again
+        for m in index:
+            key, at = (m.get("package"), m.get("skill")), m.get("created") or ""
+            first[key] = min(first.get(key, at), at)
+        since = now - timedelta(days=QUIET_DAYS)
+        out: dict[str, str] = {}
+        for m in index:
+            at = m.get("created")
+            if not at or parse_iso(at) <= since:
+                continue
+            if m.get("upgrade_of") or at > first[(m.get("package"), m.get("skill"))]:
+                out[m["id"]] = iso(parse_iso(at) + timedelta(days=QUIET_DAYS))
+        return out
+
+    def scheduled_rewrites(self) -> set[str]:
+        """The newest lessons that will be written again on the deeper template: a film made for them now would be replaced. A Dojo that
+        has no deeper-lesson writer (a test) has none. When the writer's books cannot be read this raises: "none" would offer and file films
+        for lessons that are waiting for a replacement, so the offer fails (Studio then shows no offer) and a filer waits for its next round."""
+        deeper = getattr(self, "deeper", None)
+        if deeper is None:
+            return set()
+        try:
+            return set(deeper.to_write_again())
+        except Exception as e:  # noqa: BLE001 - said in plain words: an approval is refused with it, a page shows no offer
+            log.exception("could not read the lessons that will be written again")
+            raise UserError(REWRITES_UNREADABLE) from e
 
     def lesson_skills(self, pid: str) -> set[str]:
         return {m["skill"] for m in self.lesson_index() if m["package"] == pid}

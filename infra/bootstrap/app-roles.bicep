@@ -8,12 +8,13 @@ param ownerPrincipalId string = ''
 
 var contributor = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
 
-// Runtime identity: call Foundry models and Speech. Learner data lives on the web app's own
-// persistent storage, so no data-store roles are needed.
+// Runtime identity: call Foundry models and Speech, and read what this resource group cost (Studio's Money tab).
+// Learner data lives on the web app's own persistent storage, so no data-store roles are needed.
 var appRoles = [
   '53ca6127-db72-4b80-b1b0-d745d6d5456d' // Azure AI User (Foundry User)
   '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd' // Cognitive Services OpenAI User
   'f2dc8367-1007-4938-bd23-fe263f013447' // Cognitive Services Speech User
+  '72fafb9e-0641-4937-9268-a91bfd8191a3' // Cost Management Reader: reads costs, changes nothing
 ]
 
 resource deployContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {

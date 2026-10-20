@@ -1488,10 +1488,10 @@ numbers are at 99342a9.
 |---|---|---|
 | `/api/diag`, `/api/diag/lab`, `/api/diag/run` | Any member runs self-tests that spend money and see the configuration. | `Admin` (1) |
 | `/api/studio/voices`, `/api/studio/costs` | A member sees the owner's spend and voices. | `Admin` (1) |
-| `/api/studio/drift`, `/drift/refilm`, `/drift/labs/{lab}/looked` | A member triggers paid refilming and sees the owner's item counts. | `Admin` (1) |
+| `/api/studio/drift`, `/drift/refilm` (retired: answers 410, ADR 0025), `/drift/labs/{lab}/looked` | A member triggers paid refilming and sees the owner's item counts. | `Admin` (1) |
 | `/api/studio/deeper` | A member sees and steers paid content work. | `Admin` (1) |
 | `/api/exam-packages*`, `/api/exam-lookup` | A member adds or removes exams (spends money; deletes pools). | `Admin` (1) |
-| `/api/exam-packages/{pid}/film` | A member approves paid filming. | `Admin` (1) |
+| `/api/exam-packages/{pid}/film` (retired: answers 410, ADR 0025; films are approved at `/api/studio/film/{pid}`) | A member approves paid filming. | `Admin` (1) |
 | `/api/lessons/{id}/video` | A member starts paid avatar filming. | `Admin` (1) |
 | `POST /api/lessons` on a skill that has a lesson | A member's rewrite becomes everyone's lesson and voids its podcast and film. | Split: `POST /api/lessons` first lesson only (409 otherwise); `POST /api/lessons/{id}/rewrite` admin (1) |
 

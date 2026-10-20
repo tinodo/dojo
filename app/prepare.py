@@ -569,7 +569,11 @@ class Preparer:
             return self._film_next()
 
     def _film_next(self) -> bool:
-        lesson = self.films.next_film()
+        try:
+            lesson = self.films.next_film()
+        except UserError:   # approved films wait while Dojo cannot tell which lessons are about to be rewritten: look again soon
+            self.state["film_note"] = "The films wait: Dojo cannot tell just now which lessons are about to be rewritten. It looks again soon."
+            return True
         if not lesson:
             self.state["film_note"] = ""
             return False

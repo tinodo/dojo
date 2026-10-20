@@ -730,18 +730,27 @@ class RouteTests(Team2Case):
 
 class StudioSwitchScreenTests(unittest.TestCase):
     """Drawing visual decks ahead of time spends money nobody asked for, so Studio turns it on only after the
-    price for every lesson was shown and the owner said yes; turning it off asks nothing."""
+    price for every lesson was shown and the owner said yes (on its To do page); turning it off asks nothing. The estimates
+    under Money show the price and have no switch."""
 
     SCRIPT = (APP_DIR / "static" / "app.js").read_text("utf-8")
 
     def test_turning_it_on_shows_the_price_for_every_lesson_first(self):
-        card = self.SCRIPT.split("function deckCosts(first) {", 1)[1].split("\n}\n", 1)[0]
-        ask = card.index("if (!d.ahead && !window.confirm(`Draw the visual decks ahead of time?")
-        post = card.index('"/api/studio/decks/ahead"')
+        card = self.SCRIPT.split("function decksCard(c, act) {", 1)[1].split("\n}\n", 1)[0]
+        ask = card.index("moneySheet(deckAsk(d))")
+        post = card.index('"/api/studio/make"')
         self.assertLess(ask, post, "asked before anything is switched on")
-        self.assertIn('${all.complete ? "about" : "at least"} ${usd(all.total)} at list price in all', card)
-        self.assertIn("A lesson you open in Present gets its deck drawn right away, whether this is on or not.", card)
-        self.assertIn("body: { on: !d.ahead }", card)
+        self.assertIn("about ${usd(d.usd)} now", card)
+        self.assertIn("until you press Stop", card)
+        question = self.SCRIPT.split("function deckAsk(d) {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("A lesson you open in Present gets its diagram at once, whether this is on or not.", question)
+        self.assertIn("Lessons written later get a diagram too", question)
+        self.assertIn('body: { on: false }', card, "turning it off asks nothing")
+
+    def test_the_estimates_show_the_price_and_have_no_switch(self):
+        card = self.SCRIPT.split("function deckCosts(first) {", 1)[1].split("\n}\n", 1)[0]
+        self.assertNotIn("button(", card)
+        self.assertNotIn("/api/studio/decks/ahead", card)
 
 
 # ---------------------------------------------------------------- what the decks cost

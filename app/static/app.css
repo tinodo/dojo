@@ -1924,3 +1924,89 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
   .mk-row { grid-template-columns: 1fr; }
   .mk-a { justify-content: flex-start; text-align: left; }
 }
+
+/* Studio v2 (ADR 0025): the tabs are links to pages, a card is one decision, and a long page opens only what is asked for. */
+.seg.studio-tabs { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+.studio-tabs .s { min-height: 44px; white-space: nowrap; }
+.studio-tabs .s:focus-visible { outline: 2px solid var(--amber-ink); outline-offset: -4px; border-radius: 0; }
+.studio-tabs .s.on:focus-visible { outline-color: var(--amber); }
+.studio-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.todo-page { display: flex; flex-direction: column; gap: 14px; }
+.todo-strip { display: flex; flex-wrap: wrap; gap: 8px 10px; }
+.todo-strip a { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; min-height: 40px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 13px; font-weight: 600; color: var(--ink); text-decoration: none; }
+.todo-strip a:hover { background: var(--canvas); }
+.todo-strip a.ok svg { color: var(--sage-ink); }
+.todo-strip a.warn svg { color: var(--amber-ink); }
+.todo-h { font: 600 12px/1.3 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2); margin: 10px 0 -4px; }
+.todo-none { display: flex; align-items: center; gap: 9px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--sage-ink); font-weight: 600; }
+.todo-card .panel-h { margin-bottom: 6px; }
+.todo-card .panel-h h3 { font-size: 17px; }
+.todo-card > .sub { margin-bottom: 8px; }
+.todo-card .actions { margin-top: 10px; }
+.todo-card details.how { margin-top: 10px; }
+.vrow { padding: 12px 0; border-top: 1px solid var(--line-2); }
+.vrow:first-of-type { border-top: 0; }
+.vrow-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.vrow-h b { font-size: 15px; }
+.vrow-t { color: var(--ink-2); }
+.vrow .small { margin-top: 4px; max-width: 880px; }
+/* The facts under a row carry the safety message: as readable as the sentence above them (--ink-3 on the card is about 3.6:1). */
+.vrow p.small.muted { font-size: 13.5px; color: var(--ink-2); }
+.todo-all { margin: 2px 0 12px; align-items: center; gap: 6px 12px; }
+.mk-h { font: 600 11px/1.3 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin: 14px 0 2px; }
+.mk-h:first-child { margin-top: 12px; }
+.courses-head { margin-bottom: 2px; }
+.bill-big { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 2px 0 8px; }
+.bill-big b { font: 600 38px/1.1 var(--serif); font-variant-numeric: tabular-nums; }
+.bill-bars { display: flex; align-items: flex-end; gap: 3px; height: 92px; margin: 14px 0 6px; padding-bottom: 2px; border-bottom: 1px solid var(--line); }
+.bill-bars .bd { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; }
+.bill-bars i { display: block; width: 100%; background: var(--ink-2); border-radius: 3px 3px 0 0; }
+.bill-bars i.partial { background: repeating-linear-gradient(135deg, var(--ink-3) 0 3px, var(--card) 3px 6px); outline: 1px solid var(--ink-3); outline-offset: -1px; }
+.bg-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; padding: 12px 0; border-top: 1px solid var(--line-2); }
+.bg-row:first-of-type { border-top: 0; }
+.bg-t { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.bg-a { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; font-variant-numeric: tabular-nums; }
+.bg-a b { font-size: 15px; }
+.bg-bar, .bg-n, .bg-parts { grid-column: 1 / -1; }
+.bg-bar { height: 6px; }
+.bg-parts { display: grid; gap: 3px; font-size: 12.5px; color: var(--ink-2); }
+.bg-parts li { display: flex; justify-content: space-between; gap: 12px; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.bg-parts li span:first-child { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.hsec { border: 1px solid var(--line); border-radius: var(--r); background: var(--card); box-shadow: var(--shadow); }
+.hsec > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 12px 16px; min-height: 48px; cursor: pointer; }
+.hsec > summary .hs-t { font-weight: 600; font-size: 14px; min-width: 190px; }
+.hsec > summary .hs-l { flex: 1 1 260px; color: var(--ink-2); font-size: 13px; }
+.hsec[open] > summary { border-bottom: 1px solid var(--line-2); }
+.hsec > summary { list-style: none; }
+.hsec > summary::-webkit-details-marker { display: none; }
+.hsec > summary::before { content: "\25B8"; color: var(--ink-3); font-size: 12px; width: 12px; flex: none; }
+.hsec[open] > summary::before { content: "\25BE"; }
+.hs-body { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 16px; }
+.hs-body > .row, .hs-body > .panel { margin: 0; }
+.hs-body .panel { box-shadow: none; }
+.money-sheet .sheet-lines { display: grid; gap: 4px; margin: 4px 0; }
+.money-sheet .sheet-lines li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 6px 0; border-top: 1px solid var(--line-2); font-size: 14px; }
+.money-sheet .sheet-lines li:first-child { border-top: 0; }
+.money-sheet .sheet-lines li.off { color: var(--ink-3); }
+.money-sheet .sheet-lines label { display: inline-flex; align-items: baseline; gap: 8px; cursor: pointer; }
+.money-sheet input[type="checkbox"] { accent-color: var(--ink); width: 16px; height: 16px; }
+.money-sheet .sheet-lines .cost { font: 600 13px var(--mono); white-space: nowrap; }
+.money-sheet .sheet-acts { justify-content: flex-end; margin-top: 10px; }
+.money-sheet .btn { white-space: normal; text-align: center; }
+@media (max-width: 720px) {
+  .todo-card .actions .btn, .todo-all .btn { white-space: normal; text-align: center; width: 100%; min-height: 44px; }
+  .vrow .actions { flex-direction: column; align-items: stretch; }
+  .money-sheet .sheet-acts { flex-direction: column; align-items: stretch; }
+  .studio-tabs .s { padding: 8px 11px; }
+  .money-sheet .sheet-acts .btn { min-height: 44px; }
+  .bill-big b { font-size: 32px; }
+  .hsec > summary .hs-t { min-width: 0; flex: 1 1 calc(100% - 40px); }
+}
+/* The lab database switch is one line: its state and its button; the explanation is behind "What is this?". */
+.panel.labmon { padding: 12px 18px; flex: 1 1 auto; }
+.labmon-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.labmon-l { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.labmon-row .actions { flex: none; }
+.labmon-msg { margin-top: 8px; }
+.labmon-msg:empty { margin-top: 0; }
+.labmon details.how { margin-top: 4px; }

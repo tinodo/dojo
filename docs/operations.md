@@ -84,7 +84,11 @@ It creates:
    - The *deploy identity* has a federated credential for your repository's `main` branch. It has
      Contributor on the app resource group and Managed Identity Operator on the app identity.
    - The *app identity* is what the running app uses. It has Azure AI User, Cognitive Services OpenAI User
-     and Cognitive Services Speech User on the app resource group.
+     and Cognitive Services Speech User on the app resource group, and **Cost Management Reader** on it so
+     Studio's Money tab can read what the group cost (ADR 0025). Reader roles change nothing. On an install that
+     was bootstrapped before this role existed, run the bootstrap again (it reuses what it made and adds the
+     role); until then the Money tab says that Dojo has no read access to Azure Cost Management yet and shows
+     only its own estimates. Granting the role can take a few minutes to take effect.
 3. **The same three AI roles for you**, the signed-in person, so you can run Dojo against the real models
    from your laptop.
 4. **A sign-in app registration** named after the app. It is single tenant, issues ID tokens, and has the
@@ -265,10 +269,14 @@ data (see [privacy.md](privacy.md)).
 
 You pay Azure's normal prices. Dojo has no licence fee.
 
-- **Studio** (the owner's cost page) shows Dojo's estimate of what each kind of work costs, at Azure **list
-  price**. It reads prices from the public Azure Retail Prices API and counts the tokens, characters and
-  minutes Dojo used. Your real bill can differ (discounts, taxes, other resources). Use Azure Cost Management
-  for the truth.
+- **Studio's Money tab** shows what Azure charged for Dojo's resource group this month, read from Cost Management
+  with the app identity's Reader role (ADR 0025), with what is always on and what follows use. Azure reports
+  8 to 24 hours late and throttles quick repeats, so Dojo makes two queries (this month, last month; each may be
+  a few pages) every six hours at most. A reading that failed is tried again after 15 minutes, a throttled one
+  when Azure says, and the last good reading is kept and said to be old meanwhile.
+  Dojo's own estimate of what each kind of work costs, at Azure **list price**, sits below it, closed. It reads prices from the public Azure Retail Prices API and counts the tokens,
+  characters and minutes Dojo used, and it can differ from the bill (discounts, taxes, other resources). Azure
+  Cost Management is the truth, and where you set a budget alert (the Money tab links to it).
 - **The fixed part** is the B1 plan and the storage. Check the Azure pricing page for your region.
 - **AI use** (models, speech, avatar) is pay as you go. Background work has daily limits (see
   [architecture.md](architecture.md#background-services-and-their-limits)). Avatar filming only starts on an explicit click that
@@ -281,7 +289,7 @@ You pay Azure's normal prices. Dojo has no licence fee.
   endpoint and the private DNS zone. With both settings empty, labs are off and the rest of Dojo works as
   before.
 - **Performance monitoring of the lab database** (ADR 0023) is off until the owner presses **Turn on** in Studio, on the
-  Checks tab. It has no extra price, but Azure then samples the database every 10 to 30 seconds, and Learn does not say whether
+  Health tab. It has no extra price, but Azure then samples the database every 10 to 30 seconds, and Learn does not say whether
   that keeps a serverless database from pausing. If it does, the free allowance (100,000 vCore-seconds a month) is used in a
   few days and labs stop until next month. After pressing, read *Free amount remaining* for the database in the Azure portal
   two hours after the last lab use and again a day later. If the database is still online while idle, or the amount falls
@@ -356,7 +364,7 @@ work accounts.
 query wakes it up, which takes about a minute.
 
 **Performance monitoring shows no data.** Data usually appears in the Fabric Database Hub (its Performance page) about 10
-minutes after Turn on. Check that Studio's Checks tab says *on*, that you have the Reader role on the subscription, that the
+minutes after Turn on. Check that Studio's Health tab says *on*, that you have the Reader role on the subscription, that the
 `Microsoft.Sql` resource provider is registered there (Learn's troubleshooting table also names `Microsoft.AzureArcData`), and
 that the lab database is a single database, not in an elastic pool and not a secondary replica. For KQL, connect the Azure Data
 Explorer web UI to `https://adx.centralus.arcdataservices.com/kusto/` and open the `ArcSqlTelemetry` database.
