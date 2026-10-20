@@ -4,7 +4,7 @@ Each ADR records one decision that shapes Dojo: the problem, the options, what w
 what would make us look again. They are written in plain English for the operator, for reviewers and
 for contributors.
 
-The status is the one written in the ADR. Every decision below is built and running on `main`. Several
+The status is the one written in the ADR. Every decision below is built and running on `main`, except those marked "not built". Several
 were recorded as "proposed" while their design was reviewed and were built afterwards; their text was not
 re-labelled. Team mode (0009) and Play's social layer (0010) are built but switched off by default.
 
@@ -35,7 +35,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0023](0023-lab-performance-monitoring.md) | Microsoft's performance monitoring of the lab database is a switch only the owner presses, off until then. Dojo shows what it last confirmed and never connects to the free database to look, because Learn does not say whether monitoring keeps a serverless database awake. | Proposed (built) |
 | [0024](0024-studio-checks-short.md) | Studio's Checks tab is a few screens and what the owner presses is at the top: the lab database switch first, one action row for a lab to look at, long lists keep their newest rows under "Show the other N", and the log of blocked text is a box that scrolls. | Proposed (built); its tab is now Health (0025) |
 | [0025](0025-studio-v2.md) | Studio is organised by what the owner asks (To do, Courses, Money, Health, Activity). A film is offered only for a lesson that is steady (not rewritten in 7 days, not about to be rewritten, pages settled); money is asked for in a sheet with Cancel focused; the Money tab shows what Azure charged, read with the app's own identity; Health says only what it could check. | Proposed (built) |
-
+| [0026](0026-course-packs.md) | Course packs: one exam's finished lessons, audio and films can be handed to another Dojo as a sealed pack from a static list. Every pack is checked at the door like a hostile file and waits, with nothing paid, until the owner presses one priced check. No uploads, accounts or payments. | Proposed (not built) |
 ## Writing a new ADR
 
 1. Take the next free number (look in this folder; do not reuse one).
