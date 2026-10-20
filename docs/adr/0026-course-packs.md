@@ -201,14 +201,15 @@ The place has gaps, and the design closes each one. They were found by reading `
   search that ends at the same moment and an adoption cannot overwrite each other. A lesson on an older template is still rewritten later, at the
   price of any rewrite, and the sheet counts them (section 6).
 - **Source discovery would pay again for an added exam.** For an added exam, the Sourcer searches for pages for every skill whose package cites none
-  (`needs_work`, `app/sourcing/ladder.py`) and audits, with both models, the pages a skill cites that it has not judged (`_audit`). A skill with an
-  adopted lesson but no page in the package would be searched. So adoption writes the pack's pages for each adopted skill into the exam's package,
-  through `packages.validate` and under the lock the Sourcer takes when it writes pages it accepts (`Sourcer._package`, `Packages.add`), and until
-  then the Sourcer leaves the skill out. That is all adoption does to the Sourcer. It never writes the Sourcer's own records: the pages arrive as
-  pages the Sourcer has not judged, so the Sourcer audits them itself afterwards, with its own two models and its own daily limit, and only that
-  result can mark a skill covered. The pack's word never does. The check-and-use sheet prices that audit (`Costs.pagecheck_estimate`) and says it runs
-  by itself afterwards. A skill the Sourcer had given up on (exhausted or partial) may look for more pages again, as for any added exam. That is the
-  Sourcer's usual work and is not priced here.
+  (`needs_work`, `app/sourcing/ladder.py`) and audits, with both models, the pages of a skill that cites some but has no verdict from it yet (`_audit`,
+  which skips a skill it has already judged). A skill with an adopted lesson but no page in the package would be searched. So adoption writes the
+  pack's pages for each adopted skill into the exam's package, through `packages.validate` and under the lock the Sourcer takes when it writes pages
+  it accepts (`Sourcer._package`, `Packages.add`), and until then the Sourcer leaves the skill out. That is all adoption does to the Sourcer. It never
+  writes the Sourcer's own records. For an exam the Sourcer has no record of, which is every exam a pack brings in, the pages arrive as pages it has
+  not judged, so it audits them itself afterwards, with its own two models and its own daily limit. The audit is a report with a verdict for Studio,
+  and pages that both models refuse twice, a day apart, put their skill back into the search (`_audit`). The pack's word decides none of it. For a
+  skill the Sourcer has already judged, no new audit starts, and the sheet counts only the skills it will audit. A skill the Sourcer had given up on
+  (exhausted or partial) may look for more pages again, as for any added exam. That is the Sourcer's usual work and is not priced here.
 - **Spending that would come before the owner has looked.** Preparer's writing of first lessons and the Deeper lessons search start by themselves a
   few minutes after a start (fact 6), and a finished course saves money only if it is brought in before they reach its skills. So **a Dojo that
   prepares ahead of time and first starts with no lesson at all holds those two jobs until the owner has answered one question** (section 6): the
@@ -421,7 +422,8 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
   "Could not reach the Dojo library just now. Dojo has not read it yet. Nothing was changed." None for any of his exams: the group is not shown. Two for
   one exam: two rows, each with its library and maker. A partial fit: the counts above.
 - True when: the finished course waits in `packs/` (section 2), the counts come from the library's entry, the owner's skills and the door's free
-  checks, the price line comes from the price code of the next card, and the group "Optional · costs nothing" exists, which ADR 0025 does not have.
+  checks, the price line comes from the price code of the next card (and includes the page check only for an added exam), and the group "Optional ·
+  costs nothing" exists, which ADR 0025 does not have.
 
 **To do, "Optional · costs money": "Finished courses waiting for your check."**
 
@@ -429,9 +431,11 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
   plain text, for the owner only) and "Remove them".
 - Sheet: "Check and use 57 lessons of AZ-900?" Lines, each with its price: "A second AI model checks each lesson, its Deeper Listen and its
   diagrams against their quotes · about $9.40." "Afterwards, by itself, in the background, as for all your lessons: voicing them and their Deeper
-  Listen · about $9.00." "Afterwards, by itself, in the background: two AI models check that the 124 official pages the lessons cite teach their
-  skills · about $2.60." "In all: about $21.00 at list prices." Then: "This is separate from Page check, which looks at the pages, not at what the
-  lessons say."
+  Listen · about $9.00." "Afterwards, by itself, in the background, as its daily limit allows: two AI models check that the 124 official pages the
+  lessons cite teach their skills · about $2.60." "In all: about $21.00 at list prices." Then, for an added exam: "The page check in the last line is
+  the one Dojo runs for every exam you add. Page check on this page is for the original courses." and "Dojo may also look for more official pages for
+  some skills. That costs money and is not in the price." For a built-in exam there is no page-check line, and the sheet says instead: "This is
+  separate from Page check, which looks at the pages, not at what the lessons say."
   "Lessons that pass become your lessons, and learners see them. Dojo also rewrites them when an official page changes, which costs money each time
   and is not in the price." "A lesson that does not pass is not used, and checking it costs the same. A Deeper Listen or a diagram that does not
   pass is left out alone, and Dojo makes it again later at its usual price." "A diagram a lesson lacks is drawn when the lesson is opened, and films
@@ -453,8 +457,9 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
   check." Remove them: "Remove the 57 waiting lessons of AZ-900? Nothing else changes." and, only for an exam he has, "Dojo can then write these
   lessons itself · costs money." Cancel is focused.
 - True when: the check is priced by functions beside `Costs.deeper_estimate` that count one check for each lesson, each Deeper Listen script and each
-  deck (the `check`, `deep_gate` and `deck_gate` calls of the price tables) and, for audio, the voice check's transcription; the page-check line, shown
-  only for an added exam, by `Costs.pagecheck_estimate` for the pages the lessons cite; the voicing line by the
+  deck (the `check`, `deep_gate` and `deck_gate` calls of the price tables) and, for audio, the voice check's transcription; the page-check line,
+  shown only for an added exam and only when this Dojo prepares ahead of time (the Sourcer runs inside `Preparer.step`), by `Costs.pagecheck_estimate`
+  for the pages of the skills the Sourcer has not judged, which is all of them when the course brings the exam in (section 2); the voicing line by the
   narration and Deeper Listen speech lines of the same price code. That line reads "by itself, in the background" only when this Dojo prepares ahead of
   time (`prepare_on` in `app/main.py`), because only Preparer speaks Deeper Listen (`app/prepare.py`). Otherwise it names only the slide narration
   made when a lesson is opened (`app/main.py`, `/api/lessons/{id}/audio`) and says "Deeper Listen is not voiced on this Dojo". The line counts the
