@@ -6763,6 +6763,14 @@ function openHealth(id) {
 }
 const unreadable = (x) => !x || !!x.error;
 
+// What became of the failed rewrites and searches, one for each skill: given up, still to be tried again, or history (worked on a later try, or no longer matters).
+function failureKinds(dl) {
+  const list = unreadable(dl) ? [] : dl.failures || [];
+  const state = (f) => f.status || (f.resolved ? "worked" : "waiting");
+  const once = (xs) => [...new Map(xs.map((f) => [`${f.package}/${f.skill}/${f.what}`, f])).values()];
+  return { given: once(list.filter((f) => state(f) === "given_up")), waiting: once(list.filter((f) => state(f) === "waiting")), history: list.filter((f) => ["worked", "obsolete"].includes(state(f))), state };
+}
+
 // Whether the daily read of the cited pages has stopped: nothing read for a day and a half.
 const staleRead = (dr) => { const last = dr.pages.last_read ? Date.parse(dr.pages.last_read) : null; return dr.started && last && Date.now() - last > 36 * 3600000 ? Math.floor((Date.now() - last) / DAY_MS) : 0; };
 
@@ -6782,8 +6790,8 @@ function healthLook(dr, dl, sr, courses, lb) {
   }
   if (lb && !lb.error && lb.on && !lb.demo && lb.monitoring && lb.monitoring.error) look.push({ text: "the last try to change the lab database's performance monitoring did not work", section: "lab" });
   if (!unreadable(sr) && sr.web_search && !sr.web_search.ok) look.push({ text: "web search for finding pages does not work", section: "sources" });
-  const waiting = unreadable(dl) ? 0 : dl.failures.filter((f) => !f.resolved).length;   // a failure that was retried and worked is history
-  if (waiting) look.push({ text: `${plural(waiting, "rewrite")} failed and ${waiting === 1 ? "is" : "are"} waiting for another try`, section: "rewrites" });
+  const kinds = failureKinds(dl);   // one that worked on a later try, or no longer matters, is history; one that will be tried again is no work for the owner
+  if (kinds.given.length) look.push({ text: `${plural(kinds.given.length, "rewrite")} given up after ${dl.limits.tries} tries`, section: "rewrites" });
   return look;
 }
 
@@ -6817,7 +6825,7 @@ async function studioHealth(opts) {
   const parts = [["source changes", dr], ["voices", v], ["rewrites from more pages", dl], ["lesson sources", sr], ["blocked sentences", Array.isArray(log) ? log : { error: log.error }], ["lab database", lb], ["courses", courses]];
   const week = unreadable(dr) ? 0 : dr.changes.filter((c) => Date.now() - Date.parse(`${c.date}T12:00:00`) < 7 * DAY_MS).length;
   const flagged = unreadable(v) ? 0 : v.listen.flagged + v.watch.flagged + (v.deep || { flagged: 0 }).flagged;
-  const waiting = unreadable(dl) ? 0 : dl.failures.filter((f) => !f.resolved).length, worked = unreadable(dl) ? 0 : dl.failures.length - waiting;
+  const kinds = failureKinds(dl);
   const passages = unreadable(v) ? 0 : (v.listen.slides || 0) + (v.watch.turns || 0) + ((v.deep || {}).parts || 0);
   const blocked = q.filter((x) => x.text);
   const lastBlocked = blocked.reduce((a, x) => (!a || Date.parse(x.at) > Date.parse(a) ? x.at : a), null);
@@ -6830,10 +6838,12 @@ async function studioHealth(opts) {
     healthSection("voices", "Voices", unreadable(v) ? "unread" : "info",
       unreadable(v) ? "The voice check could not be read." : `${plural(v.listen.lessons, "lesson")} heard again; ${flagged}${passages ? ` of ${passages}` : ""} ${flagged === 1 ? "passage was" : "passages were"} read a little differently from the text. Optional to listen to.`,
       voicesPanel(v), false),
-    healthSection("rewrites", "Rewrites from more pages", unreadable(dl) ? "unread" : waiting ? "look" : "ok",
+    healthSection("rewrites", "Rewrites from more pages", unreadable(dl) ? "unread" : kinds.given.length ? "look" : kinds.waiting.length ? "info" : "ok",
       unreadable(dl) ? "Rewrites could not be read." : `${dl.today.used} of ${dl.limits.per_day} lessons rewritten today. `
-        + `${waiting ? `${plural(waiting, "failure")} ${waiting === 1 ? "is" : "are"} waiting for another try.` : "Nothing is waiting for another try."}`
-        + `${worked ? ` ${plural(worked, "earlier failure")} ${worked === 1 ? "was" : "were"} retried and worked.` : ""}`,
+        + `${kinds.given.length ? `${plural(kinds.given.length, "rewrite")} given up after ${dl.limits.tries} tries. ` : ""}`
+        + `${kinds.waiting.length ? `${kinds.waiting.length} failed and will be tried again. ` : ""}`
+        + `${kinds.given.length || kinds.waiting.length ? "" : "Nothing failed that still needs a try. "}`
+        + `${kinds.history.length ? `${plural(kinds.history.length, "earlier failure")} ${kinds.history.length === 1 ? "was" : "were"} fixed or no longer matter${kinds.history.length === 1 ? "s" : ""}.` : ""}`,
       deeperRow(dl), false),
     healthSection("sources", "Lesson sources", unreadable(sr) ? "unread" : sr.web_search && !sr.web_search.ok ? "look" : sr.exams.length && sr.web_search ? "ok" : "info",
       unreadable(sr) ? "The search for pages could not be read." : sr.exams.length ? `Dojo finds the pages of ${plural(sr.exams.length, "added exam")} itself; web search ${sr.web_search ? (sr.web_search.ok ? "works" : "does not work") : "has not been tested yet"}.`
@@ -7305,21 +7315,27 @@ function deeperPanel(d) {
     h("p", { class: "note top" }, d.record));
 }
 
-// What failed: first what still waits for another try, then, closed, what failed once and worked on a later try.
+// What failed: what was given up, what will be tried again, and, closed, what worked on a later try or no longer matters.
 function failuresBlock(d) {
-  const row = (f) => h("div", { class: "near" },
+  const row = (f, note) => h("div", { class: "near" },
     h("span", null, h("b", null, f.what === "search" ? "Page search" : "Writing again"), " ",
       d.exams.some((x) => x.package === f.package)
         ? h("a", { class: "mono link", href: `#/skill/${f.package}/${f.skill}` }, `${f.package} ${f.skill}`)
         : h("span", { class: "mono muted" }, `${f.package} ${f.skill}`),
       f.times > 1 ? h("span", { class: "small muted" }, ` · ${f.times} times`) : null,
-      h("small", { class: "block muted", title: f.reason }, failureWords(f.reason))),
+      h("small", { class: "block muted", title: f.reason }, failureWords(f.reason)),
+      note ? h("small", { class: "block muted" }, note) : null),
     h("span", { class: "small muted" }, fmtWhen(f.at)));
-  const waiting = failureRuns(d.failures.filter((f) => !f.resolved)), worked = failureRuns(d.failures.filter((f) => f.resolved));
-  return [h("h3", { class: "top" }, "Waiting for another try"),
-    waiting.length ? h("div", { class: "dfail" }, waiting.slice(0, 5).map(row)) : h("p", { class: "small muted" }, "Nothing. Every failure that is listed below was tried again and worked."),
-    worked.length ? h("details", { class: "how top" }, h("summary", null, `${plural(worked.length, "earlier failure")}, tried again and worked`),
-      h("div", { class: "dfail" }, worked.slice(0, 20).map(row))) : null];
+  const state = (f) => f.status || (f.resolved ? "worked" : "waiting");
+  const runs = (st) => failureRuns(d.failures.filter((f) => state(f) === st));
+  const given = runs("given_up"), waiting = runs("waiting");
+  const history = [...runs("worked").map((f) => [f, "It worked on a later try."]), ...runs("obsolete").map((f) => [f, "No longer matters: the lesson or the skill changed since."])]
+    .sort((a, b) => Date.parse(b[0].at) - Date.parse(a[0].at));
+  return [given.length ? [h("h3", { class: "top" }, "Given up"), h("div", { class: "dfail" }, given.slice(0, 5).map((f) => row(f, `Dojo tried ${d.limits.tries} times and keeps the earlier lesson.`)))] : null,
+    waiting.length ? [h("h3", { class: "top" }, "Will be tried again"), h("div", { class: "dfail" }, waiting.slice(0, 5).map((f) => row(f)))] : null,
+    given.length || waiting.length ? null : h("p", { class: "small muted top" }, "Nothing failed that still needs a try."),
+    history.length ? h("details", { class: "how top" }, h("summary", null, `${plural(history.length, "earlier failure")}, fixed or no longer matter`),
+      h("div", { class: "dfail" }, history.slice(0, 20).map(([f, note]) => row(f, note)))) : null];
 }
 
 // A model's answer that could not be read is said in plain words; the exact reason stays as the hover text.

@@ -435,14 +435,14 @@ class SearchTests(SearchCase):
         self.ai = CheckerDown()
         self.boot()
         self.search()
-        self.assertEqual({f["resolved"] for f in self.get("/api/studio/deeper")["failures"]}, {False}, "the skill still has its error")
+        self.assertEqual({(f["status"], f["resolved"]) for f in self.get("/api/studio/deeper")["failures"]}, {("waiting", False)}, "the skill still has its error")
         self.ai = self.make_ai()
         self.boot()
         self.later(hours=deeper_mod.SEARCH_RETRY_H)
         self.search()
         failures = self.get("/api/studio/deeper")["failures"]
         self.assertTrue(failures)
-        self.assertEqual({f["resolved"] for f in failures}, {True}, "it searched without an error the next day")
+        self.assertEqual({(f["status"], f["resolved"]) for f in failures}, {("worked", True)}, "it searched without an error the next day")
 
     def get(self, path: str) -> dict:
         r = self.c.get(path)
@@ -896,9 +896,23 @@ class UpgradeTests(UpgradeCase):
         row = next(r for r in studio["exams"] if r["package"] == PID)
         self.assertEqual((row["behind"], row["given_up"], row["waiting"]), (1, 1, 0))
         self.assertEqual([(f["skill"], f["what"]) for f in studio["failures"]], [(OTHER, "upgrade")] * 3)
-        self.assertEqual([f["resolved"] for f in studio["failures"]], [False] * 3, "a skill that was given up still needs a look")
+        self.assertEqual([(f["status"], f["resolved"]) for f in studio["failures"]], [("given_up", False)] * 3, "a skill that was given up still needs a look")
         self.assertEqual(studio["spent"]["lessons"], 3, "the attempts that failed cost money too")
         self.assertEqual(self.get("/api/diag")["deeper_lessons"]["failures"][0]["reason"], "The author did not answer.")
+
+    def test_a_failure_is_obsolete_once_another_lesson_replaced_the_one_that_failed(self):
+        old = self.old_lesson(OTHER)
+        self.searched(OTHER)
+        self.fill()
+        self.ai.fail = True
+        self.assertTrue(self.preparer.step())
+        self.assertEqual([f["status"] for f in self.get("/api/studio/deeper")["failures"]], ["waiting"])
+        self.ai.fail = False
+        time.sleep(1.1)   # lessons are ordered by the second they were written in
+        newer = self.dojo.make_lesson(lambda step: None, self.owner, PID, OTHER)["lesson"]   # a rewrite of another kind, e.g. after a changed page
+        self.assertNotEqual(newer, old)
+        failures = self.get("/api/studio/deeper")["failures"]
+        self.assertEqual([(f["status"], f["resolved"]) for f in failures], [("obsolete", True)], "what failed was the earlier lesson: it is no longer there")
 
     def test_the_earlier_lesson_stays_until_the_new_one_passes(self):
         old = self.old_lesson(OTHER)
@@ -915,11 +929,11 @@ class UpgradeTests(UpgradeCase):
         self.assertEqual([x["id"] for x in self.dojo.lessons_for(PID, OTHER)], [old])
         self.assertIn("kept 2 checked points (67% of what was written) and the lesson it would replace has 3, so the earlier lesson stays",
                       self.attempt(OTHER)["error"])
-        self.assertEqual([f["resolved"] for f in self.get("/api/studio/deeper")["failures"]], [False, False], "both tries failed and a third is waiting")
+        self.assertEqual([f["status"] for f in self.get("/api/studio/deeper")["failures"]], ["waiting", "waiting"], "both tries failed and a third is waiting")
         self.later(deeper_mod.UPGRADE_WAIT_H)
         self.ai.fewer = False
         self.assertTrue(self.preparer.step())
-        self.assertEqual([f["resolved"] for f in self.get("/api/studio/deeper")["failures"]], [True, True], "the third try worked: the two failures are history")
+        self.assertEqual([f["status"] for f in self.get("/api/studio/deeper")["failures"]], ["worked", "worked"], "the third try worked: the two failures are history")
         new = self.newest(OTHER)
         self.assertNotEqual(new["id"], old)
         self.assertEqual(self.dojo.lesson(new["id"])["upgrade_of"], old)

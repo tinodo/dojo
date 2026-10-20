@@ -608,7 +608,8 @@ class Studio:
     # ------------------------------------------------------------ what Dojo did
 
     def activity(self) -> dict:
-        return self._cached("activity", self._activity)
+        """The feed is kept a minute; what is running now is read each time (it is a few small reads, and an old answer would say the wrong thing)."""
+        return {**self._cached("activity", self._activity), "now": self._now(), "at": iso()}
 
     def _activity(self) -> dict:
         since = utcnow() - timedelta(days=FEED_DAYS)
@@ -626,7 +627,7 @@ class Studio:
         except Exception:  # noqa: BLE001 - the meter is only a figure beside the feed
             spend = {}
         # The events carry UTC times and the page groups them by the reader's own days; the meter counts UTC days.
-        return {"at": iso(), "window_days": FEED_DAYS, "metered": bool(spend), "now": self._now(), "events": shown,
+        return {"at": iso(), "window_days": FEED_DAYS, "metered": bool(spend), "events": shown,
                 "spend": [{"day": day, "usd": usd} for day, usd in sorted(spend.items(), reverse=True)],
                 "cut": len(events) > len(shown)}
 
@@ -695,9 +696,10 @@ class Studio:
                 title = self.dojo.lesson(lesson).get("title")
             except Exception:  # noqa: BLE001 - the lesson went with its exam
                 continue
-            ok = state == "ready"
+            ok, cut = state == "ready", bool(d.get("stopped"))   # `stopped`: it ended on an error, a crash or a restart, not on its checks
             out.append({"at": at, "kind": "diagram", "tone": "info" if ok else "warn", "course": self._exam(d.get("package")),
-                        "title": f"Drew the diagrams for “{title}”" if ok else f"The diagrams for “{title}” did not pass their checks",
+                        "title": (f"Drew the diagrams for “{title}”" if ok else f"Drawing the diagrams for “{title}” stopped before it finished" if cut
+                                  else f"The diagrams for “{title}” did not pass their checks"),
                         "detail": _plural(d.get("visuals") or 0, "diagram") if ok else "Present plays the plain deck instead.",
                         "link": f"#/lesson/{lesson}/present"})
         return out
@@ -763,7 +765,7 @@ class Studio:
 
     def _drawing(self) -> str | None:
         """The skill whose diagrams are being drawn at this moment, or None."""
-        prep = getattr(self.preparer, "state", {}) or {}
+        prep = dict(getattr(self.preparer, "state", {}) or {})   # one copy: the Preparer changes it while this is read
         return (self._where(prep.get("current")) or None) if prep.get("task") == "diagram" and prep.get("running") and prep.get("current") else None
 
     def _background_rows(self, prep: dict) -> list[dict]:
@@ -800,7 +802,7 @@ class Studio:
 
     def _now(self) -> list[dict]:
         """What is running at this moment, as one line each."""
-        prep = getattr(self.preparer, "state", {}) or {}
+        prep = dict(getattr(self.preparer, "state", {}) or {})   # one copy: the Preparer changes it while this is read
         rows = self._background_rows(prep)
         try:
             search = self.newexams.sourcer.diag()

@@ -508,16 +508,26 @@ class DeeperLessons:
 
     # ------------------------------------------------------------ what Studio and the diagnostics show
 
-    def _resolved(self, doc: dict, f: dict) -> bool:
-        """Whether what failed has worked since, so that the failure is history and nothing waits for it. A lesson written again is
-        `done` once a later try passed (a skill that was given up stays unresolved: it still needs a look); a search is fine once its skill
-        has no error left. A failure whose skill has no attempt or search entry any more (its pages were replaced) is history too."""
+    def _failure_status(self, doc: dict, f: dict, by: dict) -> str:
+        """What became of a failure, for Studio: `waiting` (its skill is tried again), `given_up` (a rewrite that failed every try: the
+        earlier lesson stays), `worked` (a later try passed) or `obsolete` (the skill, its words or its lesson changed since, so what
+        failed is no longer there)."""
         pid, sid = f.get("package"), f.get("skill")
+        skill = ((self.dojo.packages.by_id.get(pid) or {}).get("skills") or {}).get(sid)
+        if not skill:
+            return "obsolete"
         if f.get("what") == "search":
-            skill = ((self.dojo.packages.by_id.get(pid) or {}).get("skills") or {}).get(sid)
-            return not (skill and (self._entry(self.overlay(pid), skill) or {}).get("error"))
-        attempt = doc["skills"].get(f"{pid}/{sid}")
-        return not attempt or attempt.get("outcome") == "done"
+            entry = self._entry(self.overlay(pid), skill)
+            return "obsolete" if entry is None else "waiting" if entry.get("error") else "worked"
+        a = doc["skills"].get(f"{pid}/{sid}")
+        if not isinstance(a, dict):
+            return "obsolete"
+        if a.get("outcome") == "done":
+            return "worked"
+        meta = by.get((pid, sid))
+        if not meta or a.get("lesson") != meta["id"]:
+            return "obsolete"
+        return "given_up" if a.get("given_up") else "waiting"
 
     def _estimate(self, searches: int, lessons: int, narrated: int | None = None, deep_again: int = 0) -> dict | None:
         return self.costs.deeper_estimate(searches, lessons, narrated, deep_again) if self.costs is not None else None
@@ -569,6 +579,7 @@ class DeeperLessons:
     def view(self) -> dict:
         """Studio's Deeper lessons card."""
         doc = self._doc()
+        by = self._newest()
         rows = self._exams(doc)
         for row in rows:
             searches, lessons, again = row.pop("_left")
@@ -590,7 +601,8 @@ class DeeperLessons:
             "estimate": self._estimate(sum(a for a, _, _ in left), sum(b for _, b, _ in left), deep_again=sum(c for _, _, c in left)),
             "spent": self._estimate(sum(s["searched"] for s in spent), sum(s["attempts"] for s in spent),
                                     sum(s["written"] for s in spent)),
-            "failures": [{**f, "resolved": self._resolved(doc, f)} for f in reversed(doc["failures"])],   # newest first; history that worked since says so
+            "failures": [{**f, "status": s, "resolved": s in ("worked", "obsolete")}   # newest first; each says what became of it
+                         for f in reversed(doc["failures"]) for s in [self._failure_status(doc, f, by)]],
         }
 
     @staticmethod

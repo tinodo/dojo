@@ -839,6 +839,28 @@ class ActivityTests(StudioCase):
         off = self.read()["make"]["decks"]
         self.assertEqual((off["drawing"], off["next_at"]), (None, None), "off: nothing is drawn and nothing is waiting for tomorrow")
 
+    def test_what_is_running_now_is_read_each_time_and_not_kept_with_the_feed(self):
+        prep = self.app.state.preparer
+        prep.set_deck_ahead(True)
+        self.assertEqual(self.read("activity")["now"][2]["state"], "Nothing left to draw", "no lesson is written yet")
+        self.write(self.skills[0])
+        prep.state.update(running=True, current=f"{self.pid}/{self.skills[0]['id']}", task="diagram")
+        again = self.c.get("/api/studio/activity").json()   # no reset of Studio's own cache: the feed may be a minute old, the lines are not
+        self.assertTrue(again["now"][2]["state"].startswith("Drawing XY-110 · "), again["now"][2])
+        prep.state.update(running=False, current=None, task=None)
+        self.assertTrue(self.c.get("/api/studio/activity").json()["now"][2]["state"].startswith("Waiting for its turn"))
+
+    def test_a_drawing_that_stopped_is_not_blamed_on_its_checks(self):
+        lesson = self.write(self.skills[0])
+        skill = self.dojo.lesson(lesson)["skill"]
+        self.dojo._deck_save(lesson, {"lesson": lesson, "package": self.pid, "skill": skill, "created": iso(), "state": "failed", "stopped": True, "attempts": 1})
+        cut = next(e for e in self.read("activity")["events"] if e["kind"] == "diagram")
+        self.assertTrue(cut["title"].endswith("stopped before it finished"), cut["title"])
+        self.assertEqual(cut["tone"], "warn")
+        self.dojo._deck_save(lesson, {"lesson": lesson, "package": self.pid, "skill": skill, "created": iso(), "state": "failed", "attempts": 1})
+        held = next(e for e in self.read("activity")["events"] if e["kind"] == "diagram")
+        self.assertTrue(held["title"].endswith("did not pass their checks"), held["title"])
+
     def test_the_diagrams_drawn_are_listed_and_one_that_did_not_pass_says_so(self):
         good, bad = self.write(self.skills[0]), self.write(self.skills[1])
         for lesson, state in ((good, "ready"), (bad, "failed")):
