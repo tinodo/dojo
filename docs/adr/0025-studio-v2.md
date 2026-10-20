@@ -125,7 +125,7 @@ information, not "fine". The lab database switch is one visible line above the s
 The first screen says what to do. A course with a recent wave of rewrites offers fewer lessons for a week, which is the point; the card
 says which and until when. The filming of a brand-new course waits for the pages of its skills to settle only where the search or an
 audit has not finished (`unsettled`). The Money tab needs the role: until the owner applies it once, it says "Dojo has no read access to
-Azure Cost Management yet" and shows the estimates. Reading the bill costs two small API calls every six hours at most.
+Azure Cost Management yet" and shows the estimates. Reading the bill costs two queries (each may be a few pages) every six hours at most; a reading that failed is tried again after 15 minutes, a throttled one when Azure says.
 
 ## The rule from here
 

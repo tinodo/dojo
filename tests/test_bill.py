@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app.bill as bill_mod  # noqa: E402
 from app.bill import Bill, classify, summarize  # noqa: E402
-from app.core import Store, utcnow  # noqa: E402
+from app.core import Store, iso, utcnow  # noqa: E402
 
 SUB = "6d47a6cb-a818-49b8-af51-5f508aa5786c"
 RG = "rg-dojo-swc"
@@ -278,6 +278,20 @@ class BillTests(BillCase):
         broken.refresh()
         again = broken._present(broken._load(), self.now)
         self.assertEqual((again["state"], again["reason"]), ("error", bill_mod.FAILED), "it says what happened, not that a read is running")
+
+    def test_an_empty_reading_whose_refresh_failed_or_was_throttled_says_so_in_the_same_month_too(self):
+        self.bill(Azure(month=[], last=[[480.0, "USD"]])).view()
+        self.now += timedelta(hours=7)   # the reading is due again, still the same month
+        for status, state in ((500, "failed"), (429, "throttled")):
+            self.store.write("content", "bill", value={**self.store.read("content", "bill"), "attempt": {"at": iso(self.now), "state": "ok", "retry_at": None, "reason": None}})
+            broken = self.bill(Azure(status=status, headers={"Retry-After": "120"}))
+            broken.refresh()
+            shown = broken._present(broken._load(), self.now)
+            self.assertEqual(shown["state"], "error", state)
+            self.assertNotIn("this month", shown["reason"].replace("this month's", ""), "it does not say nothing was reported this month")
+        fresh = self.bill(Azure(month=[], last=[[480.0, "USD"]]))
+        self.store.write("content", "bill", value={**self.store.read("content", "bill"), "attempt": {"at": iso(self.now), "state": "ok", "retry_at": None, "reason": None}})
+        self.assertEqual(fresh._present(fresh._load(), self.now)["state"], "empty", "a good empty reading of this month is still shown as one")
 
     def test_without_the_role_the_tab_says_what_is_missing_and_asks_again_in_a_few_minutes(self):
         azure = Azure(status=403)
