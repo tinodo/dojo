@@ -201,14 +201,20 @@ The place has gaps, and the design closes each one. They were found by reading `
   search that ends at the same moment and an adoption cannot overwrite each other. A lesson on an older template is still rewritten later, at the
   price of any rewrite, and the sheet counts them (section 6).
 - **Source discovery would pay again for an added exam.** For an added exam, the Sourcer searches for pages for every skill whose package cites none
-  (`needs_work`, `app/sourcing/ladder.py`) and audits the pages a skill already cites. A skill with an adopted lesson but no page in the package would
-  be searched anyway. So adoption writes the pack's pages for each adopted skill into the exam's package, through `packages.validate` and under the
-  lock the Sourcer takes when it writes pages it accepts (`Sourcer._package`, `Packages.add`), and until then the Sourcer leaves the skill out.
+  (`needs_work`, `app/sourcing/ladder.py`) and audits, with both models, the pages a skill cites that it has not judged (`_audit`). A skill with an
+  adopted lesson but no page in the package would be searched. So adoption writes the pack's pages for each adopted skill into the exam's package,
+  through `packages.validate` and under the lock the Sourcer takes when it writes pages it accepts (`Sourcer._package`, `Packages.add`), and until
+  then the Sourcer leaves the skill out. That is all adoption does to the Sourcer. It never writes the Sourcer's own records: the pages arrive as
+  pages the Sourcer has not judged, so the Sourcer audits them itself afterwards, with its own two models and its own daily limit, and only that
+  result can mark a skill covered. The pack's word never does. The check-and-use sheet prices that audit (`Costs.pagecheck_estimate`) and says it runs
+  by itself afterwards. A skill the Sourcer had given up on (exhausted or partial) may look for more pages again, as for any added exam. That is the
+  Sourcer's usual work and is not priced here.
 - **Spending that would come before the owner has looked.** Preparer's writing of first lessons and the Deeper lessons search start by themselves a
   few minutes after a start (fact 6), and a finished course saves money only if it is brought in before they reach its skills. So **a Dojo that
-  first starts with no lesson at all holds those two jobs until the owner has answered one question** (section 6): the writing of a lesson for a skill
-  that has none (the second half of `Preparer.next_skill`) and the search for extra pages (`DeeperLessons.search_targets`). Everything else Preparer
-  does goes on. It voices the lessons that exist, speaks their Deeper Listen and rewrites a lesson when a page changes, so a course that was checked
+  prepares ahead of time and first starts with no lesson at all holds those two jobs until the owner has answered one question** (section 6): the
+  writing of a lesson for a skill that has none (the second half of `Preparer.next_skill`) and the search for extra pages
+  (`DeeperLessons.search_targets`). A Dojo that does not prepare ahead of time starts nothing by itself, so it has nothing to hold. Everything else
+  Preparer does goes on. It voices the lessons that exist, speaks their Deeper Listen and rewrites a lesson when a page changes, so a course that was checked
   and used is voiced at once, as its sheet says. Dojo decides this once, at that first start, and writes it down, so the hold lasts until he
   answers, and one answer ends it for both jobs. The hold is one for the whole Dojo, not one for each exam: the card names the exams that still have
   a finished course he has not brought in, and the answer that ends it is the owner's press, with its price shown first. A Dojo that already has a
@@ -400,8 +406,8 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
 - Sheet: "Bring in the finished course of AZ-900 from the Dojo library?" Lines: "You have lessons for 2 of the 62 skills. Those 2 keep your
   lesson." "Dojo downloads the other 60 lessons and finds every quote on the official pages, word for word. That uses no AI model, takes a few
   minutes and costs nothing." "The lessons then wait where learners cannot see them, and Dojo does not use them until you check them. While they
-  wait, Dojo does not write lessons for the skills they cover." "Using them later costs money: about $19 for 60 lessons at list prices, for the
-  check and for voicing them. Rewrites when a page changes cost extra. You see the exact price first." Buttons: "Bring in 60 lessons · costs nothing",
+  wait, Dojo does not write lessons for the skills they cover." "Using them later costs money: about $22 for 60 lessons at list prices, for the
+  checks and for voicing them. Rewrites when a page changes cost extra. You see the exact price first." Buttons: "Bring in 60 lessons · costs nothing",
   "Cancel" (focused).
 - While it runs: "Bringing in AZ-900: 23 of 60 lessons downloaded and matched to the official pages. You can leave this page." If it stops: "Bringing in
   stopped. Nothing was changed. Try again later."
@@ -419,26 +425,27 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
 
 **To do, "Optional · costs money": "Finished courses waiting for your check."**
 
-- Row: "AZ-900 · 57 lessons waiting · [Check and use 57 lessons · about $18.40 in all]". Two quiet links under it: "Read what is waiting" (each lesson as
+- Row: "AZ-900 · 57 lessons waiting · [Check and use 57 lessons · about $21.00 in all]". Two quiet links under it: "Read what is waiting" (each lesson as
   plain text, for the owner only) and "Remove them".
 - Sheet: "Check and use 57 lessons of AZ-900?" Lines, each with its price: "A second AI model checks each lesson, its Deeper Listen and its
   diagrams against their quotes · about $9.40." "Afterwards, by itself, in the background, as for all your lessons: voicing them and their Deeper
-  Listen · about $9.00." "In all: about $18.40 at list prices." Then: "This is separate from Page check, which looks at the pages, not at what the
+  Listen · about $9.00." "Afterwards, by itself, in the background: two AI models check that the 124 official pages the lessons cite teach their
+  skills · about $2.60." "In all: about $21.00 at list prices." Then: "This is separate from Page check, which looks at the pages, not at what the
   lessons say."
   "Lessons that pass become your lessons, and learners see them. Dojo also rewrites them when an official page changes, which costs money each time
   and is not in the price." "A lesson that does not pass is not used, and checking it costs the same. A Deeper Listen or a diagram that does not
   pass is left out alone, and Dojo makes it again later at its usual price." "A diagram a lesson lacks is drawn when the lesson is opened, and films
   are made only when you press. Neither is in the price." Cancel is focused. Two more lines appear only when they are true: "This also adds AZ-900 to
   your exams. Dojo then makes practice questions for it in the background, within its daily limit, which costs money and is not in the price." and "9
-  of these lessons are written the older way. Dojo rewrites those later, and each rewrite costs money."
+  of these lessons are written the older way. Dojo rewrites those later, each rewrite costs money, and their Deeper Listen is made again after it."
 - Voices and films, only if he brought them in: the sheet adds "The voices and films of 41 lessons are played back and compared with the words · about
-  $1.20", and the voicing line shrinks to the lessons that came without audio, "Afterwards, by itself: voicing the other 16 lessons and their Deeper
-  Listen · about $2.50", so the total becomes "In all: about $13.10 at list prices". If the check removes a sentence from a lesson, that lesson's voice
-  and film are dropped, and the sheet says so. Films need room: "These films need 410 MB of your 6 GB film room." Not enough room: "These films need
-  410 MB. You have 400 MB free. Check and use the lessons now and the films later, or delete 2 films (the ones watched longest ago)?" Where a skill
-  already has a lesson whose narration is the same: "1 skill keeps your lesson and adds its missing voice or film." From a library he has not trusted,
-  one more unticked box: "Use the films from <maker> as well. Dojo checks what they say, not the pictures. Trust this library in Settings to skip
-  this box."
+  $1.20", and the voicing line shrinks to the lessons that came without audio, "Afterwards, by itself, in the background, as for all your lessons:
+  voicing the other 16 lessons and their Deeper Listen · about $2.50", so the total becomes "In all: about $15.70 at list prices". If the check
+  removes a sentence from a lesson, that lesson's voice and film are dropped, and the sheet says so. Films need room: "These films need 410 MB of your 6
+  GB film room." Not enough room: "These films need 410 MB. You have 400 MB free. Check and use the lessons now and the films later, or delete 2 films
+  (the ones watched longest ago)?" Where a skill already has a lesson whose narration is the same: "1 skill keeps your lesson and adds its missing voice
+  or film." From a library he has not trusted, one more unticked box: "Use the films from <maker> as well. Dojo checks what they say, not the pictures.
+  Trust this library in Settings to skip this box."
 - When only voices and films are waiting, because he already has every lesson: "AZ-900 · 41 voices and films waiting · [Check and use 41 voices and
   films · about $1.20]". Only the voices and films are checked and priced.
 - States. A partial pass: "Checked: 54 of 57 lessons passed and are now yours. 3 did not pass and are not used. Dojo can write those lessons itself ·
@@ -446,12 +453,15 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
   check." Remove them: "Remove the 57 waiting lessons of AZ-900? Nothing else changes." and, only for an exam he has, "Dojo can then write these
   lessons itself · costs money." Cancel is focused.
 - True when: the check is priced by functions beside `Costs.deeper_estimate` that count one check for each lesson, each Deeper Listen script and each
-  deck (the `check`, `deep_gate` and `deck_gate` calls of the price tables) and, for audio, the voice check's transcription; the voicing line by the
+  deck (the `check`, `deep_gate` and `deck_gate` calls of the price tables) and, for audio, the voice check's transcription; the page-check line, shown
+  only for an added exam, by `Costs.pagecheck_estimate` for the pages the lessons cite; the voicing line by the
   narration and Deeper Listen speech lines of the same price code. That line reads "by itself, in the background" only when this Dojo prepares ahead of
   time (`prepare_on` in `app/main.py`), because only Preparer speaks Deeper Listen (`app/prepare.py`). Otherwise it names only the slide narration
-  made when a lesson is opened (`app/main.py`, `/api/lessons/{id}/audio`) and says "Deeper Listen is not voiced on this Dojo". The sheet's total is the
-  sum of its lines; the number of lessons on an older template is read from the lesson files; "Review all" never includes this button (checking changes
-  what learners see, so it is pressed on its own); and adoption works as in section 2.
+  made when a lesson is opened (`app/main.py`, `/api/lessons/{id}/audio`) and says "Deeper Listen is not voiced on this Dojo". The line counts the
+  Deeper Listen only of lessons on the current template: Preparer does not speak the Deeper Listen of a lesson that will be written again on the
+  deeper template, and the rewrite gets its own (`app/prepare.py`). The sheet's total is the sum of its lines; the number of lessons on an older
+  template is read from the lesson files; "Review all" never includes this button (checking changes what learners see, so it is pressed on its own);
+  and adoption works as in section 2.
 
 **Add an exam,** after he types the code and the page shows the price of building it (the number it already shows, from `Costs.course_estimate`):
 when a finished course for that exam is in the library, the page says "A finished course for AZ-900 is in the Dojo library. 62 lessons, made 12 October
@@ -477,9 +487,10 @@ button reads "Let Dojo write the 48 other lessons of GH-300 · about $105". If t
 library yet." with only the second button. If it cannot be reached: "Could not reach the Dojo library just now. Last read on 20 October. Dojo still
 starts no lesson for a skill that has none." with "Try again" and the second button. The hold stops only those two jobs. It does not stop Dojo voicing
 the lessons that exist, and it does not cover a lesson that a person asks for: that is a press, and in team mode it has the member's budget
-(`app/budget.py`). True when: the hold and its one-time record exist (section 2), the hold stops only the writing of first lessons and the Deeper
-lessons search so that voicing and Deeper Listen go on, the sheet's lines come from `Costs.course_estimate` and `Costs.deeper_estimate`, and the Today
-lines read the record.
+(`app/budget.py`). True when: the hold and its one-time record exist (section 2), the card, the hold and the Today lines exist only when this Dojo
+prepares ahead of time (`prepare_on` in `app/main.py`), because otherwise nothing would start by itself and there is nothing to hold, the hold stops
+only the writing of first lessons and the Deeper lessons search so that voicing and Deeper Listen go on, the sheet's lines come from
+`Costs.course_estimate` and `Costs.deeper_estimate`, and the Today lines read the record.
 
 **Courses, one line and no button,** among the words under *What each number counts* that list what is missing or waiting: "57 lessons from a finished
 course are waiting for your check, so these skills show no lesson yet and Dojo is not writing them. They are not counted above. Decide on To do." The
@@ -570,7 +581,7 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 | Hostile text in a lesson | Waiting lessons are shown to no learner. Text is stored and shown as text under the strict content security policy. An allow-listed schema drops unknown fields. Every quote is found again on the official page. A second model checks the claims before any lesson is used, whoever published it. |
 | A true quote used for a false claim | The quote check cannot see it. The priced claims check can. The line on a lesson says which checks were done. |
 | A wrong or hostile media file | Shape checks, the name bound to the words, the fingerprint, and the listener, which every adopted recording passes. Nothing checks pictures or proves a file harmless, so films from a publisher the owner has not trusted also need his plain yes. |
-| Spending | Bringing in calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them. A skill with a waiting lesson is spoken for, so Preparer and `new_lesson` do not write it, and the Deeper lessons search and the Sourcer leave it out (section 2). A request queued before the skill became waiting is refused when it starts. On a new Dojo, Preparer's writing of first lessons and the Deeper lessons search wait for one press from the owner, with its full price shown first (section 6). The sheet prices the check (of lessons, Deeper Listen scripts and decks) and the voicing that follows it, and says what else starts (rewrites, and practice questions for a new exam). Ceilings and the film budget. Outside team mode there is no money cap (fact 6). |
+| Spending | Bringing in calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them. A skill with a waiting lesson is spoken for, so Preparer and `new_lesson` do not write it, and the Deeper lessons search and the Sourcer leave it out (section 2). A request queued before the skill became waiting is refused when it starts. On a new Dojo, Preparer's writing of first lessons and the Deeper lessons search wait for one press from the owner, with its full price shown first (section 6). The sheet prices the check (of lessons, Deeper Listen scripts and decks), the page check for an added exam and the voicing that follows it, and says what else starts (rewrites, and practice questions for a new exam). Ceilings and the film budget. Outside team mode there is no money cap (fact 6). |
 | Preparer writing a skill while its pack is adopted | One claim for each skill, taken by both, and a second look inside `make_lesson` once it holds the claim. Whoever finds it taken skips the skill, and adoption names it. A kill test and a race test, with a request that waits in the job queue (section 7). |
 | A lesson that outranks or overwrites another | New local ids and dates, foreign links dropped, one claim for each skill, an existing id refused. |
 | A taken-over publisher account | Trust belongs to the source address, not to a name. For the owner's library the root is the code's own repository, which already deploys the Dojo. For others, signing keys and revocation. Withdrawal. |
