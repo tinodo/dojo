@@ -160,25 +160,32 @@ rewrite what is waiting, because none of it is where those readers look. Waiting
 
 The place has gaps, and the design closes each one. They were found by reading `app/prepare.py`, `app/learning.py` and `app/deeper.py`.
 
-- **Skills with a waiting lesson look empty.** Preparer decides what to write by asking which skills have no lesson (`lesson_skills`), and the
-  Deeper lessons search looks at every skill of a built-in exam, lesson or not (`search_targets`). A skill whose lesson is waiting in `packs/` has no
-  lesson, so Preparer would write it and the search would look for pages for it, and both would spend the money the pack was meant to save. The
-  same goes for `POST /api/lessons`. So there are two small functions in one place: **`skills_waiting` lists the skills whose finished lesson waits
-  in `packs/`, and `skills_spoken_for` lists the skills that have a lesson or one waiting.** Three callers ask them and nothing else does:
-  `Preparer.next_skill` and the check in `new_lesson` ask `skills_spoken_for`, and `DeeperLessons.search_targets` leaves out `skills_waiting`.
+- **Skills with a waiting lesson look empty.** Preparer decides what to write by asking which skills have no lesson (`lesson_skills`), the Deeper
+  lessons search looks at every skill of a built-in exam, lesson or not (`search_targets`), and for an added exam source discovery works on every
+  skill without a verified page, lesson or not (`Sourcer._items` and `Sourcer._audit`, `app/sourcing/ladder.py`, started first in `Preparer.step`). A
+  skill whose lesson is waiting in `packs/` has no lesson, so Preparer would write it and the two searches would look for pages for it, and all of
+  them would spend the money the pack was meant to save. The same goes for `POST /api/lessons`. So there are two small functions in one place:
+  **`skills_waiting` lists the skills whose finished lesson waits in `packs/`, and `skills_spoken_for` lists the skills that have a lesson or one
+  waiting.** Four callers ask them and nothing else does: `Preparer.next_skill` and the check in `new_lesson` ask `skills_spoken_for`, and
+  `DeeperLessons.search_targets` and the Sourcer's two selections leave out `skills_waiting`.
   `skills_spoken_for` must not replace `lesson_skills`. `lesson_skills` is also what the readiness page, the study plan's moves, Courses' "ready"
   count and the practice exam use to mean "taught" (`app/readiness.py`, `app/exam.py`, `app/newexam.py`, `app/learning.py`), and a waiting lesson is
   not taught. Changing it would make Dojo say that a skill is taught when no learner can open a lesson for it. A lesson that was left out at the
   door, or dropped by the check, is not waiting any more, so its skill is free again and Dojo may write it.
-- **A lesson already being written.** Asking at selection time is not enough: Preparer picks a skill and then spends about a minute writing it,
-  and `make_lesson` saves without asking again (fact 14). A pack adopted in that minute would be followed by a newer lesson that hides it. So
-  writing a lesson for a skill and adopting for a skill share **one claim for each skill**, kept in memory under the Store's lock. The claim is
-  taken inside `make_lesson`, the only place a lesson file is written (`app/learning.py`), so its four callers are covered by one change: the
-  new-lesson route and the rewrite route (`app/main.py`), and Preparer's step and Preparer's upgrade (`app/prepare.py`). It is taken before the
-  writing starts and before the adopting starts, and given back when either ends. Whoever finds it taken skips that skill: adoption names the skill
-  in its report as "Dojo was writing this lesson itself", and a `make_lesson` that finds it taken writes nothing and stops with a plain message.
-  A writer is never interrupted. A claim dies with the process, and on start an interrupted adoption is finished or rolled back before any request
-  or worker, so no claim has to be rebuilt.
+- **A lesson already being written, or queued to be.** Asking at selection time is not enough: Preparer picks a skill and then spends about a minute
+  writing it, and `make_lesson` saves without asking again (fact 14). A request can also wait before `make_lesson` starts: jobs queue for a free
+  slot (`Jobs.start` and `_work`, `app/core.py`), so one that was asked for earlier may run after its skill became waiting, or after adoption
+  finished, and write a newer lesson that hides the checked one. So writing a lesson for a skill and adopting for a skill share **one claim for each
+  skill**, kept in memory under the Store's lock, and `make_lesson` looks again once it holds the claim, before any paid work. The claim is taken
+  inside `make_lesson`, the only place a lesson file is written (`app/learning.py`), so its four production callers are covered by one change: the
+  new-lesson route and the rewrite route (`app/main.py`), and Preparer's step and Preparer's upgrade (`app/prepare.py`). The tests that call
+  `make_lesson` keep working, because the new argument is optional. Once it holds the claim, `make_lesson` refuses a skill whose lesson is waiting, for
+  every caller, the owner included, and a caller that meant a first lesson (Preparer's first-lesson step, and a press for a skill that had none)
+  passes an argument saying so and is refused when the skill has a lesson by now. The claim is taken before the writing starts and before the
+  adopting starts, and given back when either ends. Whoever finds it taken skips that skill: adoption names the skill in its report as "Dojo was
+  writing this lesson itself", and a `make_lesson` that finds it taken, or finds the skill waiting, or finds a lesson it did not expect, writes
+  nothing and stops with a plain message. A writer is never interrupted. A claim dies with the process, and on start an interrupted adoption is
+  finished or rolled back before any request or worker, so no claim has to be rebuilt.
 - **An exam Dojo does not have yet.** If the package file of an exam that is not in `packages/` went there when the pack was brought in, the
   question pool and the other services would start spending on an exam with no lesson, and learners would see it empty. So it waits in
   `packs/<id>/` too, and becomes `packages/<exam>.json` only at adoption. Until then nothing in Dojo knows the exam, and Studio shows it on the
@@ -193,6 +200,10 @@ The place has gaps, and the design closes each one. They were found by reading `
   of Deeper lessons that takes the same lock a search takes (`_overlays`) and writes with `Packages.set_overlay`, which checks every page, so a
   search that ends at the same moment and an adoption cannot overwrite each other. A lesson on an older template is still rewritten later, at the
   price of any rewrite, and the sheet counts them (section 6).
+- **Source discovery would pay again for an added exam.** For an added exam, the Sourcer searches for pages for every skill whose package cites none
+  (`needs_work`, `app/sourcing/ladder.py`) and audits the pages a skill already cites. A skill with an adopted lesson but no page in the package would
+  be searched anyway. So adoption writes the pack's pages for each adopted skill into the exam's package, through `packages.validate` and under the
+  lock the Sourcer takes when it writes pages it accepts (`Sourcer._package`, `Packages.add`), and until then the Sourcer leaves the skill out.
 - **Spending that would come before the owner has looked.** Preparer's writing of first lessons and the Deeper lessons search start by themselves a
   few minutes after a start (fact 6), and a finished course saves money only if it is brought in before they reach its skills. So **a Dojo that
   first starts with no lesson at all holds those two jobs until the owner has answered one question** (section 6): the writing of a lesson for a skill
@@ -204,7 +215,7 @@ The place has gaps, and the design closes each one. They were found by reading `
   lesson at its first start with this change is never asked. The question pool is not held, because a pack carries no questions (fact 4) and holding
   it would save nothing. A lesson that a person asks for is a press with a price and is not held.
 
-It is two small functions, one claim for each skill, one hold and one rule for removal, and a test for each, not a skip in eight modules.
+It is two small functions, one claim for each skill with its recheck, one hold and one rule for removal, and a test for each, not a skip in eight modules.
 
 A pack goes through four steps. In team mode only the owner presses them. Members see labels and nothing else. The owner's two buttons are "bring
 in" (step 2) and "check and use" (steps 3 and 4 in one press).
@@ -254,8 +265,10 @@ Rules that go with the steps:
 - **Local ids, local dates.** Adoption gives each lesson a new local id and sets `created` to the adoption time. The publisher's date is kept
   only as the made-on date. A pack's `upgrade_of` and any other link to another lesson are dropped, and the importer builds the links it needs.
   Because the new lesson is the skill's only lesson, it is the one shown, and a later rewrite gets a newer `created`, so it wins as it should.
-- **A skill is taken with its claim.** Adoption takes a skill's claim (above) before it moves the lesson, and publishes only when it holds the claim
-  and finds the skill still empty. A skill whose claim is taken, or that has a lesson by then, is skipped and named.
+- **A skill is taken with its claim.** Adoption takes a skill's claim (above) and keeps it until it has published. It has two branches, both under the
+  claim. If the skill is still empty, it publishes the lesson. If the skill has a lesson, it re-reads the newest local lesson, confirms that its
+  narration is exactly the pack's (the same SSML), and publishes only the missing voice or film. A skill whose claim is taken, or that now has a
+  different lesson, is skipped and named.
 - **Updates.** A newer build is a new pack. It is adopted by the same rules, so it only fills gaps: a skill whose lesson came from the earlier
   build is replaced only if the owner presses "Use the newer one" for that skill (a later step, section 7).
 - **Removal.** Removing what a pack brought in removes the pack's folder, and the lessons adopted from it that nothing has replaced, and the media
@@ -408,9 +421,10 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
 
 - Row: "AZ-900 · 57 lessons waiting · [Check and use 57 lessons · about $18.40 in all]". Two quiet links under it: "Read what is waiting" (each lesson as
   plain text, for the owner only) and "Remove them".
-- Sheet: "Check and use 57 lessons of AZ-900?" Lines, each with its price: "A second AI model checks that what each lesson, its Deeper Listen and its
-  diagrams say matches their quotes · about $9.40." "Afterwards, by itself, as for all your lessons: voicing them and their Deeper Listen · about
-  $9.00." "In all: about $18.40 at list prices." Then: "This is separate from Page check, which looks at the pages, not at what the lessons say."
+- Sheet: "Check and use 57 lessons of AZ-900?" Lines, each with its price: "A second AI model checks each lesson, its Deeper Listen and its
+  diagrams against their quotes · about $9.40." "Afterwards, by itself, in the background, as for all your lessons: voicing them and their Deeper
+  Listen · about $9.00." "In all: about $18.40 at list prices." Then: "This is separate from Page check, which looks at the pages, not at what the
+  lessons say."
   "Lessons that pass become your lessons, and learners see them. Dojo also rewrites them when an official page changes, which costs money each time
   and is not in the price." "A lesson that does not pass is not used, and checking it costs the same. A Deeper Listen or a diagram that does not
   pass is left out alone, and Dojo makes it again later at its usual price." "A diagram a lesson lacks is drawn when the lesson is opened, and films
@@ -428,14 +442,16 @@ added. That includes GH-300 and DP-800, which have no Add an exam page. A course
 - When only voices and films are waiting, because he already has every lesson: "AZ-900 · 41 voices and films waiting · [Check and use 41 voices and
   films · about $1.20]". Only the voices and films are checked and priced.
 - States. A partial pass: "Checked: 54 of 57 lessons passed and are now yours. 3 did not pass and are not used. Dojo can write those lessons itself ·
-  costs money. About $9.40 at list prices for the check." Remove them: "Remove the 57 waiting lessons of AZ-900? Nothing else changes." and, only for
-  an exam he has, "Dojo can then write these lessons itself · costs money." Cancel is focused.
+  costs money. 2 Deeper Listens and 1 diagram were left out. Dojo makes them again later at its usual price. About $9.40 at list prices for the
+  check." Remove them: "Remove the 57 waiting lessons of AZ-900? Nothing else changes." and, only for an exam he has, "Dojo can then write these
+  lessons itself · costs money." Cancel is focused.
 - True when: the check is priced by functions beside `Costs.deeper_estimate` that count one check for each lesson, each Deeper Listen script and each
   deck (the `check`, `deep_gate` and `deck_gate` calls of the price tables) and, for audio, the voice check's transcription; the voicing line by the
-  narration and Deeper Listen speech lines of the same price code, worded "by itself" only when this Dojo prepares ahead of time (`prepare_on` in
-  `app/main.py`) and "when a lesson is opened" otherwise; the sheet's total is the sum of its lines; the number of lessons on an older template is read
-  from the lesson files; "Review all" never includes this button (checking changes what learners see, so it is pressed on its own); and adoption
-  works as in section 2.
+  narration and Deeper Listen speech lines of the same price code. That line reads "by itself, in the background" only when this Dojo prepares ahead of
+  time (`prepare_on` in `app/main.py`), because only Preparer speaks Deeper Listen (`app/prepare.py`). Otherwise it names only the slide narration
+  made when a lesson is opened (`app/main.py`, `/api/lessons/{id}/audio`) and says "Deeper Listen is not voiced on this Dojo". The sheet's total is the
+  sum of its lines; the number of lessons on an older template is read from the lesson files; "Review all" never includes this button (checking changes
+  what learners see, so it is pressed on its own); and adoption works as in section 2.
 
 **Add an exam,** after he types the code and the page shows the price of building it (the number it already shows, from `Costs.course_estimate`):
 when a finished course for that exam is in the library, the page says "A finished course for AZ-900 is in the Dojo library. 62 lessons, made 12 October
@@ -447,21 +463,23 @@ the official study guide itself (section 3), and a lesson whose skill is not in 
 seconds after a start and then spend money with no question asked (fact 6). A finished course saves money only when it comes first. So a Dojo that
 first starts with no lesson at all holds those two jobs until the owner has answered one question (section 2). The question is one card at the top of
 To do, above the groups, and it stays there until he answers. The owner's Today has one line with a link to it, "Dojo is waiting for one answer from
-you before it writes any lesson.", and a member's Today says "The owner has not started the lessons yet." The card: "Before Dojo starts writing
-lessons: is there a finished course for your exams in the library? Bringing one in costs nothing. Dojo writes no lesson by itself until you answer,
+you before it starts writing lessons.", and a member's Today says "The owner has not started the lessons yet." The card: "Before Dojo starts writing
+lessons: is there a finished course for your exams in the library? Bringing one in costs nothing. Dojo starts no lessons by itself until you answer,
 and each lesson it writes costs money." Buttons: "Look in the library first", which opens the group below and leaves the question standing, and "No,
-let Dojo write them · about $91", which opens the usual sheet: "Finding pages, writing, checking and voicing 72 lessons of GH-300 and DP-800 · about
-$29 at list prices." "Deeper Listen for those lessons, written 20 a day over the next days · about $55." "Searching for more official pages for each
-skill · about $7." "In all: about $91 at list prices." "Not included: practice questions, which Dojo makes in the background within the daily limit all
-exams share; web searches, which are billed by the search; diagrams, drawn when a lesson is opened or ahead of time if you turned that on; and films,
-which only your press starts." Cancel is focused, and pressing the sheet's button ends the hold. Once any lesson of a finished course is waiting or has
-been checked and used, the card says "Dojo still writes no lesson by itself. The library also has a finished course for GH-300, which you have not
-brought in." and the second button reads "Let Dojo write the other lessons · about $61". If the library has nothing for his exams: "Nothing for your
-exams is in the library yet." with only the second button. If it cannot be reached: "Could not reach the Dojo library just now. Last read on 20
-October. Dojo still writes no lesson by itself." with "Try again" and the second button. The hold stops only the two jobs. It does not stop Dojo
-voicing the lessons that exist, and it does not cover a lesson that a person asks for: that is a press, and in team mode it has the member's budget
-(`app/budget.py`). True when: the hold and its one-time record exist (section 2), the sheet's lines come from `Costs.course_estimate` and
-`Costs.deeper_estimate`, and the Today lines read the record.
+let Dojo write them · about $158", which opens the usual sheet: "Finding pages, writing, checking and voicing 72 lessons of GH-300 and DP-800 · about
+$29 at list prices." "Searching for more official pages for each skill, then writing again the lessons that can use them, 20 a day · about $74."
+"Deeper Listen for those lessons, written 20 a day over the next days · about $55." "In all: about $158 at list prices." "Not included: practice
+questions, which Dojo makes in the background within the daily limit all exams share; web searches, which are billed by the search; diagrams, drawn
+when a lesson is opened or ahead of time if you turned that on; and films, which only your press starts." Cancel is focused, and pressing the sheet's
+button ends the hold. Once any lesson of a finished course is waiting or has been checked and used, the card says "Dojo still starts no lesson for a
+skill that has none. The library also has a finished course for GH-300, which you have not brought in. Bringing it in costs nothing." and the second
+button reads "Let Dojo write the 48 other lessons of GH-300 · about $105". If the library has nothing for his exams: "Nothing for your exams is in the
+library yet." with only the second button. If it cannot be reached: "Could not reach the Dojo library just now. Last read on 20 October. Dojo still
+starts no lesson for a skill that has none." with "Try again" and the second button. The hold stops only those two jobs. It does not stop Dojo voicing
+the lessons that exist, and it does not cover a lesson that a person asks for: that is a press, and in team mode it has the member's budget
+(`app/budget.py`). True when: the hold and its one-time record exist (section 2), the hold stops only the writing of first lessons and the Deeper
+lessons search so that voicing and Deeper Listen go on, the sheet's lines come from `Costs.course_estimate` and `Costs.deeper_estimate`, and the Today
+lines read the record.
 
 **Courses, one line and no button,** among the words under *What each number counts* that list what is missing or waiting: "57 lessons from a finished
 course are waiting for your check, so these skills show no lesson yet and Dojo is not writing them. They are not counted above. Decide on To do." The
@@ -473,7 +491,7 @@ right to share this", the line "Lessons are shared under the licence set in Sett
 their pages' terms.", and the button "Make the files · costs nothing", off until the box is ticked. A second button, "Make a copy for myself · costs
 nothing", needs no box and includes voices and films, because nothing leaves his hands (R2 does not apply to it). Under it: "This copy includes voices
 and films, so keep it to yourself: you may not have the rights to hand them on." He can keep that copy in a private library of his own and bring it
-back from there. After: "Made: 62 lessons and their diagrams. The files are made on this Dojo. Nothing is uploaded. Download them:" with a link for
+back from there. After: "Made: 62 lessons with their Deeper Listen and diagrams. The files are made on this Dojo. Nothing is uploaded. Download them:" with a link for
 each group of files and its size. A pack that leaves his hands is words only until R2 is answered. True when: the exporter writes allow-listed fields
 only, the list of files is shown before anything is saved, and the licence setting exists (it is new).
 
@@ -502,17 +520,18 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 1. **The format, the builder and the validator,** as pure functions with golden tests (`app/packs.py`), and a script that makes a pack from a Dojo's
    data folder and checks a pack file. No routes and no pages. It is useful to the owner alone: a portable copy of finished work, including the
    films that are on the share now.
-2. **The importer and the waiting place:** `packs/`, the door, the journal, adoption, the claim for each skill (taken inside `make_lesson`), the rule for
-   an exam that is removed while a pack waits, the cache refresh and the recovery on start, the two small functions `skills_waiting` and
-   `skills_spoken_for` that stop Preparer, the Deeper lessons search and `new_lesson` spending on a skill whose lesson is waiting, one admin-only route
-   in the route inventory, the sentence on a skill whose lesson is waiting, and the one line on a lesson. It is useful to the owner alone too: it puts
-   back films that the 6 GB cap deleted, instead of buying them again at about $1 a minute.
+2. **The importer and the waiting place:** `packs/`, the door, the journal, adoption, the claim for each skill (taken inside `make_lesson`, which looks
+   again once it holds it), the rule for an exam that is removed while a pack waits, the cache refresh and the recovery on start, the two small
+   functions `skills_waiting` and `skills_spoken_for` that stop Preparer, the Deeper lessons search, the Sourcer and `new_lesson` spending on a skill
+   whose lesson is waiting, one admin-only route in the route inventory, the sentence on a skill whose lesson is waiting, and the one line on a lesson.
+   It is useful to the owner alone too: it puts back films that the 6 GB cap deleted, instead of buying them again at about $1 a minute.
    That works when the lesson text is unchanged, because the film's name is a hash of the lesson's SSML and the presenter's settings. Dojo
    rebuilds that name, finds the pack's file and adopts it. If the lesson was rewritten since, the new words need a new film and the old one cannot
    be used. `app/avatar.py` stays frozen: the importer only calls `media_id_for`. Tests with hostile packs (path tricks, archive bombs, id collisions,
    a far-future date, a foreign `upgrade_of`, forged quotes, the wrong media, a kill between every pair of writes), with a Preparer that writes the
-   same skill while the pack is adopted, with an exam removed while its pack waits, with a search that ends while entries are adopted, and with a
-   Dojo that has no money cap.
+   same skill while the pack is adopted, with a lesson request that waits in the job queue while its skill becomes waiting or is adopted, with an exam
+   removed while its pack waits, with a search that ends while entries are adopted, with the Sourcer running on an added exam, and with a Dojo that has
+   no money cap.
 3. **The owner's pages,** as section 6, including the copy he keeps for himself with voices and films: two reviews of the words, a build against
    made-up answers, every state looked at on desktop and on a phone, and node tests in the pattern of `tests/test_studio_v2.py`.
 4. **The list reader,** the settings for lists, trust and the licence, the official library repository and its CI, and the first-start question with
@@ -528,10 +547,11 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 - **Code:** a new `app/packs.py`; admin routes in `app/main.py` and the route inventory; cards in `app/studio.py` and `app/static`; one line on a
   lesson and the sentence on a skill whose lesson is waiting in `app/learning.py` and the pages; tests for each; the user guide (including its
   paragraph on To do and its new group), the privacy sheet, the operations page and the module table of `docs/architecture.md`. Waiting lessons are
-  not in `content/`, so no service needs a skip for them. Three callers ask the two small functions (Preparer, the Deeper lessons search and
-  `new_lesson`) and two jobs ask the first-start hold (Preparer's writing of first lessons and the Deeper lessons search). Adoption and `make_lesson`
-  share the claim for each skill, and adoption takes Deeper lessons' overlay lock for a built-in exam. `app/avatar.py` stays frozen. No new
-  dependency until another publisher needs signing.
+  not in `content/`, so no service needs a skip for them. Four callers ask the two small functions (Preparer, the Deeper lessons search, the Sourcer
+  for added exams, and `new_lesson`) and two jobs ask the first-start hold (Preparer's writing of first lessons and the Deeper lessons search).
+  Adoption and `make_lesson` share the claim for each skill, `make_lesson` looks again once it holds it, and adoption takes Deeper lessons' overlay lock
+  for a built-in exam and the Sourcer's package lock for an added one. `app/avatar.py` stays frozen. No new dependency until another publisher needs
+  signing.
 - **Data:** `packs/<id>/` (waiting files, the journal, the import record), settings for lists, trusted publishers and the licence, and the one-time
   answer to the first-start question.
 - **Money:** bringing in costs no model money. A check costs what the price code shows first, and so does the voicing that follows it. After adoption
@@ -550,8 +570,8 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 | Hostile text in a lesson | Waiting lessons are shown to no learner. Text is stored and shown as text under the strict content security policy. An allow-listed schema drops unknown fields. Every quote is found again on the official page. A second model checks the claims before any lesson is used, whoever published it. |
 | A true quote used for a false claim | The quote check cannot see it. The priced claims check can. The line on a lesson says which checks were done. |
 | A wrong or hostile media file | Shape checks, the name bound to the words, the fingerprint, and the listener, which every adopted recording passes. Nothing checks pictures or proves a file harmless, so films from a publisher the owner has not trusted also need his plain yes. |
-| Spending | Bringing in calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them. A skill with a waiting lesson is spoken for, so Preparer and `new_lesson` do not write it, and the Deeper lessons search leaves it out (section 2). On a new Dojo, Preparer's writing of first lessons and that search wait for one press from the owner, with its full price shown first (section 6). The sheet prices the check (of lessons, Deeper Listen scripts and decks) and the voicing that follows it, and says what else starts (rewrites, and practice questions for a new exam). Ceilings and the film budget. Outside team mode there is no money cap (fact 6). |
-| Preparer writing a skill while its pack is adopted | One claim for each skill, taken by both. Whoever finds it taken skips the skill, and adoption names it. A kill test and a race test (section 7). |
+| Spending | Bringing in calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them. A skill with a waiting lesson is spoken for, so Preparer and `new_lesson` do not write it, and the Deeper lessons search and the Sourcer leave it out (section 2). A request queued before the skill became waiting is refused when it starts. On a new Dojo, Preparer's writing of first lessons and the Deeper lessons search wait for one press from the owner, with its full price shown first (section 6). The sheet prices the check (of lessons, Deeper Listen scripts and decks) and the voicing that follows it, and says what else starts (rewrites, and practice questions for a new exam). Ceilings and the film budget. Outside team mode there is no money cap (fact 6). |
+| Preparer writing a skill while its pack is adopted | One claim for each skill, taken by both, and a second look inside `make_lesson` once it holds the claim. Whoever finds it taken skips the skill, and adoption names it. A kill test and a race test, with a request that waits in the job queue (section 7). |
 | A lesson that outranks or overwrites another | New local ids and dates, foreign links dropped, one claim for each skill, an existing id refused. |
 | A taken-over publisher account | Trust belongs to the source address, not to a name. For the owner's library the root is the code's own repository, which already deploys the Dojo. For others, signing keys and revocation. Withdrawal. |
 | Private data in an export | Allow-listed schemas, the list of files shown before saving, and a test that exports a Dojo seeded with private marker strings and fails if one appears. |
