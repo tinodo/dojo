@@ -396,6 +396,21 @@ class PreparerTests(DeckCase):
         self.dojo.lesson_audio(noop, self.prep.owner, lesson)
         return lesson
 
+    def test_the_step_names_what_it_is_doing_while_it_does_it_and_forgets_it_after(self):
+        self.narrated(0)
+        seen = []
+        real = self.dojo.make_deck
+
+        def watch(progress, lesson_id, first_open=False):
+            seen.append((self.prep.state["task"], self.prep.state["running"], bool(self.prep.state["current"])))
+            return real(progress, lesson_id, first_open)
+
+        with mock.patch.object(self.dojo, "make_deck", watch):
+            self.assertTrue(self.prep.step())
+        self.assertEqual(seen, [("diagram", True, True)])
+        self.assertIsNone(self.prep.state["task"])
+        self.assertIsNone(self.prep.state["current"])
+
     def test_nothing_is_drawn_ahead_of_time_until_the_owner_turns_it_on(self):
         lesson = self.narrated(0)
         self.prep.set_deck_ahead(False)

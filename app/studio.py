@@ -487,7 +487,8 @@ class Studio:
             return None
         remaining = max(0, lessons - ready)
         return {"ready": ready, "lessons": lessons, "remaining": remaining, "ahead": switch["ahead"], "per_day": switch["per_day"],
-                "today": switch["today"], "usd": None if hit[1] is None else round(hit[1] * remaining, 2), "complete": hit[2],
+                "today": switch["today"], "drawing": self._drawing() if switch["ahead"] else None,
+                "next_at": self._next_day() if switch["ahead"] and switch["today"] >= switch["per_day"] else None, "usd": None if hit[1] is None else round(hit[1] * remaining, 2), "complete": hit[2],
                 "days": math.ceil(remaining / switch["per_day"]) if switch["per_day"] else None}
 
     def _make(self, courses: list[dict], storage: dict) -> dict:
@@ -612,7 +613,7 @@ class Studio:
     def _activity(self) -> dict:
         since = utcnow() - timedelta(days=FEED_DAYS)
         events: list[dict] = []
-        for part in (self._lesson_events, self._deep_events, self._search_events, self._change_events, self._job_events,
+        for part in (self._lesson_events, self._deep_events, self._deck_events, self._search_events, self._change_events, self._job_events,
                      self._problem_events):
             try:
                 events += part(since)
@@ -683,6 +684,24 @@ class Studio:
                         "detail": "", "link": f"#/lesson/{name}/listen"})
         return out
 
+    def _deck_events(self, since: Any) -> list[dict]:
+        """The diagrams drawn, one line each, and those that did not pass their checks (Present then plays the plain deck)."""
+        out = []
+        for d in self.dojo.deck_docs():
+            at, state, lesson = d.get("created"), d.get("state"), d.get("lesson")
+            if state not in ("ready", "failed") or not at or not lesson or parse_iso(at) < since:
+                continue
+            try:
+                title = self.dojo.lesson(lesson).get("title")
+            except Exception:  # noqa: BLE001 - the lesson went with its exam
+                continue
+            ok = state == "ready"
+            out.append({"at": at, "kind": "diagram", "tone": "info" if ok else "warn", "course": self._exam(d.get("package")),
+                        "title": f"Drew the diagrams for “{title}”" if ok else f"The diagrams for “{title}” did not pass their checks",
+                        "detail": _plural(d.get("visuals") or 0, "diagram") if ok else "Present plays the plain deck instead.",
+                        "link": f"#/lesson/{lesson}/present"})
+        return out
+
     def _search_events(self, since: Any) -> list[dict]:
         out = []
         for pid in self.dojo.packages.ids():
@@ -730,18 +749,59 @@ class Studio:
                         "detail": self._skill(e.get("package"), e.get("skill")) if e.get("package") else str(e.get("part") or ""), "link": None})
         return out
 
+    def _where(self, current: str | None) -> str:
+        """The course and skill a background step names (`pid/sid`, or `label:pid/sid`), as the owner reads them."""
+        if not current or "/" not in current:
+            return ""
+        pid, sid = current.split(":")[-1].split("/", 1)
+        return f"{self._exam(pid)} · {self._skill(pid, sid) or sid}"
+
+    @staticmethod
+    def _next_day() -> str:
+        """When the daily allowances start again: midnight UTC. The page shows it in the reader's own time."""
+        return iso(utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1))
+
+    def _drawing(self) -> str | None:
+        """The skill whose diagrams are being drawn at this moment, or None."""
+        prep = getattr(self.preparer, "state", {}) or {}
+        return (self._where(prep.get("current")) or None) if prep.get("task") == "diagram" and prep.get("running") and prep.get("current") else None
+
+    def _background_rows(self, prep: dict) -> list[dict]:
+        """The three things the Preparer does one after another, each as a line: what it is doing, or why it is not."""
+        task = prep.get("task") if prep.get("running") and prep.get("current") else None
+        here = self._where(prep.get("current"))
+        rows = [{"what": "Writing and narrating lessons", "state": f"Working on {here}" if task in ("lesson", "upgrade") else "Waiting for work"}]
+        try:
+            if task == "deeper":
+                rows.append({"what": "Writing Deeper Listens", "state": f"Working on {here}"})
+            elif self.preparer.deep_left() <= 0:
+                rows.append({"what": "Writing Deeper Listens", "state": f"Today's {DEEP_PER_DAY} are written. The next batch starts", "at": self._next_day()})
+            else:
+                rows.append({"what": "Writing Deeper Listens", "state": "Waiting for work"})
+        except Exception:  # noqa: BLE001 - a line of the list, never the list
+            pass
+        what = "Drawing diagrams ahead of time"
+        try:
+            sw = self.preparer.deck_switch()
+            count = f"{sw['today']} of {sw['per_day']} today"
+            if not sw["ahead"]:
+                rows.append({"what": what, "state": "Off. Switch it on from the To do page."})
+            elif task == "diagram":
+                rows.append({"what": what, "state": f"Drawing {here} ({count})"})
+            elif sw["today"] >= sw["per_day"]:
+                rows.append({"what": what, "state": f"Today's {sw['per_day']} are drawn. The next batch starts", "at": self._next_day()})
+            elif self.preparer.next_deck() is None:
+                rows.append({"what": what, "state": "Nothing left to draw"})
+            else:
+                rows.append({"what": what, "state": f"Waiting for its turn ({count})"})
+        except Exception:  # noqa: BLE001
+            rows.append({"what": what, "state": "Not known just now"})
+        return rows
+
     def _now(self) -> list[dict]:
         """What is running at this moment, as one line each."""
-        def skill_of(current: str | None) -> str:
-            if not current or "/" not in current:
-                return ""
-            pid, sid = current.split(":")[-1].split("/", 1)
-            return f"{self._exam(pid)} · {self._skill(pid, sid) or sid}"
-
-        rows = []
         prep = getattr(self.preparer, "state", {}) or {}
-        rows.append({"what": "Writing and narrating lessons",
-                     "state": f"Working on {skill_of(prep.get('current'))}" if prep.get("running") and prep.get("current") else "Waiting for work"})
+        rows = self._background_rows(prep)
         try:
             search = self.newexams.sourcer.diag()
             rows.append({"what": "Finding official pages", "state": f"Searching in {self._exam(search['current'])}" if search.get("current")

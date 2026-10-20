@@ -342,6 +342,52 @@ class HealthTabTests(unittest.TestCase):
         self.assertIn("return [healthTop(parts, look), labRow(lb), sections];", APP_JS)
 
 
+@unittest.skipUnless(NODE, "node is not installed")
+class FailedRewritesTests(unittest.TestCase):
+    def test_a_failure_that_was_retried_and_worked_is_history_and_not_a_thing_to_look_at(self):
+        out = run_node("""
+(async () => {
+  const fail = (skill, resolved, at) => ({ at, package: "dp-800", skill, what: "upgrade", resolved,
+    reason: "The gate model's answer could not be used: Expecting ',' delimiter: line 1 column 497 (char 496)" });
+  const line = async (failures) => { tabApiOver = { "/api/studio/deeper": deeperView(failures) };
+    const body = await studioHealth(tabApi);
+    const sec = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-rewrites");
+    return [text(body.flat(Infinity)[0]), text(sec.kids[0]), all(sec.kids[0], (e) => e.attrs && e.attrs.chip !== undefined).map((e) => e.attrs.chip)]; };
+  const worked = [fail("d3.g2.s3", true, "2026-10-06T00:23:00Z"), fail("d2.g1.s1", true, "2026-10-04T00:30:00Z")];
+  console.log(JSON.stringify([await line(worked), await line([...worked, fail("d1.g1.s1", false, "2026-10-19T00:10:00Z")]), await line([])]));
+})();""")
+        worked, waiting, none = out
+        self.assertIn("Everything Dojo checked is working.", worked[0], "two old failures that worked on the next day are not a thing to look at")
+        self.assertIn("Nothing is waiting for another try. 2 earlier failures were retried and worked.", worked[1])
+        self.assertEqual(worked[2], ["sage"])
+        self.assertIn("1 rewrite failed and is waiting for another try.", waiting[0])
+        self.assertIn("1 failure is waiting for another try. 2 earlier failures were retried and worked.", waiting[1])
+        self.assertEqual(waiting[2], ["amber"])
+        self.assertIn("Nothing is waiting for another try.", none[1])
+        self.assertNotIn("earlier", none[1])
+
+    def test_the_failures_panel_lists_what_waits_first_and_keeps_what_worked_closed(self):
+        out = run_node("""
+vm.runInContext(cut("// What failed: first what still waits for another try", "function deeperExam(x, L) {") + "\\nthis.fb = { failuresBlock, failureWords };", context);
+const f = (skill, resolved, at) => ({ at, package: "dp-800", skill, what: "upgrade", resolved,
+  reason: "The gate model's answer could not be used: Expecting ',' delimiter: line 1 column 497 (char 496)" });
+const block = (failures) => ({ tag: "x", attrs: {}, kids: context.fb.failuresBlock({ exams: [{ package: "dp-800" }], failures }).flat(Infinity).filter(Boolean) });
+const worked = block([f("d3.g2.s3", true, "2026-10-06T00:23:00Z"), f("d2.g1.s1", true, "2026-10-04T00:30:00Z")]);
+const mixed = block([f("d1.g1.s1", false, "2026-10-19T00:10:00Z"), f("d3.g2.s3", true, "2026-10-06T00:23:00Z")]);
+console.log(JSON.stringify([text(worked), outside(worked, isCls("near")).length, all(worked, isTag("details")).length, text(mixed), outside(mixed, isCls("near")).length,
+  context.fb.failureWords("The author did not answer."), context.fb.failureWords("The gate model's answer could not be used: Expecting ',' delimiter")]));""")
+        worked, shown_worked, details, mixed, shown_mixed, plain, garbled = out
+        self.assertIn("Waiting for another try", worked)
+        self.assertIn("Nothing. Every failure that is listed below was tried again and worked.", worked)
+        self.assertIn("2 earlier failures, tried again and worked", worked)
+        self.assertEqual((shown_worked, details), (0, 1), "what worked is history, behind a closed line")
+        self.assertEqual(shown_mixed, 1, "what still waits is shown")
+        self.assertIn("W(2026-10-19T00:10:00Z)", mixed)
+        self.assertEqual(plain, "The author did not answer.")
+        self.assertIn("came back garbled", garbled)
+        self.assertNotIn("Expecting", garbled, "the parser's words are for the hover text, not the face of the page")
+
+
 class WordsTests(unittest.TestCase):
     def test_the_adr_and_the_guide_say_it(self):
         adr = (ROOT / "docs" / "adr" / "0024-studio-checks-short.md").read_text("utf-8")
