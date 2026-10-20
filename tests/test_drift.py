@@ -159,6 +159,12 @@ class DriftCase(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
 
+    def film_token(self, pid: str = None) -> str | None:
+        """The token on the Film button of a course on Studio's To do page: it names the lessons and the price shown. None when nothing is offered."""
+        self.app.state.studio._seen.clear()
+        video = next(x for x in self.get("/api/studio/courses")["courses"] if x["package"] == (pid or PID))["make"]["videos"]
+        return ((video or {}).get("offer") or {}).get("token")
+
 
 class SetupTests(DriftCase):
     def test_the_skills_used_here_cite_the_pages_the_tests_change(self):
@@ -768,15 +774,18 @@ class FilmTests(DriftCase):
         self.assertGreater(refilm["estimate"]["minutes"], 0)
 
         self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}).status_code, 403)
-        self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": ["not an id"]}, headers=POST).status_code, 422)
-        self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [lesson]}, headers=POST).status_code, 409)
-        self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST).status_code, 409,
-                         "written again this week: it is not offered yet, by this button either")
+        retired = self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST)
+        self.assertEqual(retired.status_code, 410, "retired: it approved by lesson ids, at no price")
+        self.assertIn("Studio's To do page", retired.json()["detail"])
         self.assertEqual(self.video_jobs(), [])
+        self.assertIsNone(self.film_token(), "written again this week: it is not offered yet")
         self.clock += timedelta(days=8)   # a quiet week later
+        token = self.film_token()
+        self.assertTrue(token)
+        self.assertEqual(self.c.post(f"/api/studio/film/{PID}", json={"confirm": "FILM", "offer": "0" * 16}, headers=POST).status_code, 409, "another set or price is refused")
 
         with mock.patch.object(drift_mod, "FILM_WAIT_S", 0.05):
-            r = self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST)
+            r = self.c.post(f"/api/studio/film/{PID}", json={"confirm": "FILM", "offer": token}, headers=POST)
             self.assertEqual(r.status_code, 200, r.text)
             jobs = self.video_jobs()
             self.assertEqual([(j["ref"], j["learner"]) for j in jobs], [(new, self.owner.key)], "one film job, through the ordinary path")
@@ -792,7 +801,7 @@ class FilmTests(DriftCase):
         self.assertEqual(studio["lessons"], [])
         self.assertEqual(studio["approvals"][0]["lessons"], [new])
         self.assertGreater(studio["approvals"][0]["usd"], 0)
-        self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST).status_code, 409)
+        self.assertEqual(self.c.post(f"/api/studio/film/{PID}", json={"confirm": "FILM", "offer": token}, headers=POST).status_code, 409)
         self.assertEqual(len(self.video_jobs()), 1)
 
     def test_a_film_cut_off_by_a_restart_is_filed_once_more_then_given_up(self):

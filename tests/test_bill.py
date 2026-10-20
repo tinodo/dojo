@@ -233,6 +233,11 @@ class BillTests(BillCase):
         self.assertFalse(v["stale"])
         self.assertEqual(self.store.read("content", "bill")["attempt"]["state"], "ok")
 
+    def test_a_month_of_credits_or_nothing_is_still_last_month(self):
+        self.assertEqual(self.bill(Azure(last=[[-12.5, "USD"]])).view()["previous"], {"month": "2026-09", "total": -12.5, "currency": "USD"})
+        self.store.delete("content", "bill")
+        self.assertEqual(self.bill(Azure(last=[[0.0, "USD"]])).view()["previous"], {"month": "2026-09", "total": 0.0, "currency": "USD"})
+
     def test_last_month_in_two_currencies_is_not_compared(self):
         v = self.bill(Azure(last=[[100.0, "USD"], [90.0, "EUR"]])).view()
         self.assertEqual(v["state"], "ok")

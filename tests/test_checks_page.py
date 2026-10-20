@@ -66,7 +66,7 @@ const studioHealth = async (api, opts) => {
     panel: (...kids) => h("section", { class: "panel" }, ...kids), plural: (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`,
     fmtDate: (s) => `D(${s})`, PIPE: [["01", "Read", "n", "x"]], NOT_A_PREDICTION: "n", OPEN_MORE: P.OPEN_MORE, api,
     voicesPanel: () => mark("voices"), driftRow: () => mark("drift"), deeperRow: () => mark("deeper"), sourcingRow: () => mark("sourcing"),
-    labRow: () => mark("lab"), document: { getElementById: () => null }, Date,
+    labRow: () => mark("lab"), document: { getElementById: () => null }, Date, fmtDay: (s) => `Day(${s})`,
   });
   return vm.runInContext(HEALTH + `\nstudioHealth(${JSON.stringify(opts || {})});`, tab);
 };
@@ -260,7 +260,16 @@ class HealthTabTests(unittest.TestCase):
 })();""")
         self.assertIn("Everything Dojo checked is working.", out[0])
         self.assertEqual(out[1], [["for information", "line"]])
-        self.assertIn("171 slides or parts were read a little differently from the text", out[2])
+        self.assertIn("171 passages were read a little differently from the text", out[2])
+
+    def test_the_voice_line_says_out_of_how_many(self):
+        out = run_node("""
+(async () => {
+  tabApiOver = { "/api/studio/voices": { lessons: 9, listen: { lessons: 9, flagged: 120, slides: 1180 }, watch: { flagged: 20, turns: 60 }, deep: { flagged: 31, parts: 700 } } };
+  const body = await studioHealth(tabApi);
+  console.log(JSON.stringify(text(all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-voices").kids[0])));
+})();""")
+        self.assertIn("9 lessons heard again; 171 of 1940 passages were read a little differently from the text.", out)
 
     def test_what_needs_the_owner_on_the_to_do_page_is_not_called_fine_here(self):
         out = run_node("""
@@ -278,7 +287,7 @@ class HealthTabTests(unittest.TestCase):
         self.assertIn("2 films did not work last time.", films)
         self.assertIn("The last try to change the lab database's performance monitoring did not work.", monitoring)
         self.assertIn("Everything Dojo checked is working.", clear)
-        self.assertRegex(clear, r"Read \d{1,2}:\d\d(?:\s[AP]M)?: source changes, voices, rewrites from more pages, lesson sources, blocked sentences, lab database, courses\.", "it says what it read")
+        self.assertRegex(clear, r"Opened \d{1,2}:\d\d(?:\s[AP]M)?\. Checked: source changes, voices, rewrites from more pages, lesson sources, blocked sentences, lab database, courses\.", "it says when the page was opened and what it checked")
 
     def test_the_counts_say_what_is_kept_not_the_cap_as_a_fact(self):
         out = run_node("""
@@ -289,7 +298,32 @@ class HealthTabTests(unittest.TestCase):
   console.log(JSON.stringify(text(blocked.kids[0])));
 })();""")
         self.assertIn("The last 400 are kept", out)
+        self.assertIn("400 or more sentences were stopped before reaching you; the latest on Day(2026-10-01).", out)
         self.assertNotIn("400 entries", out)
+
+    def test_the_blocked_line_says_how_many_were_stopped_and_when_or_that_none_were(self):
+        out = run_node("""
+(async () => {
+  const line = async (log) => { tabApiOver = { "/api/quality": log }; const body = await studioHealth(tabApi);
+    return text(all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-blocked").kids[0]); };
+  const some = [3, 1, 2].map((d) => ({ kind: "lesson", part: "p", at: `2026-10-0${d}T10:00:00Z`, text: `t${d}`, reason: "r" }));
+  console.log(JSON.stringify([await line(some), await line([some[0]]), await line([])]));
+})();""")
+        some, one, none = out
+        self.assertIn("3 sentences were stopped before reaching you; the latest on Day(2026-10-03).", some, "the latest, whatever the order of the log")
+        self.assertIn("1 sentence was stopped before reaching you; the latest on Day(2026-10-03).", one.replace("2026-10-03", "2026-10-03") if False else one.replace("Day(2026-10-03)", "Day(2026-10-03)"))
+        self.assertIn("Nothing was stopped lately.", none)
+
+    def test_a_web_search_that_was_never_tested_is_not_called_fine(self):
+        out = run_node("""
+(async () => {
+  tabApiOver = { "/api/studio/sourcing": { exams: [{ exam: "DP-300" }], web_search: null } };
+  const body = await studioHealth(tabApi);
+  const sec = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-sources");
+  console.log(JSON.stringify([text(sec.kids[0]), all(sec.kids[0], (e) => e.attrs && e.attrs.chip !== undefined).map((e) => e.attrs.chip)]));
+})();""")
+        self.assertIn("web search has not been tested yet", out[0])
+        self.assertEqual(out[1], ["line"], "for information, not 'fine'")
 
     def test_the_log_is_a_box_that_scrolls_and_can_be_reached_by_keyboard(self):
         self.assertEqual(APP_JS.count('"panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why"'), 2,

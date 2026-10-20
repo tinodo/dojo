@@ -148,9 +148,9 @@ class ToDoTests(unittest.TestCase):
   const heads = outside(host, isTag("h2")).map(text);
   const cards = outside(host, isCls("todo-card"));
   const kinds = cards.map((card) => [text(all(card, isTag("h3"))[0]), buttons(card)]);
-  console.log(JSON.stringify([heads, kinds, buttons(host).slice(-1)]));
+  console.log(JSON.stringify([heads, kinds, buttons(host), P.STUDIO_LEAD.todo]));
 })();""")
-        heads, kinds, last = out
+        heads, kinds, order, face = out
         self.assertEqual(heads, ["Needs you", "Optional · costs money"])
         needs, optional = kinds[:3], kinds[3:]
         self.assertEqual([k[0] for k in needs], ["The build of XY-110 stopped", "Look at the lab “ Make a vector product table ”", "1 lesson can't be updated"])
@@ -159,7 +159,11 @@ class ToDoTests(unittest.TestCase):
         self.assertEqual([k[0] for k in optional], ["Videos", "Diagrams", "Page check"])
         for _, buttons in optional:
             self.assertTrue(buttons and all("about $" in b or b.startswith("Stop") for b in buttons), "every button that spends carries its price")
-        self.assertRegex(last[0], r"^Review all 4 · about \$249\.35$", "the one button for everything is after the cards it covers")
+        everything = next(i for i, b in enumerate(order) if re.match(r"^Review all 4 · about \$249\.35$", b))
+        self.assertLess(everything, order.index("Film 68 lessons · about $130.56"), "the one button for everything is the first thing in the optional group")
+        self.assertGreater(everything, order.index("I looked at it"), "after what needs him, which costs nothing")
+        self.assertIn("A gold button costs money and starts only when you press it, with its price on it.", face)
+        self.assertIn("Lessons, audio and rewrites run on their own and cost money as they go: see Money.", face)
 
     def test_there_is_one_row_for_each_course_with_its_button_and_what_was_left_out(self):
         out = run_node("""
@@ -265,6 +269,19 @@ class ToDoTests(unittest.TestCase):
         self.assertEqual(out[1], ["Film 2 lessons · about $3.84", "Stop the rest"])
         self.assertEqual(out[2], [["/api/studio/film/dp-800/stop", "POST", None]])
 
+    def test_a_failed_film_does_not_point_to_a_button_that_is_not_there(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const dp = withVideos(course("dp-800", "DP-800"), { waiting: 3, eta_minutes: 20, failed: 2 });
+  answers = [data([dp]), bill()];
+  const row = outside(await P.studioTodo(), isCls("vrow"))[0];
+  console.log(JSON.stringify([text(row), buttons(row)]));
+})();""")
+        self.assertIn("2 films did not work last time.", out[0])
+        self.assertNotIn("Pressing the button", out[0])
+        self.assertEqual(out[1], ["Stop the rest"])
+
     def test_the_diagrams_card_asks_with_the_price_and_says_they_stay_on_for_later_lessons(self):
         out = run_node("""
 (async () => {
@@ -313,7 +330,8 @@ class ToDoTests(unittest.TestCase):
         self.assertEqual(out[0], ["Check pages · about $2.15", "Check the rest · about $0.31"])
         self.assertIn("running now", out[1])
         self.assertEqual(out[2], 3, "a course whose check is done has no row")
-        self.assertIn("It changes nothing: no page, lesson or video.", out[1])
+        self.assertIn("Nothing changes: no page, lesson or video. The result shows on Courses.", out[1])
+        self.assertIn("Two AI models read the pages a built-in course points to", out[1])
 
     def test_review_all_lists_every_line_and_approves_only_the_ones_left_ticked(self):
         out = run_node("""
@@ -339,13 +357,49 @@ class ToDoTests(unittest.TestCase):
         label, none, lines, pick, title, confirm, notes, posts = out
         self.assertEqual(label, "Review all 4 · about $249.35")
         self.assertEqual(none, 0)
-        self.assertEqual([l[0] for l in lines], ["Film 68 lessons of DP-800", "Film 31 lessons of GH-300", "Draw 204 diagrams, up to 20 a day", "Check the 98 pages of DP-800"])
+        self.assertEqual([l[0] for l in lines], ["Film 68 lessons of DP-800 (34 replace older videos)", "Film 31 lessons of GH-300 (15 replace older videos)",
+                                                 "Draw 204 diagrams, up to 20 a day", "Check the 98 pages of DP-800"])
         self.assertTrue(pick, "a box for each line")
-        self.assertEqual((title, confirm), ("Start 2 things? About $187.68", "Start 2"))
-        self.assertIn("The diagrams stay on for lessons written later until you stop them here.", notes)
+        self.assertEqual((title, confirm), ("Spend about $187.68 on these 2?", "Start 2"))
+        self.assertIn("The diagrams stay on for lessons written later, about $0.28 each and at most 20 a day, until you press “Stop drawing ahead of time” on the To do page.", notes)
         self.assertIn("Each selection starts on its own. If one is refused, the others still start and are charged.", notes)
         self.assertIn("Room for videos before filming pauses: 1.9 GB.", notes)
         self.assertEqual(posts, [["/api/studio/make", {"confirm": "MAKE", "decks": True, "films": [{"package": "dp-800", "offer": "t68"}]}]])
+
+    def test_the_sheet_says_when_the_films_ticked_need_more_room_than_there_is_and_not_when_one_is_unticked(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const dp = withVideos(course("dp-800", "DP-800"), { offer: offer(68, 130.56, { bytes: 8e9 }) });
+  const gh = withVideos(course("gh-300", "GH-300"), { offer: offer(31, 59.52, { bytes: 5e9 }) });
+  const c = data([dp, gh]); c.make.storage.free_bytes = 10e9;
+  answers = [c, bill()];
+  const host = await P.studioTodo();
+  sheetAnswers = [null];
+  await all(host, isTag("button")).find((b) => text(b).startsWith("Review all")).attrs.onclick(); await tick();
+  const ask = sheets[0];
+  console.log(JSON.stringify([ask.lines.map((l) => l.off), ask.warn([ask.lines[0], ask.lines[1]]), ask.warn([ask.lines[1]]), ask.warn([])]));
+})();""")
+        off, both, one, none = out
+        self.assertEqual(off, [False, False], "each fits alone: neither is ruled out for the other")
+        self.assertIn("The films ticked need about 13.0 GB and 10.0 GB of room is left before filming pauses", both)
+        self.assertIsNone(one)
+        self.assertIsNone(none)
+
+    def test_review_all_compares_with_the_month_only_in_the_same_month_and_currency(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const dp = withVideos(course("dp-800", "DP-800"), { offer: offer(68, 130.56) });
+  const gh = withVideos(course("gh-300", "GH-300"), { offer: offer(31, 59.52) });
+  const notes = async (b) => { reset(); answers = [data([dp, gh]), b]; const host = await P.studioTodo(); sheetAnswers = [null];
+    await all(host, isTag("button")).find((x) => text(x).startsWith("Review all")).attrs.onclick(); await tick(); return sheets[0].notes.join(" "); };
+  console.log(JSON.stringify([await notes(bill()), await notes(bill({ current_month: "2026-11" })), await notes(bill({ currency: "EUR" }))]));
+})();""")
+        same, old, euro = out
+        self.assertIn("For comparison: Azure has charged $337.86 this month so far.", same)
+        self.assertNotIn("For comparison", old, "an old reading is not this month")
+        self.assertNotIn("For comparison", euro, "the estimates are in dollars: they are not compared with euros")
 
     def test_review_all_is_not_there_for_one_thing(self):
         out = run_node("""
@@ -402,9 +456,9 @@ class CoursesTests(unittest.TestCase):
   answers = [data([dp, added])];
   const body = await P.studioCourses();
   const cards = body.flat(Infinity).filter((e) => cls(e).includes("course"));
-  console.log(JSON.stringify([cards.length, cards.map((c) => buttons(c)), cards.map((c) => visible(c)), cards.map((c) => links(c))]));
+  console.log(JSON.stringify([cards.length, cards.map((c) => buttons(c)), cards.map((c) => visible(c)), cards.map((c) => links(c)), text(body.flat(Infinity)[0])]));
 })();""")
-        count, buttons, faces, links = out
+        count, buttons, faces, links, head = out
         self.assertEqual(count, 2)
         self.assertEqual(buttons, [[], []], "the Courses tab reports; To do decides")
         self.assertIn("Ready to study", faces[0])
@@ -413,7 +467,8 @@ class CoursesTests(unittest.TestCase):
         self.assertIn("Pages confirmed by two models", faces[0])
         self.assertIn("70 of 73", faces[0], "found and confirmed are two rows: found is every skill, confirmed is what two models said")
         self.assertIn("2 only partly, 1 refused", faces[0])
-        self.assertIn("68 lessons can be filmed now.", faces[0])
+        self.assertIn("68 lessons can be filmed now; 41 play an earlier version's video.", faces[0])
+        self.assertIn("Ready to study means the material exists. It does not predict that you will pass.", head)
         self.assertIn("Not complete yet", faces[1])
         self.assertIn("3 skills of 94 can't be studied from a lesson yet.", faces[1])
         self.assertIn("Dojo writes them by itself, about 3 days", faces[1])
@@ -459,10 +514,11 @@ console.log(JSON.stringify([visible(top), visible(groups), outside(groups, isCls
         top, groups = (re.sub(r"\s+", " ", s) for s in (top, groups))
         self.assertIn("$337.86", top)
         self.assertIn("up to Mon, Oct 19 (that day is still arriving)", top)
-        self.assertIn("$24.56 is always on: charged even if nobody uses Dojo, about $40.00 a month.", top)
+        self.assertIn("$24.56 is always on: charged even if nobody uses Dojo, about $40 a month.", top)
         self.assertIn("$313.30 follows what Dojo writes, films and checks.", top)
-        self.assertIn("The lowest full day so far was $2.00 (Thu, Oct 8): about $62.00 a month at that rate.", top)
-        self.assertIn("At least $353.50 by the end of October, because the always-on lines keep running.", top)
+        self.assertIn("The lowest full day so far was $2.00 (Thu, Oct 8): about $62 a month at that rate.", top, "a projection has no cents")
+        self.assertIn("At least $353 by the end of October, because the always-on lines keep running.", top, "rounded down: it is a floor")
+        self.assertIn("Each bar is a day, Thu, Oct 1 to Mon, Oct 19; the hatched one is still arriving.", top)
         self.assertIn("Last month: $212.40.", top)
         self.assertIn("Busiest days: Thu, Oct 15 $87.00.", top)
         self.assertEqual(partial, 1, "the last day is drawn as still arriving")
@@ -475,6 +531,9 @@ console.log(JSON.stringify([visible(top), visible(groups), outside(groups, isCls
         self.assertIn("Dojo grouped the lines by the names Azure gives them", groups)
         self.assertIn("charges Azure does not assign to it are not included", groups)
         self.assertIn("Azure sends no alert unless you set a budget.", groups)
+        self.assertIn("Costs about $13 a month.", groups, "an always-on line says what it costs a month: $7.90 in 19 days")
+        self.assertIn("Billed per server Always on about $20 a month", groups)
+        self.assertEqual(groups.count("a month."), 1, "only the always-on lines are projected: what follows use has no month figure")
         self.assertEqual([l[1] for l in links[-2:]], ["https://portal.azure.com/#view/x", "https://portal.azure.com/#view/b"])
 
     def test_a_reading_of_last_month_says_so_until_the_new_month_is_read(self):
@@ -487,6 +546,13 @@ console.log(JSON.stringify([now, old].map((p) => visible(p).replace(/\\s+/g, " "
         self.assertIn("Last month: $212.40.", now)
         self.assertIn("Last month, until this month is read", old)
         self.assertIn("The month before: $212.40.", old, "not 'last month' twice, meaning two different months")
+
+    def test_the_first_screen_does_not_call_an_old_reading_this_month(self):
+        out = run_node("""
+const ok = data([course("a", "A")]);
+console.log(JSON.stringify([links(P.todoStrip(ok, bill({ current_month: "2026-11" })))[1][0], links(P.todoStrip(ok, bill()))[1][0]]));""")
+        self.assertEqual(out[0], "Money: $337.86 last month; this month is not read yet")
+        self.assertEqual(out[1], "Money: $337.86 so far this month")
 
     def test_a_group_whose_parts_are_all_the_same_kind_shows_the_kind_once(self):
         out = run_node("""
@@ -560,13 +626,16 @@ const st = (film, lessons) => ({ film: { offer: null, waiting: 0, filming: 0, fa
 const said = (s) => visible(context.filmPanel(s)).replace(/\\s+/g, " ");
 const withOffer = st({ offer: { lessons: 2 }, later: { scheduled: 1 } });
 console.log(JSON.stringify([said(st({ later: { quiet: 1, scheduled: 0, pages: 0 } }, { filmed: 2 })), said(st({ later: { quiet: 2, scheduled: 1, pages: 1 } })),
-  said(st({}, { filmed: 3 })), said(withOffer), links(context.filmPanel(withOffer))]));""")
-        one, many, all_done, offered, links = out
+  said(st({}, { filmed: 3 })), said(withOffer), links(context.filmPanel(withOffer)), said(st({}, { filmed: 2 })), said(st({ later: { held: 1 } }, { filmed: 2 }))]));""")
+        one, many, all_done, offered, links, partly, held = out
+        self.assertIn("Nothing is offered for filming right now.", partly, "two of three are filmed and nothing is left to offer: not 'every lesson is filmed'")
+        self.assertIn("1 written lesson is not offered for filming yet: 1 waiting for a rewrite after a source page changed.", held)
         self.assertIn("1 written lesson is not offered for filming yet: 1 rewritten less than a week ago. It joins the To do page when that is over.", one)
         self.assertNotIn("Every written lesson is filmed or approved.", one, "it is not true while one is left out")
         self.assertIn("4 written lessons are not offered for filming yet: 2 rewritten less than a week ago, 1 waiting to be rewritten as a deeper lesson, "
                       "1 whose pages may still be replaced. They join the To do page when that is over.", many)
-        self.assertIn("Every written lesson is filmed or approved.", all_done)
+        self.assertIn("Every written lesson is filmed.", all_done)
+        self.assertNotIn("filmed or approved", all_done)
         self.assertIn("2 written lessons not filmed yet.", offered)
         self.assertIn("1 written lesson is not offered for filming yet: 1 waiting to be rewritten as a deeper lesson.", offered)
         self.assertEqual(links, [["Decide on the To do page", "#/quality"]], "the page decides nothing and spends nothing: it points to where it is decided")

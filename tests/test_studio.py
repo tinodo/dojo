@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app.learning as learning_mod  # noqa: E402
 import app.studio as studio_mod  # noqa: E402
-from app.core import iso, new_id, parse_iso, utcnow  # noqa: E402
+from app.core import UserError, iso, new_id, parse_iso, utcnow  # noqa: E402
 from tests.test_api import POST  # noqa: E402
 from tests.test_newexam import Web, done, make_app, post  # noqa: E402
 
@@ -407,10 +407,56 @@ class MakeTests(StudioCase):
             course = self.course()
             self.assertIsNone(course["make"]["videos"], "no offer: it fails closed, and the rest of the page is still there")
             self.assertEqual(course["skills"], len(self.dojo.packages.get(self.pid)["skills"]))
-            self.assertIsNone(self.app.state.newexams.next_film(), "and no film is chosen")
+            self.assertIsNone(self.app.state.newexams.next_film(), "nothing is approved, so there is nothing to choose and nothing to read")
             self.assertIn("cannot tell just now which lessons are about to be rewritten", self.press(token, 422)["detail"], "said in plain words, not as a server error")
             self.assertEqual(self.c.get(f"/api/exam-packages/{self.pid}").status_code, 200, "the exam page still draws")
         self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 0, "nothing was approved")
+
+    def test_the_exam_page_still_says_what_was_rewritten_this_week_when_the_other_list_cannot_be_read(self):
+        a, b = self.ready()
+        self.narrate(self.rewrite(a, self.skills[0]))
+        with self.unreadable_books():
+            film = self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]
+        self.assertEqual(film["later"]["quiet"], 1, "the quiet week does not depend on the list that could not be read")
+        self.assertEqual(film["later"]["scheduled"], 0)
+
+    def test_an_approved_film_waits_while_the_lessons_about_to_be_rewritten_cannot_be_read(self):
+        a, b = self.ready()
+        self.press(self.videos()["offer"]["token"])
+        films, prep = self.app.state.newexams, self.app.state.preparer
+        with self.unreadable_books():
+            with self.assertRaises(UserError):
+                films.next_film()
+            with mock.patch.object(prep, "_quiet_for", return_value=1e9):
+                self.assertTrue(prep._film(), "approved films are still pending: the Preparer looks again soon")
+            self.assertIn("The films wait", prep.state["film_note"])
+            self.assertEqual(self.videos_jobs(), [], "nothing was filed")
+        self.assertEqual(films.next_film(), a, "readable again: the film is chosen")
+
+    def videos_jobs(self) -> list[dict]:
+        return [j for j in self.dojo.jobs.for_learner(self.owner) if j.get("kind") == "video"]
+
+    def test_one_course_that_cannot_be_approved_does_not_stop_the_diagrams(self):
+        self.ready()
+        token = self.videos()["offer"]["token"]
+        with self.unreadable_books():
+            r = self.c.post("/api/studio/make", json={"confirm": "MAKE", "decks": True, "films": [{"package": self.pid, "offer": token}]}, headers=POST)
+        self.assertEqual(r.status_code, 200, r.text)
+        films, decks = r.json()["results"]
+        self.assertEqual((films["what"], films["ok"]), ("films", False))
+        self.assertIn("cannot tell just now which lessons are about to be rewritten", films["error"])
+        self.assertEqual((decks["what"], decks["ok"]), ("diagrams", True), "each selection starts on its own")
+
+    def test_an_approved_lesson_a_changed_page_holds_back_still_waits_and_stop_forgets_it(self):
+        a, b = self.ready()
+        self.press(self.videos()["offer"]["token"])
+        drift, films = self.app.state.drift, self.app.state.newexams
+        with mock.patch.object(drift, "withheld", lambda lesson: lesson == a):
+            self.assertEqual(films.film_state(self.pid)["waiting"], 2, "held back, but still approved and waiting")
+            self.assertEqual(self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]["later"]["held"], 1, "the exam page says why one is not offered")
+            r = self.c.post(f"/api/studio/film/{self.pid}/stop", headers=POST)
+            self.assertEqual(r.json()["stopped"], 2, "Stop forgets the held approval too: it would otherwise film when the page is steady again")
+        self.assertEqual(films._doc(self.pid)["film"]["approved"], [])
 
     def test_stop_still_works_when_the_lessons_about_to_be_rewritten_cannot_be_read(self):
         self.ready()
@@ -436,9 +482,9 @@ class MakeTests(StudioCase):
         new = self.rewrite(a, self.skills[0])
         self.narrate(new)
         film = self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]
-        self.assertEqual(film["later"], {"quiet": 1, "scheduled": 0, "pages": 0})
+        self.assertEqual(film["later"], {"quiet": 1, "scheduled": 0, "pages": 0, "held": 0})
         with mock.patch.object(self.dojo, "scheduled_rewrites", return_value={b}):
-            self.assertEqual(self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]["later"], {"quiet": 1, "scheduled": 1, "pages": 0})
+            self.assertEqual(self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]["later"], {"quiet": 1, "scheduled": 1, "pages": 0, "held": 0})
 
     def test_a_first_lesson_is_offered_at_once(self):
         a, b = self.ready()

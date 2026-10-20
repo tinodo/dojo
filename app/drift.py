@@ -1078,17 +1078,6 @@ class DriftCheck:
                 "pace": "measured" if measured else "assumed", "label": PRICE_LABEL,
                 "fetched": prices.get("fetched"), "stale": bool(prices.get("stale"))}
 
-    def approve(self, lesson_ids: list[str]) -> dict:
-        """The owner pressed the button: film these lessons, each once, one at a time, through the
-        ordinary video job. Only lessons still waiting count."""
-        left = self.dojo.scheduled_rewrites() | set(self.dojo.rewritten_recently(self.now()))   # the rule of the offer (`film_split`) holds here too
-        waiting = {x["id"]: x for x in self.refilm_candidates() if x["id"] not in left}
-        chosen = [x for x in dict.fromkeys(lesson_ids or []) if x in waiting]
-        if not chosen:
-            raise HTTPException(409, "No changed lesson is waiting to be filmed again.")
-        self._approve([waiting[x] for x in chosen])
-        return self.summary()
-
     def approve_offer(self, only: str, token: str, shown: float | None = None) -> dict:
         """The owner pressed a package's button on Studio's Courses page: film exactly the set whose price
         the page showed (`film_offer`). A set that changed since the page was drawn is not approved. `shown` is the price
@@ -1183,12 +1172,15 @@ class DriftCheck:
             self._settle_films()
             films = self._doc()["films"]
             if not any(f.get("state") == "filed" for f in films.values()) and not self._owner_busy() and not self._storage_full():
-                try:
-                    scheduled = self.dojo.scheduled_rewrites()
-                except Exception:  # noqa: BLE001 - without it Dojo cannot tell which lessons are about to be replaced: nothing is filmed this round
-                    log.exception("drift check: the lessons that will be written again could not be read, so no film is filed this round")
-                    return True
-                for _, lesson_id in sorted((f.get("approved") or "", k) for k, f in films.items() if f.get("state") == "approved"):
+                approved = sorted((f.get("approved") or "", k) for k, f in films.items() if f.get("state") == "approved")
+                scheduled: set[str] = set()
+                if approved:
+                    try:
+                        scheduled = self.dojo.scheduled_rewrites()
+                    except UserError:   # without it Dojo cannot tell which lessons are about to be replaced: nothing is filmed this round
+                        log.warning("drift check: the lessons that will be written again could not be read, so no film is filed this round")
+                        return True
+                for _, lesson_id in approved:
                     if not self._current(lesson_id):
                         self._forget_film(lesson_id)
                         continue

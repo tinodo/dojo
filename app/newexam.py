@@ -450,15 +450,18 @@ class NewExams:
         quiet = self.dojo.rewritten_recently() if quiet is None else quiet
         scheduled = self.dojo.scheduled_rewrites() if scheduled is None else scheduled
         unsettled = self.sourcer.unsettled(pid) if self.packages.is_added(pid) else {}
+        newest: dict[Any, str] = {}   # the newest lesson of each skill of this exam, from one listing of the lessons (not one for each skill)
+        for m in sorted(self.dojo.lesson_index(), key=lambda m: m.get("created") or "", reverse=True):
+            if m.get("package") == pid:
+                newest.setdefault(m.get("skill"), m["id"])
         ready = narrated = filmed = 0
         unfilmed: list[str] = []
-        later: dict = {"scheduled": [], "quiet": {}, "pages": {}}
+        later: dict = {"scheduled": [], "quiet": {}, "pages": {}, "held": []}
         for sid in teachable:
-            lessons = self.dojo.lessons_for(pid, sid)
-            if not lessons:
+            lesson = newest.get(sid)
+            if not lesson:
                 continue
             ready += 1
-            lesson = lessons[0]["id"]
             plan = self.checker.plan(lesson)
             audio = [a for a in plan["audio"] if a]
             if audio and all(a + ".mp3" in media for a in audio):
@@ -466,7 +469,9 @@ class NewExams:
             films = list(plan["films"].values())
             if films and all(f + ".webm" in media and f + ".json" in media for f in films):
                 filmed += 1
-            elif films and not self._held(lesson):
+            elif films and self._held(lesson):
+                later["held"].append(lesson)   # a changed page holds it back: it is not offered, and an approval for it still waits
+            elif films:
                 unfilmed.append(lesson)
                 if lesson in scheduled:
                     later["scheduled"].append(lesson)
@@ -519,7 +524,7 @@ class NewExams:
         unfilmed, later = lessons["unfilmed"], lessons["later"]
         left = set(later["scheduled"]) | set(later["quiet"]) | set(later["pages"])
         busy = {k for k, r in filed.items() if not r.get("done")}
-        waiting = [x for x in film.get("approved") or [] if x in unfilmed and x not in filed and x not in failed]
+        waiting = [x for x in film.get("approved") or [] if (x in unfilmed or x in later.get("held", [])) and x not in filed and x not in failed]
         offer = [x for x in unfilmed if x not in waiting and x not in busy and x not in left]
         return waiting, offer
 
@@ -529,7 +534,7 @@ class NewExams:
         usage = self.dojo.avatar.usage()
         later = lessons["later"]
         return {
-            "later": {"quiet": len(later["quiet"]), "scheduled": len(later["scheduled"]), "pages": len(later["pages"])},
+            "later": {"quiet": len(later["quiet"]), "scheduled": len(later["scheduled"]), "pages": len(later["pages"]), "held": len(later.get("held", []))},
             "approved": len(film.get("approved") or []), "waiting": len(waiting),
             "filming": sum(1 for r in (film.get("filed") or {}).values() if not r.get("done")),
             "failed": [{"lesson": k, **v} for k, v in (film.get("failed") or {}).items()][:10],
@@ -607,8 +612,8 @@ class NewExams:
         meta = pkg["meta"]
         try:
             lessons = self._lessons(pid, self._media())
-        except UserError:   # the rewrite rules could not be read: the page counts what is filmed, and nothing on it spends
-            lessons = self._lessons(pid, self._media(), {}, set())
+        except UserError:   # the list of lessons about to be rewritten could not be read: the page counts what is filmed (the quiet week is local), and nothing on it spends
+            lessons = self._lessons(pid, self._media(), self.dojo.rewritten_recently(), set())
         out.update(
             title=meta["title"], issuer=meta["issuer"], source=meta["source"], exam_page=meta.get("exam_page"),
             practice=meta.get("official_practice_assessment"), passing_score=meta.get("passing_score"),
@@ -691,12 +696,9 @@ class NewExams:
         return len(waiting)
 
     def next_film(self) -> str | None:
-        """The next lesson the owner approved for filming that is still not filmed, or None."""
-        try:
-            scheduled = self.dojo.scheduled_rewrites()   # approved, then about to be written again on the deeper template: it waits for that
-        except Exception:  # noqa: BLE001 - without it Dojo cannot tell which lessons are about to be replaced: nothing is filmed now
-            log.exception("the lessons that will be written again could not be read, so no film is chosen")
-            return None
+        """The next lesson the owner approved for filming that is still not filmed, or None. When films are approved and Dojo cannot tell
+        which lessons are about to be rewritten, this raises UserError: the caller says the films wait and asks again soon."""
+        scheduled: set[str] | None = None
         for pid in self.packages.ids():
             if not self.packages.is_added(pid):
                 continue
@@ -704,6 +706,8 @@ class NewExams:
             film = (doc or {}).get("film") or {}
             if not film.get("approved"):
                 continue
+            if scheduled is None:
+                scheduled = self.dojo.scheduled_rewrites()   # approved, then about to be written again on the deeper template: it waits for that
             unsettled = self.sourcer.unsettled(pid)   # an audit may have refused its pages since the approval: that lesson will be replaced
             newest: dict[Any, tuple[str, str]] = {}   # a lesson written again since the approval is not filmed: the new one waits for its own
             for m in self.dojo.lesson_index():

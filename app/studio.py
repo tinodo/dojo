@@ -579,8 +579,9 @@ class Studio:
             try:
                 self._approve_film(learner, f["package"], f["offer"])
                 results.append({"package": f["package"], "exam": self._exam(f["package"]), "what": "films", "ok": True, "error": None})
-            except HTTPException as e:
-                results.append({"package": f["package"], "exam": self._exam(f["package"]), "what": "films", "ok": False, "error": str(e.detail)})
+            except (HTTPException, UserError) as e:   # a refusal of one course (its price changed, no room, the rewrite list unreadable) never stops the others
+                results.append({"package": f["package"], "exam": self._exam(f["package"]), "what": "films", "ok": False,
+                                "error": str(e.detail) if isinstance(e, HTTPException) else str(e)})
         if decks:
             try:
                 every = self.costs.deck_view()["every_lesson"]

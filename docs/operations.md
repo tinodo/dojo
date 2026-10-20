@@ -273,8 +273,7 @@ You pay Azure's normal prices. Dojo has no licence fee.
   with the app identity's Reader role (ADR 0025), with what is always on and what follows use. Azure reports
   8 to 24 hours late and throttles quick repeats, so Dojo makes two small requests (this month, last month) every
   six hours at most, and keeps the last reading when one fails.
-  Dojo's own estimate of what each kind of work costs, at Azure **list price**, sits below it, open only when
-  the bill cannot be read. It reads prices from the public Azure Retail Prices API and counts the tokens,
+  Dojo's own estimate of what each kind of work costs, at Azure **list price**, sits below it, closed. It reads prices from the public Azure Retail Prices API and counts the tokens,
   characters and minutes Dojo used, and it can differ from the bill (discounts, taxes, other resources). Azure
   Cost Management is the truth, and where you set a budget alert (the Money tab links to it).
 - **The fixed part** is the B1 plan and the storage. Check the Azure pricing page for your region.

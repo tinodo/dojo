@@ -39,9 +39,10 @@ that fails says so on its own. The old addresses keep working: `#/quality/checks
 - *Optional · costs money*: one **Videos** card with a row for each course, one **Diagrams** card, one **Page check** card with a row for
   each course not checked. A row says what is offered, what was left out and why, how much of the price replaces a video the owner already
   has (Watch plays an earlier version's film of a rewritten lesson, with a note) and how much has none, and carries the one button with
-  its price. After the cards, **Review all** asks once with a box for each line and a total that follows the ticks. It says that each
-  selection starts on its own (one that is refused does not stop the others, and the others are charged), and when the total is more than
-  Azure charged this month so far.
+  its price. At the top of that group, **Review all** asks once with a box for each line and a total that follows the ticks. A film that
+  fits the room alone is a choice; the sheet says, as the boxes are ticked, when the films ticked together need more room than is left. It
+  says that each selection starts on its own (one that is refused does not stop the others, and the others are charged), and for what it
+  is worth how much Azure has charged this month so far (not when the month's reading is old or not in dollars, like the estimates).
 - Nothing to decide says so in one line.
 
 **A film is offered only for a lesson that is steady.** The server leaves a lesson out of every film offer, with its reason, when
@@ -57,9 +58,11 @@ is filed (the round is tried again a minute later); an approval is refused in pl
 the To do page says the films could not be read; Stop and the exam page work as before. The lesson page's **Film this lesson** stays: it is the owner choosing one lesson, and it says when the lesson is likely to be
 replaced. The server refuses it (409) for a lesson that is not the newest of its skill or that a changed page holds back. The exam page
 has no button that spends any more: it says how many written lessons are not filmed, how many are left out and why, and links to the To
-do page. Its older endpoints (`POST /api/exam-packages/{pid}/film`, `POST /api/studio/drift/refilm`) are still there with no button and
-read the same offer, so a lesson that is left out is refused there too. The page says nothing about what will happen: it says what was
-left out and when it comes back. No verdict, no forecast.
+do page. The two older ways to approve a film, `POST /api/exam-packages/{pid}/film` and `POST /api/studio/drift/refilm`, are retired and
+answer 410: they approved lessons by their ids and not at the price shown, so `POST /api/studio/film/{pid}` is the only way to approve
+a film. The exam page counts a lesson a changed page holds back among the lessons left out, and an approval for such a lesson is still
+waiting, so Stop forgets it too. The page says nothing about what will happen: it says what was left out and when it comes back. No
+verdict, no forecast.
 
 **Money asks first, in a sheet.** Every button that spends opens a dialog (`moneySheet`) that names the lines, the price, what was left
 out, what a rewrite later would do, and the room the videos need. Cancel has the focus, so Enter never spends; Escape and a click beside
@@ -75,20 +78,24 @@ the press is not refused; this is accepted and stays on the review triggers.
 continuation to the end (a total is never shown from part of the lines), one more asks for last month; the answer is kept six hours in
 memory and on the share, one reading at a time, a "wait" from Azure is remembered across restarts, and the browser has no way to force
 one. Lines are grouped by what they pay for in the owner's words, each part marked **Pay per use**, **Always on**, **Partly always on** or
-**Free offer**. It shows what is always on a month, the quietest complete day, the busiest days, last month, and says that the last day
-is still arriving, and the least the month can come to (what is spent plus what is always on for the days left). A link opens Azure's
+**No charge so far** (the free database). It shows what is always on a month, the quietest complete day, the busiest days, last month, and
+says that the last day is still arriving, and the least the month can come to (what is spent plus what is always on for the days left).
+A projection is said in whole dollars and a floor is rounded down; an always-on line says what it costs a month from the days so far, once
+three days are in. A bar of the chart is a day and the hatched one is still arriving. A link opens Azure's
 budgets for the resource group, because Dojo cannot set a limit. Last month's total is read apart: if that read fails, this month's is
-kept, and it is shown only when it is in one currency; after a month ends it is labelled "Last month, until this month is read". Without
-the role it says what is missing; with an old reading it says since when; on the first day of a month it says nothing is reported yet
-and never "$0". Dojo's own estimates (what a course would cost at Azure's published prices) are below it, open
-only when there is no bill, and labelled as estimates. The Activity page's "What it cost" is relabelled Dojo's own count, not the bill.
+kept, and it is shown only when it is in one currency (a month of credits is still a month, with its sign); after a month ends it is
+labelled "Last month, until this month is read", the first screen says the same, and the month before is called that. Without the role it
+says what is missing; with an old reading it says since when; on the first day of a month it says nothing is reported yet and never
+"$0". Dojo's own estimates (what a course would cost at Azure's published prices) are below it, closed, and labelled as estimates. The
+Activity page's "What it cost" is relabelled Dojo's own count, not the bill.
 
 **Health cannot lie.** Each check is a closed section with a chip and one plain line. "Everything Dojo checked is working" is said only
 when every check could be read; a check that could not be read is named apart and is not a thing to look at; a check that stopped
 (the daily page read older than 36 hours) is a thing to look at; slides worth a listen are information, not a to-do; a storage cap is
 said as a cap ("the last 400 are kept"). Builds that stopped, failed films and a failed monitoring try count as things to look at, and
-the top line says when the checks were read. The source-change section is called "Source changes". The lab database switch is one
-visible line above the sections, never inside a closed one.
+the top line says when the page was opened and what it checked. The source-change section is called "Source changes". The voice line says
+out of how many passages, the blocked-sentence line how many were stopped and when the latest was, and a web search that was never tested is
+information, not "fine". The lab database switch is one visible line above the sections, never inside a closed one.
 
 **The server adds**: `film_split` and `film_offer` (the rule), `Dojo.rewritten_recently` and `scheduled_rewrites`,
 `Sourcer.unsettled`, `DriftCheck.owner_todo`, `todo`, `quiet_days` and `quiet_last` in `/api/studio/courses`, `/api/studio/bill`.
@@ -98,9 +105,19 @@ visible line above the sections, never inside a closed one.
 - A verdict (safe, careful, wait) from the share of lessons rewritten lately. Rejected: it forecast, tiny courses made percentages
   absurd, and a one-off upgrade wave inflated it. The offer itself is now the answer.
 - A "Film again" card. Rejected: the offer already contains those lessons.
-- "Make everything" as the first button. Kept, but as **Review all** after the cards, with a box for each line.
+- "Make everything" as the first button. Kept as **Review all**, with a box for each line: the first version put it after the cards, and
+  the last design review found it buried below about 1,700 pixels of cards, so it is now the first thing in the optional group.
 - Reading the bill with the owner's token in the browser. Rejected: the app's own identity reads it, the owner's page only shows it.
 - Splitting the bill per course or per person. Not possible: Azure bills the resource group.
+
+## Not decided here
+
+- Filming only the lessons that have no video yet, as a second offer beside the one that includes the lessons replacing an older video.
+  The last design review asked for it; it needs a second token and a second price.
+- A summary line for each day on the Activity page, and a one-line card for a finished course on a phone.
+- Where the Defender charge comes from: it is switched on for the subscription, and the bill only says what each line is billed by.
+- A snapshot of the sourcing books for one reading: the lessons of an added exam are listed once now, but the books are read once for the
+  pages row and again for the films offer.
 
 ## Consequences
 

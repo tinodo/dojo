@@ -253,6 +253,9 @@ class SettingsRequest(BaseModel):
     enrolled: list[Annotated[str, Field(pattern=PKG)]] | None = Field(default=None, max_length=50)
 
 
+FILM_MOVED = "Films are approved on Studio's To do page now, at the price it shows. This address is no longer used."
+
+
 class DeleteRequest(BaseModel):
     confirm: Literal["DELETE"]
 
@@ -262,10 +265,6 @@ class LabSql(BaseModel):
 
 class LabHint(BaseModel):
     index: int = Field(ge=0, le=1)
-
-
-class RefilmRequest(BaseModel):
-    lessons: list[Annotated[str, Field(pattern=ID)]] = Field(min_length=1, max_length=200)
 
 
 # The plan's rules are checked in plan.check_rules, which says in plain words what is wrong.
@@ -1791,10 +1790,9 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         return drift.summary()
 
     @app.post("/api/studio/drift/refilm")
-    def studio_refilm(body: RefilmRequest, learner: Learner = Admin) -> dict:
-        """The owner's go-ahead to spend money on filming these changed lessons again."""
-        _no_help_during_exam(learner, "Filming is closed")
-        return drift.approve(body.lessons)
+    def studio_refilm(learner: Learner = Admin) -> dict:
+        """Retired (ADR 0025): it approved lessons by their ids and not at the price shown. Films are approved on Studio's To do page."""
+        raise HTTPException(410, FILM_MOVED)
 
     @app.post("/api/studio/drift/labs/{lab}/looked")
     def studio_lab_looked(lab: str, learner: Learner = Admin) -> dict:
@@ -1973,9 +1971,9 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         return newexams.sourcing(_check_id(pid, PKG))
 
     @app.post("/api/exam-packages/{pid}/film")
-    def exam_film(pid: str, body: FilmRequest, learner: Learner = Admin) -> dict:
-        """The owner approved filming at the price shown. Only that set of lessons is filmed."""
-        return newexams.approve_film(learner, _check_id(pid, PKG), body.offer)
+    def exam_film(pid: str, learner: Learner = Admin) -> dict:
+        """Retired (ADR 0025): its token named the lessons and not the price. Films are approved on Studio's To do page."""
+        raise HTTPException(410, FILM_MOVED)
 
     @app.post("/api/exam-packages/{pid}/remove")
     def exam_remove(pid: str, body: RemoveExamRequest, learner: Learner = Admin) -> dict:

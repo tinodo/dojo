@@ -304,10 +304,9 @@ class Bill:
         month = now.date().isoformat()[:7]
         previous = None
         if before and len({str(r.get("Currency") or "") for r in before}) == 1:   # one currency, or no comparison
-            total = sum(float(r.get("Cost") or 0) for r in before)
-            if total > 0:
-                last = date.fromisoformat(month + "-01") - timedelta(days=1)
-                previous = {"month": last.isoformat()[:7], "total": round(total, 2), "currency": str(before[0].get("Currency") or "")}
+            total = sum(float(r.get("Cost") or 0) for r in before)   # signed: a month of credits is still a month
+            last = date.fromisoformat(month + "-01") - timedelta(days=1)
+            previous = {"month": last.isoformat()[:7], "total": round(total, 2), "currency": str(before[0].get("Currency") or "")}
         where = quote(self.scope or "", safe="")
         link = f"https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/costanalysis/scope/{where}"
         budgets = f"https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/budgets/scope/{where}"

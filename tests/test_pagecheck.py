@@ -267,7 +267,7 @@ class PageCheckScreenTests(unittest.TestCase):
     def test_the_button_says_the_price_asks_first_and_changes_nothing(self):
         block = part("function pageCheckRow(x, act) {")
         self.assertIn("moneySheet(ask)", block)
-        self.assertIn("It changes nothing", block)
+        self.assertIn("Nothing changes", block)
         self.assertIn("/api/studio/pagecheck/${x.package}", block)
         self.assertIn("The price is not available just now", block)
         self.assertIn("runJob(", block)

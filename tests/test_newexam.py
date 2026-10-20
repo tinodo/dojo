@@ -657,16 +657,22 @@ class AddedExamTests(unittest.TestCase):
             self.assertFalse(prep._film())
         self.assertIsNone(films.next_film())
         self.assertFalse(self.videos())
-        # Approving needs the word and exactly the set of lessons that was priced.
-        path = "/api/exam-packages/xy-110/film"
-        self.assertEqual(c.post(path, json={"offer": offer["token"]}, headers=POST).status_code, 422)
+        # Approving needs the word and exactly the set of lessons and the price Studio's To do page showed. The exam page's own address is retired.
+        retired = c.post("/api/exam-packages/xy-110/film", json={"confirm": "FILM", "offer": offer["token"]}, headers=POST)
+        self.assertEqual(retired.status_code, 410, "its token named the lessons and not the price")
+        self.assertEqual(c.get("/api/exam-packages/xy-110").json()["film"]["approved"], 0, "the retired address approved nothing")
+        self.app.state.studio._seen.clear()
+        shown = next(x for x in c.get("/api/studio/courses").json()["courses"] if x["package"] == "xy-110")["make"]["videos"]["offer"]
+        path = "/api/studio/film/xy-110"
+        self.assertEqual(c.post(path, json={"offer": shown["token"]}, headers=POST).status_code, 422)
         self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": "0" * 16}, headers=POST).status_code, 409)
-        self.assertEqual(c.post("/api/exam-packages/gh-300/film", json={"confirm": "FILM", "offer": offer["token"]},
-                                headers=POST).status_code, 404)
-        approved = post(c, path, {"confirm": "FILM", "offer": offer["token"]})["film"]
+        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": offer["token"]}, headers=POST).status_code, 409, "the exam page's token names no price")
+        self.assertEqual(c.post("/api/studio/film/no-such-exam", json={"confirm": "FILM", "offer": shown["token"]}, headers=POST).status_code, 404)
+        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": shown["token"]}, headers=POST).status_code, 200)
+        approved = c.get("/api/exam-packages/xy-110").json()["film"]
         self.assertEqual((approved["approved"], approved["waiting"], approved["offer"]), (1, 1, None))
-        self.assertEqual(approved["approvals"][-1]["total"], offer["estimate"]["total"])
-        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": offer["token"]}, headers=POST).status_code, 422)
+        self.assertEqual(approved["approvals"][-1]["total"], shown["usd"], "what is written down is the price the page showed")
+        self.assertEqual(c.post(path, json={"confirm": "FILM", "offer": shown["token"]}, headers=POST).status_code, 409)
         self.assertFalse(self.videos(), "approving files nothing by itself")
         # The film waits until the owner's own work has been quiet for three minutes...
         self.assertLess(prep._quiet_for(), 180)
