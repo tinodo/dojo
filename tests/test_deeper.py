@@ -444,6 +444,25 @@ class SearchTests(SearchCase):
         self.assertTrue(failures)
         self.assertEqual({(f["status"], f["resolved"]) for f in failures}, {("worked", True)}, "it searched without an error the next day")
 
+    def test_a_failed_search_that_worked_stays_history_when_a_later_search_fails_again(self):
+        self.ai = CheckerDown()
+        self.boot()
+        self.search()
+        self.ai = NothingTeaches()   # a search that finds nothing new: it finished, and every skill still has room for pages
+        self.boot()
+        self.later(hours=deeper_mod.SEARCH_RETRY_H)
+        self.search()
+        self.assertEqual({f["status"] for f in self.get("/api/studio/deeper")["failures"]}, {"worked"})
+        self.ai = CheckerDown()
+        self.boot()
+        self.later(days=deeper_mod.SEARCH_AGAIN_DAYS)
+        self.search()
+        told: dict[str, list[str]] = {}
+        for f in reversed(self.get("/api/studio/deeper")["failures"]):   # oldest first
+            told.setdefault(f["skill"], []).append(f["status"])
+        self.assertTrue(told)
+        self.assertEqual({tuple(x) for x in told.values()}, {("worked", "waiting")}, "the first failure worked; only the last still waits")
+
     def get(self, path: str) -> dict:
         r = self.c.get(path)
         self.assertEqual(r.status_code, 200, r.text)
@@ -913,6 +932,42 @@ class UpgradeTests(UpgradeCase):
         self.assertNotEqual(newer, old)
         failures = self.get("/api/studio/deeper")["failures"]
         self.assertEqual([(f["status"], f["resolved"]) for f in failures], [("obsolete", True)], "what failed was the earlier lesson: it is no longer there")
+
+    def failed_then_passed_then_failed(self) -> tuple[str, str]:
+        """A rewrite that fails, the next one a day later that passes, and a rewrite of the new lesson that fails
+        (when a page found later makes it due again): the old lesson and the new one."""
+        old = self.old_lesson(OTHER)
+        self.searched(OTHER)
+        self.fill()
+        self.ai.fail = True
+        self.assertTrue(self.preparer.step())
+        self.ai.fail = False
+        self.later(deeper_mod.UPGRADE_WAIT_H)
+        self.assertTrue(self.preparer.step())
+        new = self.newest(OTHER)["id"]
+        self.assertNotEqual(new, old)
+        self.assertEqual([f["status"] for f in self.get("/api/studio/deeper")["failures"]], ["worked"])
+        self.web.set(td.ELSEWHERE, ELSE_MD)
+        self.searched(OTHER, pages=[ref(ADDED)])
+        self.later(deeper_mod.UPGRADE_WAIT_H)
+        self.ai.fail = True
+        self.assertTrue(self.preparer.step())
+        return old, new
+
+    def test_a_failure_that_worked_stays_history_when_a_later_rewrite_of_the_skill_fails(self):
+        old, new = self.failed_then_passed_then_failed()
+        failures = self.get("/api/studio/deeper")["failures"]
+        self.assertEqual([(f["lesson"], f["status"]) for f in failures], [(new, "waiting"), (old, "worked")],
+                         "newest first, and each says which lesson it was for: the later failure does not bring the earlier one back")
+
+    def test_a_failure_written_before_it_said_which_lesson_is_told_by_its_time(self):
+        old, new = self.failed_then_passed_then_failed()
+        doc = self.deeper._doc()
+        earlier = next(f for f in doc["failures"] if f["lesson"] == old)
+        earlier.pop("lesson")
+        earlier["at"] = iso(utcnow() - timedelta(days=2))   # before the new lesson was written
+        self.deeper._save(doc)
+        self.assertEqual([f["status"] for f in self.get("/api/studio/deeper")["failures"]], ["waiting", "worked"])
 
     def test_the_earlier_lesson_stays_until_the_new_one_passes(self):
         old = self.old_lesson(OTHER)

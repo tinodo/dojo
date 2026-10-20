@@ -127,8 +127,10 @@ class DeeperLessons:
         doc["spent"][pid] = {k: int(spent.get(k) or 0) for k in ("searched", "attempts", "written")}
         return doc["spent"][pid]
 
-    def _failed(self, doc: dict, pid: str, sid: str, what: str, reason: str) -> None:
-        doc["failures"].append({"at": iso(self.now()), "package": pid, "skill": sid, "what": what, "reason": str(reason)[:300]})
+    def _failed(self, doc: dict, pid: str, sid: str, what: str, reason: str, lesson: str | None = None) -> None:
+        """Writes a failure down. A failed rewrite says which lesson it was for, so what became of it is read from that lesson."""
+        doc["failures"].append({"at": iso(self.now()), "package": pid, "skill": sid, "what": what, "reason": str(reason)[:300],
+                                **({"lesson": lesson} if lesson else {})})
         doc["failures"] = doc["failures"][-FAILURES_KEPT:]
 
     # ------------------------------------------------------------ the pages a skill cites
@@ -460,7 +462,7 @@ class DeeperLessons:
                     a.update(outcome="failed", given_up=iso(self.now()),
                              error=a.get("error") or "The attempts stopped before they finished (Dojo restarted or crashed).")
                     doc["skills"][key] = a
-                    self._failed(doc, pid, sid, "upgrade", a["error"])
+                    self._failed(doc, pid, sid, "upgrade", a["error"], lesson_id)
                     self._save(doc)
                     return False
                 a.update(tries=int(a.get("tries") or 0) + 1, last=iso(self.now()), outcome="running", error=None)
@@ -502,29 +504,43 @@ class DeeperLessons:
             if int(a.get("tries") or 0) >= UPGRADE_TRIES:
                 a["given_up"] = iso(self.now())
             doc["skills"][f"{pid}/{sid}"] = a
-            self._failed(doc, pid, sid, "upgrade", reason)
+            self._failed(doc, pid, sid, "upgrade", reason, lesson_id)
             self._save(doc)
         log.info("deeper lessons: writing %s/%s again failed: %s", pid, sid, reason)
 
     # ------------------------------------------------------------ what Studio and the diagnostics show
 
+    @staticmethod
+    def _lesson_replaced(f: dict, meta: dict) -> bool:
+        """Whether the skill has a lesson newer than the one a failed rewrite was for. A failure written before it said which lesson
+        it was for is told by its time."""
+        if f.get("lesson"):
+            return meta["id"] != f["lesson"]
+        at, made = _when(f.get("at")), _when(meta.get("created"))
+        return bool(at and made and made > at)
+
     def _failure_status(self, doc: dict, f: dict, by: dict) -> str:
         """What became of a failure, for Studio: `waiting` (its skill is tried again), `given_up` (a rewrite that failed every try: the
         earlier lesson stays), `worked` (a later try passed) or `obsolete` (the skill, its words or its lesson changed since, so what
-        failed is no longer there)."""
+        failed is no longer there). Each failure is judged for itself: one that worked stays history when the skill fails again later."""
         pid, sid = f.get("package"), f.get("skill")
         skill = ((self.dojo.packages.by_id.get(pid) or {}).get("skills") or {}).get(sid)
         if not skill:
             return "obsolete"
         if f.get("what") == "search":
             entry = self._entry(self.overlay(pid), skill)
-            return "obsolete" if entry is None else "waiting" if entry.get("error") else "worked"
+            if entry is None:
+                return "obsolete"
+            at, found = _when(f.get("at")), _when(entry.get("searched"))
+            return "worked" if not entry.get("error") or (at and found and found > at) else "waiting"
+        meta = by.get((pid, sid))
+        if meta and self._lesson_replaced(f, meta):
+            return "worked" if meta.get("upgrade_of") else "obsolete"
         a = doc["skills"].get(f"{pid}/{sid}")
         if not isinstance(a, dict):
             return "obsolete"
         if a.get("outcome") == "done":
             return "worked"
-        meta = by.get((pid, sid))
         if not meta or a.get("lesson") != meta["id"]:
             return "obsolete"
         return "given_up" if a.get("given_up") else "waiting"
@@ -532,9 +548,9 @@ class DeeperLessons:
     def _estimate(self, searches: int, lessons: int, narrated: int | None = None, deep_again: int = 0) -> dict | None:
         return self.costs.deeper_estimate(searches, lessons, narrated, deep_again) if self.costs is not None else None
 
-    def _exams(self, doc: dict) -> list[dict]:
+    def _exams(self, doc: dict, by: dict | None = None) -> list[dict]:
         now = self.now()
-        by = self._newest()
+        by = self._newest() if by is None else by
         queue = self.upgrades(doc, by)
         rows = []
         for pid in self.dojo.packages.ids():
@@ -580,7 +596,7 @@ class DeeperLessons:
         """Studio's Deeper lessons card."""
         doc = self._doc()
         by = self._newest()
-        rows = self._exams(doc)
+        rows = self._exams(doc, by)
         for row in rows:
             searches, lessons, again = row.pop("_left")
             spent = row["spent"]
