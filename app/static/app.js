@@ -8969,7 +8969,7 @@ function buildPanel(f, date, kept, token) {
     h("p", { class: "note top" }, "Finding and checking the official pages of a whole exam takes a while, an hour or more: Dojo reads many pages and two different models check each one. You can leave this page. Dojo then goes on by itself until every skill has its pages, and the lessons are written, checked and narrated in the background, one at a time, taking turns with your other exams. A skill that has no verified official page yet is marked, not faked."),
     f.resume && kept ? clearBuild(kept, `An earlier build stopped after ${f.resume.checked} of ${plural(f.resume.skills || 0, "skill")}${f.resume.error ? `: ${f.resume.error}` : "."} Building again keeps the pages already checked.`) : null,
     h("h3", { class: "top" }, "What it costs"),
-    h("p", { class: "small muted" }, "Writing and narration run by themselves once you confirm. Presenter videos are not in this price: they are filmed only when you press Film the lessons, which shows its own price."),
+    h("p", { class: "small muted" }, "Writing and narration run by themselves once you confirm. Presenter videos are not in this price: they are filmed only when you press Film on Studio's To do page, which shows its own price."),
     estimateRows(f.estimate, "About, at list price"),
     f.estimate.complete ? null : h("p", { class: "conf bad top" }, icon("alert", "xs"),
       h("span", null, `Building costs more than ${usd(f.estimate.total)}. ${leftOut(f.estimate)}`)),
