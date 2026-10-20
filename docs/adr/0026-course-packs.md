@@ -146,11 +146,12 @@ rewrite what is waiting, because none of it is where those readers look. Waiting
 
 The place has one gap, found by reading `app/prepare.py`, and the design closes it. Preparer decides what to write by asking which skills have no
 lesson (`lesson_skills`). A skill whose lesson is waiting in `packs/` has none, so Preparer would write it, and spend the money the pack was meant
-to save. The same goes for `POST /api/lessons`. So there is one rule, in one place: **a skill with a lesson waiting in `packs/` is counted as
-taken** by `lesson_skills` and by the check in `new_lesson`, until the pack is adopted or removed. It is one function and one test, not a skip in
-eight modules. And because Preparer starts about two minutes after a Dojo starts and writes built-in exams on its own, a pack saves money only if
-it is added before Preparer reaches those skills. The Add an exam page does this for an exam as it is added. For a built-in exam on a new Dojo the
-setup says so first (section 6, "Before the first start").
+to save. The same goes for `POST /api/lessons`. So there is one rule, in one place: **a new function, `skills_spoken_for`, lists the skills that
+have a lesson or a lesson waiting in `packs/`, and only the two writers ask it** (`Preparer.next_skill` and the check in `new_lesson`). It must not be
+`lesson_skills` itself. `lesson_skills` is also what the readiness page, the study plan's moves, Courses' "ready" count and the practice exam use to
+mean "taught" (`app/readiness.py`, `app/exam.py`, `app/newexam.py`, `app/learning.py`), and a waiting lesson is not taught. Changing it would make
+Dojo say that a skill is taught when no learner can open a lesson for it. It is one function and one test (a waiting skill is spoken for and is not
+taught), not a skip in eight modules.
 
 A pack goes through four steps. In team mode only the owner presses them. Members see labels and nothing else.
 
@@ -327,7 +328,7 @@ above.
 **Before the first start of a new Dojo.** Preparer waits 120 seconds after a start (`Preparer.start`, `app/prepare.py`; started from `app/main.py`) and then
 writes the built-in exams on its own, and every lesson it writes costs money. So a new Dojo has a window of about two minutes in which a pack can be
 added for free, and after it every skill without a lesson is being paid for. The design closes the window with the rule of section 2: a Dojo
-that has not been set up yet counts every skill of a built-in exam as taken, so Preparer writes nothing, until the owner has answered one
+that has not been set up yet counts every skill of a built-in exam as spoken for, so Preparer writes nothing, until the owner has answered one
 question: "Add a finished course for GH-300 and DP-800 first? Adding costs nothing. Dojo starts writing lessons by itself once you answer, and
 each lesson it writes costs money." Answering "No, write them myself" releases the skills. That hold is new behaviour, built in step 4 of
 section 7 with the library reader.
@@ -356,8 +357,8 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 1. **The format, the builder and the validator,** as pure functions with golden tests (`app/packs.py`), and a script that makes a pack from a Dojo's
    data folder and checks a pack file. No routes and no pages. It is useful to the owner alone: a portable copy of finished work, including the
    films that are on the share now.
-2. **The importer and the waiting place:** `packs/`, the door, the journal, adoption, the "counted as taken" rule for skills whose lesson is waiting
-   (`lesson_skills` and `new_lesson`), one admin-only route in the route inventory, and the one line on
+2. **The importer and the waiting place:** `packs/`, the door, the journal, adoption, the new `skills_spoken_for` rule that stops Preparer and
+   `new_lesson` writing a skill whose lesson is waiting, one admin-only route in the route inventory, and the one line on
    a lesson. It is useful to the owner alone too: it puts back films that the 6 GB cap deleted, instead of buying them again at about $1 a minute.
    That works when the lesson text is unchanged, because the film's name is a hash of the lesson's SSML and the presenter's settings. Dojo
    rebuilds that name, finds the pack's file and adopts it. If the lesson was rewritten since, the new words need a new film and the old one cannot
@@ -394,7 +395,7 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 | Hostile text in a lesson | Waiting lessons are shown to no learner. Text is stored and shown as text under the strict content security policy. An allow-listed schema drops unknown fields. Every quote is found again on the official page. A second model checks the claims before adoption, unless the owner chooses to trust the publisher. |
 | A true quote used for a false claim | The quote check cannot see it. The priced claims check can. The line on a lesson says which checks were done. |
 | A wrong or hostile media file | Shape checks, the name bound to the words, the fingerprint, and the listener. Nothing checks pictures or proves a file harmless, so films come from trusted publishers, or after the listener and the owner's yes. |
-| Spending | Adding calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them, and a skill with a waiting lesson is counted as taken so Preparer does not write it (section 2). Ceilings and the film budget. The sheet says what adoption will start. Outside team mode there is no money cap (fact 6). |
+| Spending | Adding calls no model. Waiting lessons are in no place that a reader of lessons looks, so the paid paths in fact 6 that start from a lesson cannot reach them, and a skill with a waiting lesson is spoken for, so Preparer does not write it (section 2). Ceilings and the film budget. The sheet says what adoption will start. Outside team mode there is no money cap (fact 6). |
 | A lesson that outranks or overwrites another | New local ids and dates, foreign links dropped, gaps decided under the store lock, an existing id refused. |
 | A taken-over publisher account | Trust belongs to the source address, not to a name. For the owner's library the root is the code's own repository, which already deploys the Dojo. For others, signing keys and revocation. Withdrawal. |
 | Private data in an export | Allow-listed schemas, the list of files shown before saving, and a test that exports a Dojo seeded with private marker strings and fails if one appears. |
@@ -409,7 +410,7 @@ Each step is useful alone and can be undone. Steps 1 and 2 are code that no page
 
 - The first pack by anyone but the owner, or the first list other than the official one.
 - Any change that lets a service, a route or a prompt read `packs/`, or any change that moves waiting files into `content/` or `media/` before
-  adoption, or that stops `lesson_skills` counting a waiting skill as taken.
+  adoption, or that makes `skills_spoken_for` and `lesson_skills` the same function.
 - R2 answered: films and voices may or may not be handed on.
 - A pack grows past what a release asset can hold, or past the film budget of an ordinary Dojo.
 - The privacy review or a works council refuses team mode (ADR 0009): this ADR then becomes the plan for colleagues.
