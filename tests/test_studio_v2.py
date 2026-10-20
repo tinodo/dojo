@@ -71,7 +71,7 @@ const context = vm.createContext({
   api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (a instanceof Error) throw a; return typeof a === "function" ? a(path, opts) : a; },
 });
 vm.runInContext(CAPPED + "\nthis.capped = capped; this.OPEN_MORE = OPEN_MORE;", context);
-vm.runInContext(STUDIO + "\nthis.part = { STUDIO_TABS, STUDIO_ALIAS, STUDIO_LEAD, money, dayOf, studioNav, viewQuality, studioTodo, studioCourses, studioMoney, todoStrip, labCard, stuckCard, buildCard, videosCard, videoRow, decksCard, pageChecksCard, reviewAll, courseCard, billPanels, groupRow, dayBars, filmLeftOut };", context);
+vm.runInContext(STUDIO + "\nthis.part = { STUDIO_TABS, STUDIO_ALIAS, STUDIO_LEAD, money, dayOf, studioNav, viewQuality, studioTodo, studioCourses, studioMoney, todoStrip, labCard, stuckCard, buildCard, videosCard, videoRow, decksCard, pageChecksCard, reviewAll, courseCard, billPanels, groupRow, dayBars, filmLeftOut, studioActivity };", context);
 const P = context.part;
 const usd = context.usd;
 // Studio's own sheet is tested on its own below: here a press on a money button is answered by the test, and what was asked is kept
@@ -310,9 +310,53 @@ class ToDoTests(unittest.TestCase):
         self.assertEqual(title, "Draw the diagrams ahead of time? About $57.12")
         self.assertIn("A lesson you open in Present gets its diagram at once", notes)
         self.assertIn("until you press Stop here.", notes)
-        self.assertIn("Being drawn ahead of time: 30 of 208 done, up to 20 a day.", on_text)
+        self.assertIn("Being drawn ahead of time: 30 of 208 done.", on_text)
         self.assertEqual(on_buttons, ["Stop drawing ahead of time"], "turning it off asks nothing")
         self.assertEqual(no_buttons, [], "no price, no button")
+
+    def test_the_diagrams_card_says_what_is_happening_now_how_many_today_and_when_the_next_batch_starts(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const face = async (extra) => { const c = data([course("dp-800", "DP-800")]); c.make.decks = decks({ ahead: true, ready: 30, remaining: 178, today: 7, days: 9, ...extra });
+    reset(); answers = [c, bill()]; return text(outside(await P.studioTodo(), isCls("todo-card"))[0]).replace(/\\s+/g, " "); };
+  console.log(JSON.stringify([await face({ drawing: "GH-300 · Describe how inline suggestions work" }), await face({ today: 20, next_at: "2026-10-21T00:00:00Z" }),
+    await face({}), await face({ remaining: 0, ready: 208, days: 0 })]));
+})();""")
+        drawing, done_today, waiting, finished = out
+        self.assertIn("Today: 7 of 20. Drawing now: GH-300 · Describe how inline suggestions work.", drawing)
+        self.assertIn("All of them take about 9 more days. Lessons written later get one too, until you press Stop.", drawing)
+        self.assertIn("Today: 20 of 20. Today's 20 are drawn; the next batch starts", done_today)
+        self.assertRegex(done_today, r"the next batch starts \w+, Oct 2[01], \d\d:\d\d")
+        self.assertIn("Waiting for its turn: it draws one at a time, and waits while something of yours is running.", waiting)
+        self.assertIn("Nothing left to draw.", finished)
+        self.assertNotIn("take about", finished)
+
+    def test_activity_names_each_thing_dojo_does_in_the_background_and_what_it_is_doing(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const act = (now, events) => ({ at: "2026-10-20T10:00:00+00:00", window_days: 14, metered: false, cut: false, spend: [], now, events: events || [] });
+  answers = [act([{ what: "Writing and narrating lessons", state: "Waiting for work" }, { what: "Writing Deeper Listens", state: "Today's 20 are written. The next batch starts", at: "2026-10-21T00:00:00Z" },
+    { what: "Drawing diagrams ahead of time", state: "Drawing GH-300 · Inline suggestions (7 of 20 today)" }],
+    [{ at: "2026-10-20T10:09:51+00:00", kind: "diagram", tone: "info", course: "GH-300", title: "Drew the diagrams for “Inline suggestions”", detail: "8 diagrams", link: "#/lesson/lesson-1/present" },
+     { at: "2026-10-20T10:01:32+00:00", kind: "diagram", tone: "warn", course: "GH-300", title: "The diagrams for “Chat” did not pass their checks", detail: "Present plays the plain deck instead.", link: "#/lesson/lesson-2/present" }])];
+  const body = await P.studioActivity();
+  const rows = body.flat(Infinity).flatMap((n) => all(n, isCls("now-row"))).map((r) => text(r).replace(/\\s+/g, " "));
+  const feed = body.flat(Infinity).flatMap((n) => all(n, isCls("feed-row"))).map((r) => text(r).replace(/\\s+/g, " "));
+  const heads = body.flat(Infinity).flatMap((n) => all(n, isCls("feed-day-h"))).map((r) => text(r).replace(/\\s+/g, " "));
+  const filters = body.flat(Infinity).flatMap((n) => all(n, isTag("button"))).map(text);
+  console.log(JSON.stringify([rows, feed, heads, filters]));
+})();""")
+        rows, feed, heads, filters = out
+        self.assertEqual(len(rows), 3)
+        self.assertIn("Drawing diagrams ahead of time Drawing GH-300 · Inline suggestions (7 of 20 today)", rows[2])
+        self.assertRegex(rows[1], r"Writing Deeper Listens Today's 20 are written\. The next batch starts \w+, Oct 2[01], \d\d:\d\d .*\.$")
+        self.assertEqual(len(feed), 2)
+        self.assertTrue(any("Diagram" in f and "Drew the diagrams for “Inline suggestions”" in f for f in feed))
+        self.assertTrue(any("did not pass their checks" in f for f in feed))
+        self.assertIn("2 diagrams", heads[0])
+        self.assertIn("Diagram", filters, "diagrams can be shown on their own")
 
     def test_the_page_check_is_offered_for_a_course_not_checked_and_running_shows_no_button(self):
         out = run_node("""

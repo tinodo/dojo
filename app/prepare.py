@@ -74,7 +74,7 @@ class Preparer:
         self.dojo = dojo
         self.owner = owner
         self.state: dict = {"running": False, "current": None, "prepared": 0, "narrated": 0, "failed": {}, "last": None,
-                            "filmed": 0, "film_note": "", "upgraded": 0, "deepened": 0, "decked": 0}
+                            "filmed": 0, "film_note": "", "upgraded": 0, "deepened": 0, "decked": 0, "task": None}   # task: what the step is doing now
         self.films: Any = None             # set at startup: the approved filming of added exams (app/newexam.py)
         self.deeper: Any = None            # set at startup: lessons written again on the deeper template (app/deeper.py)
         self.sourcing: Any = None          # set at startup: finds the official pages of added exams' skills (app/sourcing)
@@ -255,7 +255,7 @@ class Preparer:
             return True
         if not rewrite:
             self._last_pid = pid
-        self.state.update(running=True, current=f"{pid}/{sid}")
+        self.state.update(running=True, current=f"{pid}/{sid}", task="lesson")
         try:
             lesson = narration[2] if narration else self.dojo.make_lesson(lambda step: None, self.owner, pid, sid)["lesson"]
             if self._gone(pid):
@@ -277,7 +277,7 @@ class Preparer:
             self.dojo.quality(None, "preparation", {"package": pid, "skill": sid, "text": "",
                                                     "reason": f"{what} ahead of time failed: {getattr(e, 'detail', None) or e}"})
         finally:
-            self.state.update(current=None, last=iso())
+            self.state.update(current=None, task=None, last=iso())
         return True
 
     def next_upgrade(self) -> tuple[str, str, str] | None:
@@ -292,7 +292,7 @@ class Preparer:
         lesson, and when that fails the narration pass fills it in later."""
         if not self.deeper.charge_upgrade(pid, sid, old):
             return True
-        self.state.update(running=True, current=f"{pid}/{sid}")
+        self.state.update(running=True, current=f"{pid}/{sid}", task="upgrade")
         try:
             try:
                 lesson = self.dojo.make_lesson(lambda step: None, self.owner, pid, sid, upgrade_of=old)["lesson"]
@@ -312,7 +312,7 @@ class Preparer:
                     self.dojo.quality(None, "preparation", {"package": pid, "skill": sid, "text": "",
                                                             "reason": f"Narrating this lesson ahead of time failed: {getattr(e, 'detail', None) or e}"})
         finally:
-            self.state.update(current=None, last=iso())
+            self.state.update(current=None, task=None, last=iso())
         return True
 
     def _gone(self, pid: str) -> bool:
@@ -401,7 +401,7 @@ class Preparer:
         what, pid, sid, lesson = work
         if what == "write" and not self._charge_deep():
             return False
-        self.state.update(running=True, current=f"{pid}/{sid}")
+        self.state.update(running=True, current=f"{pid}/{sid}", task="deeper")
         media: list[str] = []
         try:
             if what == "write":
@@ -422,7 +422,7 @@ class Preparer:
             self.dojo.quality(None, "preparation", {"package": pid, "skill": sid, "lesson": lesson, "text": "",
                                                     "reason": f"Deeper Listen ahead of time failed: {getattr(e, 'detail', None) or e}"})
         finally:
-            self.state.update(current=None, last=iso())
+            self.state.update(current=None, task=None, last=iso())
         return True
 
     def deep_status(self) -> dict:
@@ -515,7 +515,7 @@ class Preparer:
         if not work or not self._charge_deck():
             return False
         pid, sid, lesson = work
-        self.state.update(running=True, current=f"{pid}/{sid}")
+        self.state.update(running=True, current=f"{pid}/{sid}", task="diagram")
         try:
             self.dojo.make_deck(lambda step: None, lesson)
             if self._gone(pid):
@@ -534,7 +534,7 @@ class Preparer:
             self.dojo.quality(None, "preparation", {"package": pid, "skill": sid, "lesson": lesson, "text": "",
                                                     "reason": f"Visual deck ahead of time failed: {getattr(e, 'detail', None) or e}"})
         finally:
-            self.state.update(current=None, last=iso())
+            self.state.update(current=None, task=None, last=iso())
         return True
 
     def deck_status(self) -> dict:

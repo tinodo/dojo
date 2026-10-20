@@ -90,13 +90,26 @@ says what is missing; with an old reading it says since when; on the first day o
 "$0". Dojo's own estimates (what a course would cost at Azure's published prices) are below it, closed, and labelled as estimates. The
 Activity page's "What it cost" is relabelled Dojo's own count, not the bill.
 
+**Dojo says what it is doing.** The Preparer names its task (`task`: a lesson, a lesson written again, a Deeper Listen or a diagram) while it works, so
+Activity's "Right now" has a line each for lessons, Deeper Listens and diagrams: what is being worked on, today's count out of the day's
+allowance, and, when the allowance is used up, when the next batch starts (midnight UTC, shown in the reader's own time). "Right now" is read on every request, not
+kept with the feed. A diagram drawn is an event of the feed (kind `diagram`); one that did not pass its checks says Present plays the plain
+deck, and one that stopped on an error or a restart says it stopped before it finished. The diagrams card on To do says how many are
+done, what is drawn now, how many of today's allowance and when the next batch starts, and how many days all of them take.
+
 **Health cannot lie.** Each check is a closed section with a chip and one plain line. "Everything Dojo checked is working" is said only
 when every check could be read; a check that could not be read is named apart and is not a thing to look at; a check that stopped
 (the daily page read older than 36 hours) is a thing to look at; slides worth a listen are information, not a to-do; a storage cap is
 said as a cap ("the last 400 are kept"). Builds that stopped, failed films and a failed monitoring try count as things to look at, and
 the top line says when the page was opened and what it checked. The source-change section is called "Source changes". The voice line says
 out of how many passages, the blocked-sentence line how many were stopped and when the latest was, and a web search that was never tested is
-information, not "fine". The lab database switch is one visible line above the sections, never inside a closed one.
+information, not "fine". A failed try at writing a lesson again or at searching for pages is said as what became of it (`Deeper.view` gives each
+failure a `status`): `given_up` (a rewrite that failed every try) is the one thing to look at, `waiting` (Dojo tries again by itself) is information, and
+`worked` (a later try passed) or `obsolete` (its lesson or skill changed since) is history, listed closed. Three tries of one skill are one rewrite.
+Each failure is judged for itself, and what became of it is written down for good when its cycle ends (`closed`: a later try passed, the pages the
+skill cites were replaced and its attempts started over, or the search was for words the skill no longer has), so a later failure of the same skill,
+or of the same lesson, never brings it back. A failed rewrite records the lesson it was for: one whose lesson another lesson replaced is told by that
+(a failure written before that was recorded: by its time), and a failed search by whether a search finished after it. The lab database switch is one visible line above the sections, never inside a closed one.
 
 **The server adds**: `film_split` and `film_offer` (the rule), `Dojo.rewritten_recently` and `scheduled_rewrites`,
 `Sourcer.unsettled`, `DriftCheck.owner_todo`, `todo`, `quiet_days` and `quiet_last` in `/api/studio/courses`, `/api/studio/bill`.

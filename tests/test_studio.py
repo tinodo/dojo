@@ -785,8 +785,101 @@ class ActivityTests(StudioCase):
 
     def test_what_is_running_now_is_one_line_each(self):
         now = self.read("activity")["now"]
-        self.assertEqual([r["what"] for r in now[:2]], ["Writing and narrating lessons", "Finding official pages"])
+        self.assertEqual([r["what"] for r in now[:4]], ["Writing and narrating lessons", "Writing Deeper Listens", "Drawing diagrams ahead of time",
+                                                      "Finding official pages"])
         self.assertTrue(all(isinstance(r["state"], str) and r["state"] for r in now))
+
+    def now_row(self, what: str) -> dict:   # a line of "Right now"
+        return next(r for r in self.read("activity")["now"] if r["what"] == what)
+
+    def test_a_diagram_being_drawn_is_said_as_that_and_not_as_writing_lessons(self):
+        prep = self.app.state.preparer
+        prep.set_deck_ahead(True)
+        skill = self.skills[0]
+        prep.state.update(running=True, current=f"{self.pid}/{skill['id']}", task="diagram")
+        drawing = self.now_row("Drawing diagrams ahead of time")["state"]
+        self.assertTrue(drawing.startswith("Drawing XY-110 · ") and drawing.endswith("(0 of 20 today)"), drawing)
+        self.assertEqual(self.now_row("Writing and narrating lessons")["state"], "Waiting for work", "it is not writing a lesson")
+        self.assertEqual(self.now_row("Writing Deeper Listens")["state"], "Waiting for work")
+        prep.state.update(task="deeper")
+        self.assertTrue(self.now_row("Writing Deeper Listens")["state"].startswith("Working on XY-110 · "))
+        self.assertNotIn("Drawing XY-110", self.now_row("Drawing diagrams ahead of time")["state"])
+        prep.state.update(task="lesson")
+        self.assertTrue(self.now_row("Writing and narrating lessons")["state"].startswith("Working on XY-110 · "))
+        prep.state.update(running=False, current=None, task=None)
+
+    def test_the_diagrams_line_says_when_it_is_off_waiting_done_for_the_day_or_has_nothing_left(self):
+        prep = self.app.state.preparer
+        prep.set_deck_ahead(False)
+        self.assertEqual(self.now_row("Drawing diagrams ahead of time")["state"], "Off. Switch it on from the To do page.")
+        prep.set_deck_ahead(True)
+        self.assertEqual(self.now_row("Drawing diagrams ahead of time")["state"], "Nothing left to draw", "no lesson is written yet")
+        self.write(self.skills[0])
+        self.assertEqual(self.now_row("Drawing diagrams ahead of time")["state"], "Waiting for its turn (0 of 20 today)")
+        self.dojo.store.write("content", "deck-state", value={"day": iso()[:10], "today": 20, "written": 20, "ahead": True})
+        done = self.now_row("Drawing diagrams ahead of time")
+        self.assertEqual(done["state"], "Today's 20 are drawn. The next batch starts")
+        self.assertEqual(parse_iso(done["at"]).hour, 0, "midnight UTC")
+        self.assertGreater(parse_iso(done["at"]), utcnow())
+        self.dojo.store.write("content", "deep-state", value={"day": iso()[:10], "today": 20, "written": 20})
+        deeper = self.now_row("Writing Deeper Listens")
+        self.assertEqual((deeper["state"], deeper["at"]), ("Today's 20 are written. The next batch starts", done["at"]))
+
+    def test_the_diagrams_card_knows_what_is_drawn_now_and_when_the_next_batch_starts(self):
+        prep = self.app.state.preparer
+        prep.set_deck_ahead(True)
+        decks = self.read()["make"]["decks"]
+        self.assertEqual((decks["drawing"], decks["next_at"], decks["today"]), (None, None, 0))
+        prep.state.update(running=True, current=f"{self.pid}/{self.skills[0]['id']}", task="diagram")
+        self.assertTrue(self.read()["make"]["decks"]["drawing"].startswith("XY-110 · "))
+        prep.state.update(running=False, current=None, task=None)
+        self.dojo.store.write("content", "deck-state", value={"day": iso()[:10], "today": 20, "written": 20, "ahead": True})
+        self.assertEqual(self.read()["make"]["decks"]["next_at"], self.studio._next_day())
+        prep.set_deck_ahead(False)
+        off = self.read()["make"]["decks"]
+        self.assertEqual((off["drawing"], off["next_at"]), (None, None), "off: nothing is drawn and nothing is waiting for tomorrow")
+
+    def test_what_is_running_now_is_read_each_time_and_not_kept_with_the_feed(self):
+        prep = self.app.state.preparer
+        prep.set_deck_ahead(True)
+        self.assertEqual(self.read("activity")["now"][2]["state"], "Nothing left to draw", "no lesson is written yet")
+        self.write(self.skills[0])
+        prep.state.update(running=True, current=f"{self.pid}/{self.skills[0]['id']}", task="diagram")
+        again = self.c.get("/api/studio/activity").json()   # no reset of Studio's own cache: the feed may be a minute old, the lines are not
+        self.assertTrue(again["now"][2]["state"].startswith("Drawing XY-110 · "), again["now"][2])
+        prep.state.update(running=False, current=None, task=None)
+        self.assertTrue(self.c.get("/api/studio/activity").json()["now"][2]["state"].startswith("Waiting for its turn"))
+
+    def test_a_drawing_that_stopped_is_not_blamed_on_its_checks(self):
+        lesson = self.write(self.skills[0])
+        skill = self.dojo.lesson(lesson)["skill"]
+        self.dojo._deck_save(lesson, {"lesson": lesson, "package": self.pid, "skill": skill, "created": iso(), "state": "failed", "stopped": True, "attempts": 1})
+        cut = next(e for e in self.read("activity")["events"] if e["kind"] == "diagram")
+        self.assertTrue(cut["title"].endswith("stopped before it finished"), cut["title"])
+        self.assertEqual(cut["tone"], "warn")
+        self.dojo._deck_save(lesson, {"lesson": lesson, "package": self.pid, "skill": skill, "created": iso(), "state": "failed", "attempts": 1})
+        held = next(e for e in self.read("activity")["events"] if e["kind"] == "diagram")
+        self.assertTrue(held["title"].endswith("did not pass their checks"), held["title"])
+
+    def test_the_diagrams_drawn_are_listed_and_one_that_did_not_pass_says_so(self):
+        good, bad = self.write(self.skills[0]), self.write(self.skills[1])
+        for lesson, state in ((good, "ready"), (bad, "failed")):
+            skill = self.dojo.lesson(lesson)["skill"]
+            self.dojo._deck_save(lesson, {"lesson": lesson, "package": self.pid, "skill": skill, "created": iso(), "state": state, "attempts": 1, "visuals": 8})
+        events = {e["link"]: e for e in self.read("activity")["events"] if e["kind"] == "diagram"}
+        ok, no = events[f"#/lesson/{good}/present"], events[f"#/lesson/{bad}/present"]
+        self.assertEqual((ok["tone"], ok["course"], ok["detail"]), ("info", "XY-110", "8 diagrams"))
+        self.assertTrue(ok["title"].startswith("Drew the diagrams for “"))
+        self.assertEqual((no["tone"], no["detail"]), ("warn", "Present plays the plain deck instead."))
+        self.assertTrue(no["title"].endswith("did not pass their checks"))
+        self.dojo._deck_save(good, {"lesson": good, "package": self.pid, "skill": "x", "created": iso(), "state": "writing", "attempts": 1})
+        self.dojo._deck_writing.add(good)   # it is being drawn at this moment
+        try:
+            self.assertNotIn(f"#/lesson/{good}/present", {e["link"] for e in self.read("activity")["events"] if e["kind"] == "diagram"}, "one being drawn is not an event yet")
+        finally:
+            self.dojo._deck_writing.discard(good)
+        self.assertTrue(any(e["link"] == f"#/lesson/{good}/present" and e["tone"] == "warn" for e in self.read("activity")["events"] if e["kind"] == "diagram"),
+                        "one that was cut off by a restart is read as failed")
 
     def test_events_older_than_the_window_are_left_out(self):
         lesson = self.write(self.skills[0])

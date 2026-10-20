@@ -127,9 +127,21 @@ class DeeperLessons:
         doc["spent"][pid] = {k: int(spent.get(k) or 0) for k in ("searched", "attempts", "written")}
         return doc["spent"][pid]
 
-    def _failed(self, doc: dict, pid: str, sid: str, what: str, reason: str) -> None:
-        doc["failures"].append({"at": iso(self.now()), "package": pid, "skill": sid, "what": what, "reason": str(reason)[:300]})
+    def _failed(self, doc: dict, pid: str, sid: str, what: str, reason: str, lesson: str | None = None) -> None:
+        """Writes a failure down. A failed rewrite says which lesson it was for, so what became of it is read from that lesson."""
+        doc["failures"].append({"at": iso(self.now()), "package": pid, "skill": sid, "what": what, "reason": str(reason)[:300],
+                                **({"lesson": lesson} if lesson else {})})
         doc["failures"] = doc["failures"][-FAILURES_KEPT:]
+
+    @staticmethod
+    def _close(doc: dict, pid: str, sids: Any, what: str, how: str) -> int:
+        """What became of the failures of these skills is written down for good (`worked`, or `obsolete`: what failed is no longer there),
+        so a later failure of the same skill, or of the same lesson, never brings one back. The number closed."""
+        n = 0
+        for f in doc["failures"]:
+            if f.get("package") == pid and f.get("skill") in sids and f.get("what") == what and not f.get("closed"):
+                f["closed"], n = how, n + 1
+        return n
 
     # ------------------------------------------------------------ the pages a skill cites
 
@@ -258,16 +270,21 @@ class DeeperLessons:
         it for free: the skills wait SEARCH_RETRY_H before they are tried again."""
         pkg = self.dojo.packages.get(pid)
         stamp = iso(self.now())
+        fresh = []
         with self._overlays:
             overlay = self.overlay(pid)
             for sid in sids:
                 s = pkg["skills"][sid]
-                entry = self._entry(overlay, s) or {"skill_text": s["text"], "sources": []}
+                entry = self._entry(overlay, s)
+                if entry is None:
+                    fresh.append(sid)   # its words changed since it was last searched, or it never was
+                    entry = {"skill_text": s["text"], "sources": []}
                 entry["tried"] = stamp
                 overlay["skills"][sid] = entry
             self._write(pid, overlay)
         with self.dojo.store.lock:
             doc = self._doc()
+            self._close(doc, pid, set(fresh), "search", "obsolete")   # what failed before was a search for other words
             self._spent(doc, pid)["searched"] += len(sids)
             doc["last_search"] = stamp
             self._save(doc)
@@ -335,11 +352,13 @@ class DeeperLessons:
             if drift is not None:
                 drift.forget_pages(replaced)
             log.info("deeper lessons: %d page(s) that went gone replaced in %s", len(replaced), pid)
-        if failures:
-            with self.dojo.store.lock:
-                doc = self._doc()
-                for sid, reason in failures:
-                    self._failed(doc, pid, sid, "search", reason)
+        with self.dojo.store.lock:
+            doc = self._doc()
+            failed = {sid for sid, _ in failures}
+            closed = self._close(doc, pid, {sid for sid in sids if sid not in failed}, "search", "worked")
+            for sid, reason in failures:
+                self._failed(doc, pid, sid, "search", reason)
+            if failures or closed:
                 self._save(doc)
         log.info("deeper lessons: %d of %d skills searched, %d failed", len(sids) - len(failures), len(sids), len(failures))
 
@@ -460,7 +479,7 @@ class DeeperLessons:
                     a.update(outcome="failed", given_up=iso(self.now()),
                              error=a.get("error") or "The attempts stopped before they finished (Dojo restarted or crashed).")
                     doc["skills"][key] = a
-                    self._failed(doc, pid, sid, "upgrade", a["error"])
+                    self._failed(doc, pid, sid, "upgrade", a["error"], lesson_id)
                     self._save(doc)
                     return False
                 a.update(tries=int(a.get("tries") or 0) + 1, last=iso(self.now()), outcome="running", error=None)
@@ -482,6 +501,7 @@ class DeeperLessons:
             doc["skills"][f"{pid}/{sid}"] = {"lesson": new_id, "tries": 0, "last": a.get("last") or iso(self.now()),
                                              "outcome": "done", "replaced": old_id, "tries_needed": int(a.get("tries") or 1)}
             self._spent(doc, pid)["written"] += 1
+            self._close(doc, pid, {sid}, "upgrade", "worked")
             self._save(doc)
         log.info("deeper lessons: %s/%s written again on template %d", pid, sid, LESSON_TEMPLATE)
 
@@ -490,7 +510,8 @@ class DeeperLessons:
         earlier attempt at its lesson was on those pages, so it neither makes the skill wait nor gives it up."""
         with self.dojo.store.lock:
             doc = self._doc()
-            if doc["skills"].pop(f"{pid}/{sid}", None) is not None:
+            reset = doc["skills"].pop(f"{pid}/{sid}", None) is not None
+            if self._close(doc, pid, {sid}, "upgrade", "obsolete") or reset:
                 self._save(doc)
 
     def failed(self, pid: str, sid: str, lesson_id: str, reason: str) -> None:
@@ -502,18 +523,55 @@ class DeeperLessons:
             if int(a.get("tries") or 0) >= UPGRADE_TRIES:
                 a["given_up"] = iso(self.now())
             doc["skills"][f"{pid}/{sid}"] = a
-            self._failed(doc, pid, sid, "upgrade", reason)
+            self._failed(doc, pid, sid, "upgrade", reason, lesson_id)
             self._save(doc)
         log.info("deeper lessons: writing %s/%s again failed: %s", pid, sid, reason)
 
     # ------------------------------------------------------------ what Studio and the diagnostics show
 
+    @staticmethod
+    def _lesson_replaced(f: dict, meta: dict) -> bool:
+        """Whether the skill has a lesson newer than the one a failed rewrite was for. A failure written before it said which lesson
+        it was for is told by its time."""
+        if f.get("lesson"):
+            return meta["id"] != f["lesson"]
+        at, made = _when(f.get("at")), _when(meta.get("created"))
+        return bool(at and made and made > at)
+
+    def _failure_status(self, doc: dict, f: dict, by: dict) -> str:
+        """What became of a failure, for Studio: `waiting` (its skill is tried again), `given_up` (a rewrite that failed every try: the
+        earlier lesson stays), `worked` (a later try passed) or `obsolete` (the skill, its words or its lesson changed since, so what
+        failed is no longer there). Each failure is judged for itself: one that worked stays history when the skill fails again later."""
+        if f.get("closed") in ("worked", "obsolete"):
+            return f["closed"]
+        pid, sid = f.get("package"), f.get("skill")
+        skill = ((self.dojo.packages.by_id.get(pid) or {}).get("skills") or {}).get(sid)
+        if not skill:
+            return "obsolete"
+        if f.get("what") == "search":
+            entry = self._entry(self.overlay(pid), skill)
+            if entry is None:
+                return "obsolete"
+            at, found = _when(f.get("at")), _when(entry.get("searched"))
+            return "worked" if not entry.get("error") or (at and found and found > at) else "waiting"
+        meta = by.get((pid, sid))
+        if meta and self._lesson_replaced(f, meta):
+            return "worked" if meta.get("upgrade_of") else "obsolete"
+        a = doc["skills"].get(f"{pid}/{sid}")
+        if not isinstance(a, dict):
+            return "obsolete"
+        if a.get("outcome") == "done":
+            return "worked"
+        if not meta or a.get("lesson") != meta["id"]:
+            return "obsolete"
+        return "given_up" if a.get("given_up") else "waiting"
+
     def _estimate(self, searches: int, lessons: int, narrated: int | None = None, deep_again: int = 0) -> dict | None:
         return self.costs.deeper_estimate(searches, lessons, narrated, deep_again) if self.costs is not None else None
 
-    def _exams(self, doc: dict) -> list[dict]:
+    def _exams(self, doc: dict, by: dict | None = None) -> list[dict]:
         now = self.now()
-        by = self._newest()
+        by = self._newest() if by is None else by
         queue = self.upgrades(doc, by)
         rows = []
         for pid in self.dojo.packages.ids():
@@ -558,7 +616,8 @@ class DeeperLessons:
     def view(self) -> dict:
         """Studio's Deeper lessons card."""
         doc = self._doc()
-        rows = self._exams(doc)
+        by = self._newest()
+        rows = self._exams(doc, by)
         for row in rows:
             searches, lessons, again = row.pop("_left")
             spent = row["spent"]
@@ -579,7 +638,8 @@ class DeeperLessons:
             "estimate": self._estimate(sum(a for a, _, _ in left), sum(b for _, b, _ in left), deep_again=sum(c for _, _, c in left)),
             "spent": self._estimate(sum(s["searched"] for s in spent), sum(s["attempts"] for s in spent),
                                     sum(s["written"] for s in spent)),
-            "failures": list(reversed(doc["failures"])),
+            "failures": [{**f, "status": s, "resolved": s in ("worked", "obsolete")}   # newest first; each says what became of it
+                         for f in reversed(doc["failures"]) for s in [self._failure_status(doc, f, by)]],
         }
 
     @staticmethod
