@@ -276,7 +276,7 @@ class PageCheckScreenTests(unittest.TestCase):
     def test_the_to_do_page_offers_the_check_and_the_course_shows_what_it_found(self):
         self.assertIn("pageChecksCard(c, act)", part("async function studioTodo() {"))
         self.assertIn("pageCheckList(x)", part("function courseCard(x, c) {"))
-        self.assertIn("pagesLine(x, pages)", part("function courseCard(x, c) {"))
+        self.assertIn("pagesLine(x)", part("function courseCard(x, c) {"))
         self.assertIn("/api/studio/courses?fresh=true", part("function pageCheckRow(x, act) {"))
         self.assertIn("whose pages were not confirmed", part("function pageCheckList(x) {"))
 

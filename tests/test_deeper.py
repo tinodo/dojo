@@ -1369,6 +1369,8 @@ class EarlierFilmTests(UpgradeCase):
         self.drift._set_film(new, state="approved")
         self.assertTrue(self.get(f"/api/lessons/{new}")["earlier_film"]["remaking"])
         self.drift._set_film(new, state=None)
+        self.assertEqual(self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST).status_code, 409, "written again this week: not offered yet")
+        self.clock += timedelta(days=learning_mod.QUIET_DAYS + 1)   # a lesson written again is filmed after a quiet week (ADR 0025)
         with mock.patch.object(drift_mod, "FILM_WAIT_S", 0.05):
             r = self.c.post("/api/studio/drift/refilm", json={"lessons": [new]}, headers=POST)
             self.assertEqual(r.status_code, 200, r.text)

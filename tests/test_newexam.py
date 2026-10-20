@@ -2050,7 +2050,9 @@ class EstimateScreenTests(unittest.TestCase):
         warning = build.index("f.estimate.complete ? null : h(\"p\", { class: \"conf bad top\" }")
         self.assertIn("`Building costs more than ${usd(f.estimate.total)}. ${leftOut(f.estimate)}`", build[warning:])
         self.assertLess(warning, build.index('h("div", { class: "actions top" }, go)'), "right above the button")
-        self.assertIn('e.complete ? "about" : "more than"', self.part("function filmPanel(st, onStatus, note) {"))
+        film = self.part("function filmPanel(st, onStatus, note) {")
+        self.assertNotIn("estimateRows", film, "the exam page shows no price: it spends nothing, videos are decided on Studio's To do page")
+        self.assertIn('linkButton("Decide on the To do page"', film)
 
     def test_studio_shows_the_model_list_prices(self):
         panel = self.part("function costsPanel(c) {")
@@ -2076,9 +2078,6 @@ class EstimateScreenTests(unittest.TestCase):
         self.assertLess(build.index("Writing and narration run by themselves"), start, "said before the price, not between it and the button")
         self.assertEqual(build[start:button].count('h("p"'), 1)
         self.assertIn("f.estimate.complete ? null", build[start:button])
-        film = self.part("function filmPanel(st, onStatus, note) {")
-        start, button = film.index('estimateRows(e, "About, at list price")'), film.index('h("div", { class: "actions top" }, btn)')
-        self.assertEqual(film[start:button], 'estimateRows(e, "About, at list price")),\n      ')
         studio = self.part("function costsPanel(c) {")
         self.assertLess(studio.index('h("div", { class: "costrow total" }'), studio.index("pricesAge(c),"))
         self.assertLess(studio.index("pricesAge(c),"), studio.index("Model list prices, not in this total"))

@@ -379,6 +379,67 @@ class MakeTests(StudioCase):
             videos = self.videos()
         self.assertEqual((videos["offer"]["lessons"], videos["later"], videos["quiet_until"]), (2, {}, None), "a quiet week later it joins")
 
+    def test_an_offer_says_how_much_of_it_replaces_a_video_the_owner_already_has(self):
+        a, b = self.ready()
+        self.film(a)
+        new = self.rewrite(a, self.skills[0])
+        self.narrate(new)
+        later = utcnow() + timedelta(days=learning_mod.QUIET_DAYS + 1)
+        with mock.patch.object(learning_mod, "utcnow", lambda: later):
+            course = self.course()
+            offer = course["make"]["videos"]["offer"]
+        self.assertEqual(course["video"]["earlier"], 1, "Watch plays the earlier version's film of the rewritten lesson")
+        self.assertEqual(offer["lessons"], 2)
+        self.assertEqual((offer["replaces"]["lessons"], offer["fresh"]["lessons"]), (1, 1))
+        self.assertGreater(offer["replaces"]["usd"], 0)
+        self.assertAlmostEqual(offer["replaces"]["usd"] + offer["fresh"]["usd"], offer["usd"], places=2, msg="the two add up to the price on the button")
+
+    def unreadable_books(self):
+        """The writer of the deeper lessons cannot read its books: which lessons are about to be rewritten is not known."""
+        books = mock.Mock()
+        books.to_write_again.side_effect = RuntimeError("the books are unreadable")
+        return mock.patch.object(self.dojo, "deeper", books, create=True)
+
+    def test_when_the_lessons_about_to_be_rewritten_cannot_be_read_no_film_is_offered_or_approved(self):
+        a, b = self.ready()
+        token = self.videos()["offer"]["token"]
+        with self.unreadable_books():
+            course = self.course()
+            self.assertIsNone(course["make"]["videos"], "no offer: it fails closed, and the rest of the page is still there")
+            self.assertEqual(course["skills"], len(self.dojo.packages.get(self.pid)["skills"]))
+            self.assertIsNone(self.app.state.newexams.next_film(), "and no film is chosen")
+            self.assertIn("cannot tell just now which lessons are about to be rewritten", self.press(token, 422)["detail"], "said in plain words, not as a server error")
+            self.assertEqual(self.c.get(f"/api/exam-packages/{self.pid}").status_code, 200, "the exam page still draws")
+        self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 0, "nothing was approved")
+
+    def test_stop_still_works_when_the_lessons_about_to_be_rewritten_cannot_be_read(self):
+        self.ready()
+        self.press(self.videos()["offer"]["token"])
+        with self.unreadable_books():
+            r = self.c.post(f"/api/studio/film/{self.pid}/stop", headers=POST)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["stopped"], 2)
+        self.assertEqual(self.app.state.newexams.film_state(self.pid)["waiting"], 0)
+
+    def test_an_approved_film_whose_pages_are_refused_meanwhile_waits(self):
+        a, b = self.ready()
+        self.press(self.videos()["offer"]["token"])
+        films, sourcer = self.app.state.newexams, self.app.state.newexams.sourcer
+        self.assertEqual(films.next_film(), a)
+        with mock.patch.object(sourcer, "unsettled", return_value={self.skills[0]["id"]: "its pages were refused and will be replaced"}):
+            self.assertEqual(films.next_film(), b, "its pages may be replaced: it waits, and the next lesson is filmed")
+        with mock.patch.object(sourcer, "unsettled", return_value={self.skills[0]["id"]: "x", self.skills[1]["id"]: "y"}):
+            self.assertIsNone(films.next_film())
+
+    def test_the_exam_page_says_how_many_lessons_are_left_out_and_why(self):
+        a, b = self.ready()
+        new = self.rewrite(a, self.skills[0])
+        self.narrate(new)
+        film = self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]
+        self.assertEqual(film["later"], {"quiet": 1, "scheduled": 0, "pages": 0})
+        with mock.patch.object(self.dojo, "scheduled_rewrites", return_value={b}):
+            self.assertEqual(self.c.get(f"/api/exam-packages/{self.pid}").json()["film"]["later"], {"quiet": 1, "scheduled": 1, "pages": 0})
+
     def test_a_first_lesson_is_offered_at_once(self):
         a, b = self.ready()
         self.assertEqual(self.videos()["offer"]["lessons"], 2)
@@ -471,6 +532,23 @@ class MakeTests(StudioCase):
         self.assertIn("already being filmed", second.json()["detail"])
         self.assertEqual(len([j for j in self.dojo.jobs.for_learner(self.owner) if j["kind"] == "video"]), 1, "one paid job")
 
+    def test_the_lesson_page_does_not_film_a_lesson_that_is_certainly_replaced(self):
+        a, b = self.ready()
+        new = self.rewrite(a, self.skills[0])
+        self.narrate(new)
+        drift = self.app.state.drift
+        started = []
+        with mock.patch.object(self.dojo, "lesson_video", lambda progress, learner, lesson_id: started.append(lesson_id) or {"lesson": lesson_id}):
+            old = self.c.post(f"/api/lessons/{a}/video", headers=POST)
+            self.assertEqual(old.status_code, 409, "an older version of the lesson")
+            self.assertIn("newer version", old.json()["detail"])
+            with mock.patch.object(drift, "withheld", lambda lesson: lesson == b):
+                held = self.c.post(f"/api/lessons/{b}/video", headers=POST)
+            self.assertEqual(held.status_code, 409, "a lesson a changed page holds back")
+            self.assertIn("writing this lesson again", held.json()["detail"])
+            self.assertEqual(self.c.post(f"/api/lessons/{new}/video", headers=POST).status_code, 200, "a lesson rewritten lately may be filmed: the owner chose it, knowing")
+        self.assertEqual([x for x in started if x in (a, b)], [])
+
     def test_the_diagrams_are_one_line_for_all_courses(self):
         self.ready()
         decks = self.read()["make"]["decks"]
@@ -490,7 +568,6 @@ class MakeTests(StudioCase):
         watch = SCRIPT.split("const priced = !!(L.film_price && L.film_price.complete);", 1)[1].split("\n}\n", 1)[0]
         self.assertIn("if (!priced) {", watch)
         self.assertIn("btn.disabled = true;", watch.split("if (!priced) {", 1)[1])
-        self.assertIn("if (!e.complete) {", part("function filmPanel(st, onStatus, note) {"))
 
     def test_the_routes_are_closed_while_a_timed_exam_runs(self):
         self.app.state.exams.open_attempt = lambda learner: {"id": "exam-00000000000000000000"}
@@ -726,11 +803,29 @@ class StaleReadingTests(StudioCase):
         self.assertEqual(self.studio._cached("k", lambda: {"n": "never"}), {"n": "now"}, "the older reading did not take its place")
 
 
+class VerdictTests(unittest.TestCase):
+    def test_the_sentence_says_what_is_missing_as_what_it_is(self):
+        verdict = studio_mod.Studio._verdict
+        self.assertEqual(verdict(True, 73, 73, 73), "Every skill has a lesson and audio.")
+        self.assertEqual(verdict(False, 94, 91, 91), "3 skills of 94 can't be studied from a lesson yet.")
+        self.assertEqual(verdict(False, 94, 94, 91), "3 lessons are waiting for audio.", "not '0 skills can't be studied'")
+        self.assertEqual(verdict(False, 94, 94, 93), "1 lesson is waiting for audio.")
+
+
 class ToDoViewTests(StudioCase):
     """What the courses view carries for the To do page (ADR 0025): what only the owner can do, and how long a rewritten lesson is left out."""
 
     def test_the_view_carries_how_many_days_a_rewritten_lesson_is_left_out(self):
         self.assertEqual(self.read()["make"]["quiet_days"], learning_mod.QUIET_DAYS)
+
+    def test_a_lab_to_look_at_names_the_page_that_changed(self):
+        drift = self.app.state.drift
+        flagged = [{"id": "vector", "title": "Make a vector product table", "skill": "d3.g2.s3", "date": "2026-10-12"}]
+        page = {"url": "https://learn.microsoft.com/en-us/sql/t-sql/data-types/vector-data-type", "title": "Vector data type", "publisher": "Microsoft Learn"}
+        with mock.patch.object(drift, "flagged_labs", return_value=flagged), \
+                mock.patch.object(drift, "lab_state", return_value={"state": "recheck", "date": "2026-10-12", "pages": [page], "gone": []}):
+            todo = self.read()["todo"]
+        self.assertEqual(todo["labs"], [{**flagged[0], "pages": [page]}])
 
     def test_with_nothing_found_there_is_nothing_to_do(self):
         self.assertEqual(self.read()["todo"], {"labs": [], "stuck": [], "builds": []})
@@ -847,7 +942,7 @@ class StudioScreenTests(unittest.TestCase):
         self.assertIn("until you press Stop", decks, "the diagrams stay on for lessons written later")
         checks = part("function pageCheckRow(x, act) {")
         self.assertLess(checks.index("moneySheet(ask)"), checks.index("/api/studio/pagecheck/"))
-        every = part("function reviewAll(c, act) {")
+        every = part("function reviewAll(c, act, bill) {")
         self.assertLess(every.index("moneySheet({ pick: true"), every.index('"/api/studio/make"'))
         for spends in (films, decks, checks, every):
             self.assertNotIn("window.confirm(", spends, "a sheet with Cancel focused, not a dialog Enter can press through")
@@ -855,7 +950,9 @@ class StudioScreenTests(unittest.TestCase):
         lesson = SCRIPT.split("const priced = !!(L.film_price && L.film_price.complete);", 1)[1].split("\n}\n", 1)[0]
         self.assertLess(lesson.index("moneySheet(ask)"), lesson.index("/video"), "the lesson page asks as well")
         exam = part("function filmPanel(st, onStatus, note) {")
-        self.assertLess(exam.index("moneySheet(ask)"), exam.index("/film"), "so does the exam page")
+        self.assertNotIn("moneySheet", exam, "the exam page does not spend: videos are decided in one place")
+        self.assertNotIn("/film`", exam)
+        self.assertIn('linkButton("Decide on the To do page", "#/quality"', exam)
 
     def test_the_page_looks_again_while_something_is_made_and_stops_when_it_is_left(self):
         body = part("async function studioTodo() {")

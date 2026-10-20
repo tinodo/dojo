@@ -77,7 +77,8 @@ const tabApi = async (path, over) => {
   const o = Object.assign({}, tabApiOver);
   if (path in o) { const v = o[path]; if (v instanceof Error) throw v; return v; }
   return path === "/api/quality" ? [] : path === "/api/about" ? { models: { author: "a", gate: "g", grader: "r" } } : path === "/api/studio/voices" ? voices(0)
-    : path === "/api/studio/drift" ? drift([]) : path === "/api/studio/deeper" ? deeperView() : path === "/api/studio/sourcing" ? sources(true) : { on: true };
+    : path === "/api/studio/drift" ? drift([]) : path === "/api/studio/deeper" ? deeperView() : path === "/api/studio/sourcing" ? sources(true)
+    : path === "/api/studio/courses" ? { courses: [], todo: { labs: [], stuck: [], builds: [] } } : { on: true };
 };
 let tabApiOver = {};
 const tick = () => new Promise((r) => setTimeout(r, 5));
@@ -242,10 +243,10 @@ class HealthTabTests(unittest.TestCase):
         self.assertIn("1 lab to look at.", lab_text)
         self.assertNotIn("working", lab_text)
         self.assertIn("Everything Dojo could read is working.", unread, "a check that could not be read is not a thing to look at")
-        self.assertIn("2 of 6 checks could not be read: voices, lesson sources.", unread)
+        self.assertIn("2 of 7 checks could not be read: voices, lesson sources.", unread)
         self.assertIn("2 things to look at.", both)
-        self.assertIn("1 of 6 checks could not be read: voices.", both)
-        self.assertIn("The daily page check has not read a page for 3 days.", stale, "a check that stopped is not 'fine'")
+        self.assertIn("1 of 7 checks could not be read: voices.", both)
+        self.assertIn("The daily read of the cited pages has not read a page for 3 days.", stale, "a check that stopped is not 'fine'")
         self.assertIn("Web search for finding pages does not work.", web)
 
     def test_slides_worth_a_listen_are_information_not_a_thing_to_look_at(self):
@@ -260,6 +261,24 @@ class HealthTabTests(unittest.TestCase):
         self.assertIn("Everything Dojo checked is working.", out[0])
         self.assertEqual(out[1], [["for information", "line"]])
         self.assertIn("171 slides or parts were read a little differently from the text", out[2])
+
+    def test_what_needs_the_owner_on_the_to_do_page_is_not_called_fine_here(self):
+        out = run_node("""
+(async () => {
+  const sentence = async (over) => { tabApiOver = over; const body = await studioHealth(tabApi); return text(body.flat(Infinity)[0]); };
+  const course = (failed) => ({ package: "p", exam: "XY-110", make: { videos: { failed } } });
+  const build = await sentence({ "/api/studio/courses": { courses: [], todo: { labs: [], stuck: [], builds: [{ package: "xy", exam: "XY-110", state: "stopped" }] } } });
+  const films = await sentence({ "/api/studio/courses": { courses: [course(2)], todo: { labs: [], stuck: [], builds: [] } } });
+  const monitoring = await sentence({ "/api/studio/lab": { on: true, demo: false, monitoring: { observed: "on", error: "database waking" } } });
+  const clear = await sentence({});
+  console.log(JSON.stringify([build, films, monitoring, clear]));
+})();""")
+        build, films, monitoring, clear = out
+        self.assertIn("The build of XY-110 stopped.", build)
+        self.assertIn("2 films did not work last time.", films)
+        self.assertIn("The last try to change the lab database's performance monitoring did not work.", monitoring)
+        self.assertIn("Everything Dojo checked is working.", clear)
+        self.assertRegex(clear, r"Read \d{1,2}:\d\d(?:\s[AP]M)?: source changes, voices, rewrites from more pages, lesson sources, blocked sentences, lab database, courses\.", "it says what it read")
 
     def test_the_counts_say_what_is_kept_not_the_cap_as_a_fact(self):
         out = run_node("""

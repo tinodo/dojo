@@ -440,14 +440,15 @@ class NewExams:
         except OSError:
             return set()
 
-    def _lessons(self, pid: str, media: set[str]) -> dict:
+    def _lessons(self, pid: str, media: set[str], quiet: dict | None = None, scheduled: set | None = None) -> dict:
         """How far the course is: lessons written, narrated and filmed, and the lessons that could be filmed. `later` names the
         unfilmed lessons that are not offered now (`_queue`): they will be written again on the deeper template, or were
         written again less than QUIET_DAYS ago (with when each is quiet long enough), or are written from pages that may still be
         replaced (`pages`, with why). It is the rule of a built-in course too (app/drift.py `film_split`)."""
         pkg = self.packages.get(pid)
         teachable = [s["id"] for s in pkg["skills"].values() if s["sources"]]
-        quiet, scheduled = self.dojo.rewritten_recently(), self.dojo.scheduled_rewrites()
+        quiet = self.dojo.rewritten_recently() if quiet is None else quiet
+        scheduled = self.dojo.scheduled_rewrites() if scheduled is None else scheduled
         unsettled = self.sourcer.unsettled(pid) if self.packages.is_added(pid) else {}
         ready = narrated = filmed = 0
         unfilmed: list[str] = []
@@ -526,7 +527,9 @@ class NewExams:
         film = doc.get("film") or {}
         waiting, offer = self._queue(film, lessons)
         usage = self.dojo.avatar.usage()
+        later = lessons["later"]
         return {
+            "later": {"quiet": len(later["quiet"]), "scheduled": len(later["scheduled"]), "pages": len(later["pages"])},
             "approved": len(film.get("approved") or []), "waiting": len(waiting),
             "filming": sum(1 for r in (film.get("filed") or {}).values() if not r.get("done")),
             "failed": [{"lesson": k, **v} for k, v in (film.get("failed") or {}).items()][:10],
@@ -602,7 +605,10 @@ class NewExams:
             return out
         pkg = self.packages.get(pid)
         meta = pkg["meta"]
-        lessons = self._lessons(pid, self._media())
+        try:
+            lessons = self._lessons(pid, self._media())
+        except UserError:   # the rewrite rules could not be read: the page counts what is filmed, and nothing on it spends
+            lessons = self._lessons(pid, self._media(), {}, set())
         out.update(
             title=meta["title"], issuer=meta["issuer"], source=meta["source"], exam_page=meta.get("exam_page"),
             practice=meta.get("official_practice_assessment"), passing_score=meta.get("passing_score"),
@@ -653,12 +659,12 @@ class NewExams:
         self.preparer.wake()
         return self.status(learner, pid)
 
-    def film_state(self, pid: str) -> dict:
+    def film_state(self, pid: str, quiet: dict | None = None, scheduled: set | None = None) -> dict:
         """Where the filming of an added exam stands, for Studio's Courses page: the lessons the owner could
         approve now with the token `approve_film` wants, and how many films wait, are being made or failed."""
         doc = self._settled(pid) or {"package": pid}
         film = doc.get("film") or {}
-        lessons = self._lessons(pid, self._media())
+        lessons = self._lessons(pid, self._media(), quiet, scheduled)
         waiting, offer = self._queue(film, lessons)
         filming = [k for k, r in (film.get("filed") or {}).items() if not r.get("done")]
         return {"offer": offer, "token": self._offer_token(offer) if offer else None, "waiting": len(waiting),
@@ -676,7 +682,7 @@ class NewExams:
                 return 0
             self._settle(doc)
             film = doc.setdefault("film", {})
-            waiting, _ = self._queue(film, self._lessons(pid, self._media()))
+            waiting, _ = self._queue(film, self._lessons(pid, self._media(), {}, set()))   # which lessons wait does not depend on the rewrite rules: Stop works without them
             if not waiting:
                 return 0
             film["approved"] = [x for x in film.get("approved") or [] if x not in waiting]
@@ -686,7 +692,11 @@ class NewExams:
 
     def next_film(self) -> str | None:
         """The next lesson the owner approved for filming that is still not filmed, or None."""
-        scheduled = self.dojo.scheduled_rewrites()   # approved, then about to be written again on the deeper template: it waits for that
+        try:
+            scheduled = self.dojo.scheduled_rewrites()   # approved, then about to be written again on the deeper template: it waits for that
+        except Exception:  # noqa: BLE001 - without it Dojo cannot tell which lessons are about to be replaced: nothing is filmed now
+            log.exception("the lessons that will be written again could not be read, so no film is chosen")
+            return None
         for pid in self.packages.ids():
             if not self.packages.is_added(pid):
                 continue
@@ -694,12 +704,16 @@ class NewExams:
             film = (doc or {}).get("film") or {}
             if not film.get("approved"):
                 continue
+            unsettled = self.sourcer.unsettled(pid)   # an audit may have refused its pages since the approval: that lesson will be replaced
             newest: dict[Any, tuple[str, str]] = {}   # a lesson written again since the approval is not filmed: the new one waits for its own
             for m in self.dojo.lesson_index():
                 if m.get("package") == pid and (m.get("skill") not in newest or (m.get("created") or "") > newest[m.get("skill")][0]):
                     newest[m.get("skill")] = (m.get("created") or "", m["id"])
             present = {v[1] for v in newest.values()}
+            skill_of = {v[1]: skill for skill, v in newest.items()}
             for lesson in film["approved"]:
+                if skill_of.get(lesson) in unsettled:
+                    continue
                 if lesson in (film.get("filed") or {}) or lesson in (film.get("failed") or {}) or lesson not in present or self._held(lesson) or lesson in scheduled:
                     continue
                 films = list(self.checker.plan(lesson)["films"].values())

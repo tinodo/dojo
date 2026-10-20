@@ -243,6 +243,7 @@ VIEW_REPEAT_MINUTES = 30  # one play; evidence.VIEW_MINUTES counts a view as tea
 # The lesson template every new lesson is written to (ADR 0008). A lesson without a "template" field was
 # written to template 1: one page, 3-5 sections. Template 2 is deeper and uses every page of the skill.
 LESSON_TEMPLATE = 2
+REWRITES_UNREADABLE = "Dojo cannot tell just now which lessons are about to be rewritten, so it offers and approves no film. Try again in a few minutes."
 QUIET_DAYS = 7              # a lesson written again is offered for filming only after this many days: a page that changed once may change again
 MIN_SLIDES = 4               # a lesson keeps at least this many checked slides, or as many as were written when that is fewer
 NO_VERDICT = "The checker gave no verdict"
@@ -1224,15 +1225,17 @@ Narration is a natural spoken conversation between two voices: "guide" explains,
         return out
 
     def scheduled_rewrites(self) -> set[str]:
-        """The newest lessons that will be written again on the deeper template: a film made for them now would be replaced."""
+        """The newest lessons that will be written again on the deeper template: a film made for them now would be replaced. A Dojo that
+        has no deeper-lesson writer (a test) has none. When the writer's books cannot be read this raises: "none" would offer and file films
+        for lessons that are waiting for a replacement, so the offer fails (Studio then shows no offer) and a filer waits for its next round."""
         deeper = getattr(self, "deeper", None)
         if deeper is None:
             return set()
         try:
             return set(deeper.to_write_again())
-        except Exception:  # noqa: BLE001 - a film offer never fails because this could not be read
+        except Exception as e:  # noqa: BLE001 - said in plain words: an approval is refused with it, a page shows no offer
             log.exception("could not read the lessons that will be written again")
-            return set()
+            raise UserError(REWRITES_UNREADABLE) from e
 
     def lesson_skills(self, pid: str) -> set[str]:
         return {m["skill"] for m in self.lesson_index() if m["package"] == pid}

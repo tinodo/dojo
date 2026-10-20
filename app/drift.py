@@ -989,7 +989,8 @@ class DriftCheck:
         """What only the owner can do about changed pages, for Studio's To do page without the whole history: the labs to look at, and
         the lessons that wait for a new source because every official page of their skill is gone or moved."""
         doc, by = self._doc(), self._by_skill()
-        return {"labs": self.flagged_labs(doc), "stuck": self._stuck(by, {})}
+        labs = [{**x, "pages": (self.lab_state(x["id"], doc) or {}).get("pages", [])} for x in self.flagged_labs(doc)]   # the pages that changed, to compare with
+        return {"labs": labs, "stuck": self._stuck(by, {})}
 
     def film_candidates(self, only: str) -> list[dict]:
         """Every newest lesson of a package without a video of its own that could be filmed: the ones filmed before and the
@@ -997,11 +998,13 @@ class DriftCheck:
         doc, by = self._doc(), self._by_skill()
         return self.refilm_candidates(doc, by, only) + self.unfilmed_candidates(only, doc, by)
 
-    def film_split(self, only: str) -> tuple[list[dict], dict]:
+    def film_split(self, only: str, quiet: dict | None = None, scheduled: set | None = None) -> tuple[list[dict], dict]:
         """The candidates, split into what Studio offers for a package and what it leaves out, and why. A lesson is left out
         when it will be written again on the deeper template, or was written again less than QUIET_DAYS ago: a film made
-        for it now is likely to be replaced. `later` names them, with when each has been quiet long enough."""
-        quiet, scheduled = self.dojo.rewritten_recently(self.now()), self.dojo.scheduled_rewrites()
+        for it now is likely to be replaced. `later` names them, with when each has been quiet long enough. Studio reads every course in
+        one go and passes what it worked out once (`quiet`, `scheduled`); a single approval works them out itself."""
+        quiet = self.dojo.rewritten_recently(self.now()) if quiet is None else quiet
+        scheduled = self.dojo.scheduled_rewrites() if scheduled is None else scheduled
         offer: list[dict] = []
         later: dict = {"scheduled": [], "quiet": {}, "pages": {}}
         for x in self.film_candidates(only):
@@ -1180,7 +1183,11 @@ class DriftCheck:
             self._settle_films()
             films = self._doc()["films"]
             if not any(f.get("state") == "filed" for f in films.values()) and not self._owner_busy() and not self._storage_full():
-                scheduled = self.dojo.scheduled_rewrites()
+                try:
+                    scheduled = self.dojo.scheduled_rewrites()
+                except Exception:  # noqa: BLE001 - without it Dojo cannot tell which lessons are about to be replaced: nothing is filmed this round
+                    log.exception("drift check: the lessons that will be written again could not be read, so no film is filed this round")
+                    return True
                 for _, lesson_id in sorted((f.get("approved") or "", k) for k, f in films.items() if f.get("state") == "approved"):
                     if not self._current(lesson_id):
                         self._forget_film(lesson_id)

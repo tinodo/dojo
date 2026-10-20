@@ -61,9 +61,9 @@ class Tokens:
 class Azure:
     """A made-up Cost Management: what it answers, and every request it got."""
 
-    def __init__(self, *, month=None, last=None, status=200, headers=None, pages=None):
+    def __init__(self, *, month=None, last=None, status=200, headers=None, pages=None, last_status=200):
         self.month, self.last = october() if month is None else month, [[1234.56, "USD"]] if last is None else last
-        self.status, self.headers, self.pages = status, headers or {}, pages
+        self.status, self.headers, self.pages, self.last_status = status, headers or {}, pages, last_status
         self.requests: list[httpx.Request] = []
         self.gate: threading.Event | None = None
 
@@ -75,6 +75,8 @@ class Azure:
             return httpx.Response(self.status, headers=self.headers, json={"error": {"code": "Nope", "message": f"/subscriptions/{SUB} is not allowed"}})
         body = json.loads(request.content)
         if body["timeframe"] == "TheLastMonth":
+            if self.last_status != 200:
+                return httpx.Response(self.last_status, json={"error": {"code": "Nope"}})
             return httpx.Response(200, json={"properties": {"columns": [{"name": "Cost"}, {"name": "Currency"}], "rows": self.last, "nextLink": None}})
         if self.pages is not None:
             return self.pages(request)
@@ -150,6 +152,14 @@ class ReadingTests(unittest.TestCase):
         s = summarize(rows)
         self.assertEqual(next(d for d in s["days"] if d["day"] == "2026-10-05")["total"], 0.0)
 
+    def test_private_dns_zones_are_always_on_and_dns_queries_are_not(self):
+        self.assertEqual(classify("Azure DNS", "Private DNS Zone"), ("network", "Private DNS zone", "always"))
+        self.assertEqual(classify("Azure DNS", "Private DNS Queries"), ("other", None, "use"))
+
+    def test_the_least_a_month_can_cost_is_what_is_spent_and_what_is_always_on_for_the_days_to_come(self):
+        s = summarize(self.rows())
+        self.assertEqual(s["month_floor"], round(s["month"]["total"] + 12 * s["fixed"]["per_day"], 2), "19 of 31 days are over")
+
     def test_a_credit_is_part_of_the_total_and_more_than_one_currency_gives_no_total(self):
         rows = self.rows() + [{"day": "2026-10-10", "service": "Foundry Models", "meter": "5.5 ShortCo opt Gl 1M Tokens", "cost": -5.0, "currency": "USD"}]
         base = summarize(self.rows())["month"]["total"]
@@ -215,6 +225,32 @@ class BillTests(BillCase):
         shown = bill._present(doc, self.now)
         self.assertTrue(shown["stale"])
         self.assertIn("last month", shown["stale_reason"])
+
+    def test_last_months_cost_failing_alone_does_not_lose_this_months(self):
+        v = self.bill(Azure(last_status=429)).view()
+        self.assertEqual(v["state"], "ok", "this month was read: the comparison is a line beside it")
+        self.assertIsNone(v["previous"])
+        self.assertFalse(v["stale"])
+        self.assertEqual(self.store.read("content", "bill")["attempt"]["state"], "ok")
+
+    def test_last_month_in_two_currencies_is_not_compared(self):
+        v = self.bill(Azure(last=[[100.0, "USD"], [90.0, "EUR"]])).view()
+        self.assertEqual(v["state"], "ok")
+        self.assertIsNone(v["previous"])
+        self.store.delete("content", "bill")
+        v = self.bill(Azure(last=[[90.0, "EUR"]])).view()
+        self.assertEqual(v["previous"], {"month": "2026-09", "total": 90.0, "currency": "EUR"}, "its own currency travels with it")
+
+    def test_a_reading_of_last_month_says_which_month_it_is_of(self):
+        bill = self.bill(Azure())
+        self.assertEqual(bill.view()["current_month"], "2026-10")
+        self.now += timedelta(days=13)   # 1 November, before the new reading
+        shown = bill._present(bill._load(), self.now)
+        self.assertEqual((shown["month"]["id"], shown["current_month"]), ("2026-10", "2026-11"), "the page says this is last month's")
+
+    def test_the_view_has_a_link_to_set_a_budget_for_the_owner(self):
+        v = self.bill(Azure()).view()
+        self.assertIn(f"budgets/scope/%2Fsubscriptions%2F{SUB}%2FresourceGroups%2F{RG}", v["budget_link"])
 
     def test_the_first_day_of_a_month_has_no_cost_yet_and_is_never_shown_as_zero(self):
         bill = self.bill(Azure(month=[], last=[[480.0, "USD"]]))

@@ -1346,9 +1346,16 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
 
     @app.post("/api/lessons/{lesson_id}/video")
     def lesson_video(lesson_id: str, learner: Learner = Admin) -> dict:
-        """Film every slide of this lesson. Asking again while it runs returns the same job."""
+        """Film every slide of this lesson. Asking again while it runs returns the same job. This is the owner choosing one lesson, with its
+        price on the button (ADR 0025), so a lesson that is likely to be replaced may be filmed; one that certainly is, is not: an older
+        version of its skill's lesson, or a lesson a changed source page holds back (it is being written again)."""
         _no_help_during_exam(learner, "Lessons are closed")
-        dojo.lesson(_check_id(lesson_id))
+        lesson = dojo.lesson(_check_id(lesson_id))
+        newest = (dojo.lessons_for(lesson["package"], lesson["skill"]) or [{}])[0].get("id")
+        if newest and newest != lesson_id:
+            raise HTTPException(409, "A newer version of this lesson has been written, so this one is no longer what the skill teaches. Film the newer one.")
+        if drift.withheld(lesson_id):
+            raise HTTPException(409, "A source page changed, so Dojo is writing this lesson again. Film its new version when it is ready.")
         running = dojo.jobs.existing(learner, "video", lesson_id)
         return running or dojo.jobs.start(learner, "video", dojo.lesson_video, learner, lesson_id, ref=lesson_id,
                                           busy_message="This lesson is already being filmed.")

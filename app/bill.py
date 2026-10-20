@@ -44,7 +44,7 @@ GROUPS = {
     "ai": ("AI models", "The language models that write lessons, check them, answer questions and grade answers. Charged by how much text goes in and comes out."),
     "voices": ("Voices and presenter videos", "The presenters in the films, the narration you listen to, and the check of what the voices said."),
     "defender": ("Security scanning (Microsoft Defender for Cloud)",
-                 "Turned on for your whole Azure subscription, not by Dojo; keeping it is your Azure decision."),
+                 "Turned on for your whole Azure subscription, not by Dojo. You can review it in Defender for Cloud, under Environment settings; keeping it is your Azure decision."),
     "web": ("The web app", "The server Dojo runs on."),
     "network": ("Private link to the database", "Keeps the database off the public internet."),
     "search": ("Web search for finding sources", "Used when Dojo looks for official pages."),
@@ -61,6 +61,7 @@ RULES = [   # (service, meter or None, group, part label or None, kind)
     (r"defender", None, "defender", "Billed per server", "always"),
     (r"app service", None, "web", None, "always"),
     (r"virtual network|private link|private endpoint", None, "network", None, "always"),
+    (r"dns", r"zone", "network", "Private DNS zone", "always"),
     (r"bing", None, "search", None, "use"),
     (r"\bsql\b", None, "database", None, "use"),
 ]
@@ -98,7 +99,7 @@ def classify(service: str, meter: str) -> tuple[str, str | None, str]:
     return "other", None, "use"
 
 
-def summarize(rows: list[dict], previous: dict | None = None, link: str | None = None) -> dict:
+def summarize(rows: list[dict], previous: dict | None = None, link: str | None = None, budget_link: str | None = None) -> dict:
     """The Money tab's numbers from the lines of this month: per group and per day, what is always on, the quietest and the busiest days.
     `rows` have `day` (YYYY-MM-DD), `service`, `meter`, `cost` and `currency`."""
     currencies = {r["currency"] for r in rows if r.get("currency")}
@@ -143,9 +144,11 @@ def summarize(rows: list[dict], previous: dict | None = None, link: str | None =
             "month": {"id": first.isoformat()[:7], "from": first.isoformat(), "to": last, "days": span, "total": total},
             "groups": out_groups, "days": series,
             "fixed": {"total": round(always, 2), "per_day": round(always / span, 2), "per_month": round(always / span * in_month, 2)},
+            # what the month costs at the least: what is spent, and the always-on lines for the days to come
+            "month_floor": round(total + max(0, in_month - span) * always / span, 2),
             "quiet_day": {"day": quiet["day"], "total": quiet["total"], "per_month": round(quiet["total"] * in_month, 2)} if quiet else None,
             "busiest": [{"day": d["day"], "total": d["total"]} for d in busiest],
-            "previous": previous, "link": link}
+            "previous": previous, "link": link, "budget_link": budget_link}
 
 
 class Bill:
@@ -232,6 +235,7 @@ class Bill:
             return {"state": "error", "reason": attempt.get("reason") or FAILED, "detail": None, "read_at": None}
         out = dict(summary)
         out["read_at"] = doc.get("read_at")
+        out["current_month"] = now.date().isoformat()[:7]   # the page says "last month" when the reading is of another
         stale = attempt.get("state") in ("throttled", "failed") or (
             bool(doc.get("read_at")) and parse_iso(doc["read_at"]) + timedelta(seconds=2 * FRESH_S) <= now)
         out["stale"] = stale
@@ -273,7 +277,11 @@ class Bill:
         try:
             token = self.tokens.get(TOKEN_SCOPE)
             lines = self._rows(self._query("MonthToDate", True), token)
-            before = self._rows(self._query("TheLastMonth", False), token)
+            try:
+                before = self._rows(self._query("TheLastMonth", False), token)
+            except (httpx.HTTPError, ValueError):   # last month is a line beside the total: without it the reading is still this month's
+                log.info("last month's cost could not be read")
+                before = None
         except httpx.HTTPStatusError as e:
             return self._failed(doc, now, e.response.status_code, e.response.headers)
         except (httpx.HTTPError, ValueError):
@@ -295,14 +303,16 @@ class Bill:
                              "currency": str(r.get("Currency") or "") if MONEY.match(str(r.get("Currency") or "")) else ""})
         month = now.date().isoformat()[:7]
         previous = None
-        if before:
+        if before and len({str(r.get("Currency") or "") for r in before}) == 1:   # one currency, or no comparison
             total = sum(float(r.get("Cost") or 0) for r in before)
             if total > 0:
                 last = date.fromisoformat(month + "-01") - timedelta(days=1)
                 previous = {"month": last.isoformat()[:7], "total": round(total, 2), "currency": str(before[0].get("Currency") or "")}
-        link = f"https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/costanalysis/scope/{quote(self.scope or '', safe='')}"
-        summary = summarize(rows, previous, link) if rows else {"state": "empty", "reason": EMPTY, "previous": previous, "link": link,
-                                                               "currency": previous["currency"] if previous else "USD"}
+        where = quote(self.scope or "", safe="")
+        link = f"https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/costanalysis/scope/{where}"
+        budgets = f"https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/budgets/scope/{where}"
+        summary = summarize(rows, previous, link, budgets) if rows else {"state": "empty", "reason": EMPTY, "previous": previous, "link": link,
+                                                                         "budget_link": budgets, "currency": previous["currency"] if previous else "USD"}
         self._kept(doc, now, summary, month)
 
     def _kept(self, doc: dict, now: datetime, summary: dict, month: str | None) -> None:

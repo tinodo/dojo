@@ -269,10 +269,14 @@ data (see [privacy.md](privacy.md)).
 
 You pay Azure's normal prices. Dojo has no licence fee.
 
-- **Studio** (the owner's cost page) shows Dojo's estimate of what each kind of work costs, at Azure **list
-  price**. It reads prices from the public Azure Retail Prices API and counts the tokens, characters and
-  minutes Dojo used. Your real bill can differ (discounts, taxes, other resources). Use Azure Cost Management
-  for the truth.
+- **Studio's Money tab** shows what Azure charged for Dojo's resource group this month, read from Cost Management
+  with the app identity's Reader role (ADR 0025), with what is always on and what follows use. Azure reports
+  8 to 24 hours late and throttles quick repeats, so Dojo makes two small requests (this month, last month) every
+  six hours at most, and keeps the last reading when one fails.
+  Dojo's own estimate of what each kind of work costs, at Azure **list price**, sits below it, open only when
+  the bill cannot be read. It reads prices from the public Azure Retail Prices API and counts the tokens,
+  characters and minutes Dojo used, and it can differ from the bill (discounts, taxes, other resources). Azure
+  Cost Management is the truth, and where you set a budget alert (the Money tab links to it).
 - **The fixed part** is the B1 plan and the storage. Check the Azure pricing page for your region.
 - **AI use** (models, speech, avatar) is pay as you go. Background work has daily limits (see
   [architecture.md](architecture.md#background-services-and-their-limits)). Avatar filming only starts on an explicit click that

@@ -37,8 +37,11 @@ that fails says so on its own. The old addresses keep working: `#/quality/checks
 - *Needs you*, costs nothing: a lab to look at (one row, "I looked at it"), lessons whose official pages are all gone (named, with where
   to act: a change to the course's source, not a button here), an exam build that stopped.
 - *Optional · costs money*: one **Videos** card with a row for each course, one **Diagrams** card, one **Page check** card with a row for
-  each course not checked. A row says what is offered, what was left out and why, and carries the one button with its price. After the cards,
-  **Review all** asks once with a box for each line and a total that follows the ticks.
+  each course not checked. A row says what is offered, what was left out and why, how much of the price replaces a video the owner already
+  has (Watch plays an earlier version's film of a rewritten lesson, with a note) and how much has none, and carries the one button with
+  its price. After the cards, **Review all** asks once with a box for each line and a total that follows the ticks. It says that each
+  selection starts on its own (one that is refused does not stop the others, and the others are charged), and when the total is more than
+  Azure charged this month so far.
 - Nothing to decide says so in one line.
 
 **A film is offered only for a lesson that is steady.** The server leaves a lesson out of every film offer, with its reason, when
@@ -48,13 +51,23 @@ for any reason, or (d) for an added exam, its skill's pages may still be replace
 looked yet, or both models refused them: ADR 0018, ADR 0021). A lesson written for the first time is steady at once unless (d) holds.
 The rule is applied where the offer is made, in both paths (built-in courses: `DriftCheck.film_split`; added exams:
 `NewExams._lessons` and `_queue`), so the token, the price and the approval always describe the same lessons. The filers skip an approved
-lesson that has since been scheduled for a rewrite; the older "film again" endpoint follows the same rule. The lesson page's **Film this
-lesson** stays: it is the owner choosing one lesson, and it says when the lesson is likely to be replaced. The page says nothing about
-what will happen: it says what was left out and when it comes back. No verdict, no forecast.
+lesson that has since been scheduled for a rewrite (and, for an added exam, one whose skill's pages are unsettled again); the older
+"film again" endpoint follows the same rule. When the list of lessons about to be rewritten cannot be read, nothing is offered and nothing
+is filed (the round is tried again a minute later); an approval is refused in plain words; the Courses reading keeps its other parts and
+the To do page says the films could not be read; Stop and the exam page work as before. The lesson page's **Film this lesson** stays: it is the owner choosing one lesson, and it says when the lesson is likely to be
+replaced. The server refuses it (409) for a lesson that is not the newest of its skill or that a changed page holds back. The exam page
+has no button that spends any more: it says how many written lessons are not filmed, how many are left out and why, and links to the To
+do page. Its older endpoints (`POST /api/exam-packages/{pid}/film`, `POST /api/studio/drift/refilm`) are still there with no button and
+read the same offer, so a lesson that is left out is refused there too. The page says nothing about what will happen: it says what was
+left out and when it comes back. No verdict, no forecast.
 
 **Money asks first, in a sheet.** Every button that spends opens a dialog (`moneySheet`) that names the lines, the price, what was left
 out, what a rewrite later would do, and the room the videos need. Cancel has the focus, so Enter never spends; Escape and a click beside
-the box cancel. The lesson page and the exam page ask the same way. `window.confirm` is not used to spend money.
+the box cancel. The lesson page asks the same way. `window.confirm` is not used to spend money. A film is approved at the price the page
+showed: the token names the lessons and that price, so a changed price is another offer. **Diagrams and page checks are approved with the
+word and the sheet only**: no token names them, because each is one batch (about $0.28 a lesson for diagrams, $2 to $3 for a course's
+page check) and the server does not compare the price on the sheet with the price of the moment. A price that moved between the sheet and
+the press is not refused; this is accepted and stays on the review triggers.
 
 **The Money tab shows what Azure charged** for Dojo's resource group this month, before tax, read from the Cost Management query API
 (`app/bill.py`). The app's identity gets the built-in role **Cost Management Reader** on the resource group, granted once through
@@ -63,14 +76,19 @@ continuation to the end (a total is never shown from part of the lines), one mor
 memory and on the share, one reading at a time, a "wait" from Azure is remembered across restarts, and the browser has no way to force
 one. Lines are grouped by what they pay for in the owner's words, each part marked **Pay per use**, **Always on**, **Partly always on** or
 **Free offer**. It shows what is always on a month, the quietest complete day, the busiest days, last month, and says that the last day
-is still arriving. Without the role it says what is missing; with an old reading it says since when; on the first day of a month it says
-nothing is reported yet and never "$0". Dojo's own estimates (what a course would cost at Azure's published prices) are below it, open
+is still arriving, and the least the month can come to (what is spent plus what is always on for the days left). A link opens Azure's
+budgets for the resource group, because Dojo cannot set a limit. Last month's total is read apart: if that read fails, this month's is
+kept, and it is shown only when it is in one currency; after a month ends it is labelled "Last month, until this month is read". Without
+the role it says what is missing; with an old reading it says since when; on the first day of a month it says nothing is reported yet
+and never "$0". Dojo's own estimates (what a course would cost at Azure's published prices) are below it, open
 only when there is no bill, and labelled as estimates. The Activity page's "What it cost" is relabelled Dojo's own count, not the bill.
 
 **Health cannot lie.** Each check is a closed section with a chip and one plain line. "Everything Dojo checked is working" is said only
 when every check could be read; a check that could not be read is named apart and is not a thing to look at; a check that stopped
 (the daily page read older than 36 hours) is a thing to look at; slides worth a listen are information, not a to-do; a storage cap is
-said as a cap ("the last 400 are kept"). The lab database switch is one visible line above the sections, never inside a closed one.
+said as a cap ("the last 400 are kept"). Builds that stopped, failed films and a failed monitoring try count as things to look at, and
+the top line says when the checks were read. The source-change section is called "Source changes". The lab database switch is one
+visible line above the sections, never inside a closed one.
 
 **The server adds**: `film_split` and `film_offer` (the rule), `Dojo.rewritten_recently` and `scheduled_rewrites`,
 `Sourcer.unsettled`, `DriftCheck.owner_todo`, `todo`, `quiet_days` and `quiet_last` in `/api/studio/courses`, `/api/studio/bill`.
@@ -100,5 +118,5 @@ data before it is built. `tests/test_studio_v2.py` runs the pages in node and re
 ## Review triggers
 
 The owner asks again what a number or a button means; the quiet period turns out to be too short or too long (7 days); the Cost
-Management API changes its answer or throttles; an exam is added and a row for every exam makes the To do page long; a second
-reviewer finds a sentence that is not true.
+Management API changes its answer or throttles; an exam is added and a row for every exam makes the To do page long; the price of a
+batch of diagrams or of a page check moves a lot between the sheet and the press; a second reviewer finds a sentence that is not true.

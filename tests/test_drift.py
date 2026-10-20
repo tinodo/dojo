@@ -968,6 +968,16 @@ class OfferTests(DriftCase):
         self.drift._file_films()
         self.assertEqual(len(self.video_jobs()), 1, "no longer scheduled: it is filmed")
 
+    def test_when_the_lessons_about_to_be_rewritten_cannot_be_read_no_film_is_filed(self):
+        lesson = self.lesson()
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        with mock.patch.object(self.dojo, "scheduled_rewrites", side_effect=UserError("unreadable")):
+            self.assertTrue(self.drift._file_films(), "still approved, and tried again in the next round")
+            with self.assertRaises(UserError):
+                self.drift.film_offer(PID)
+        self.assertEqual(self.video_jobs(), [])
+        self.assertEqual(self.drift._doc()["films"][lesson]["state"], "approved")
+
     def test_stopping_forgets_the_films_that_have_not_started_and_leaves_the_one_being_made(self):
         a, b = self.lesson(), self.lesson(OTHER)
         self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))

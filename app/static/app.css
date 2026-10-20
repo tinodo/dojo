@@ -1950,6 +1950,8 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
 .vrow-h b { font-size: 15px; }
 .vrow-t { color: var(--ink-2); }
 .vrow .small { margin-top: 4px; max-width: 880px; }
+/* The facts under a row carry the safety message: as readable as the sentence above them (--ink-3 on the card is about 3.6:1). */
+.vrow p.small.muted { font-size: 13.5px; color: var(--ink-2); }
 .todo-all { margin-top: 2px; }
 .mk-h { font: 600 11px/1.3 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin: 14px 0 2px; }
 .mk-h:first-child { margin-top: 12px; }
@@ -1975,6 +1977,10 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
 .hsec > summary .hs-t { font-weight: 600; font-size: 14px; min-width: 190px; }
 .hsec > summary .hs-l { flex: 1 1 260px; color: var(--ink-2); font-size: 13px; }
 .hsec[open] > summary { border-bottom: 1px solid var(--line-2); }
+.hsec > summary { list-style: none; }
+.hsec > summary::-webkit-details-marker { display: none; }
+.hsec > summary::before { content: "\25B8"; color: var(--ink-3); font-size: 12px; width: 12px; flex: none; }
+.hsec[open] > summary::before { content: "\25BE"; }
 .hs-body { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 16px; }
 .hs-body > .row, .hs-body > .panel { margin: 0; }
 .hs-body .panel { box-shadow: none; }
@@ -1983,13 +1989,15 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
 .money-sheet .sheet-lines li:first-child { border-top: 0; }
 .money-sheet .sheet-lines li.off { color: var(--ink-3); }
 .money-sheet .sheet-lines label { display: inline-flex; align-items: baseline; gap: 8px; cursor: pointer; }
+.money-sheet input[type="checkbox"] { accent-color: var(--ink); width: 16px; height: 16px; }
 .money-sheet .sheet-lines .cost { font: 600 13px var(--mono); white-space: nowrap; }
 .money-sheet .sheet-acts { justify-content: flex-end; margin-top: 10px; }
 .money-sheet .btn { white-space: normal; text-align: center; }
 @media (max-width: 720px) {
   .todo-card .actions .btn, .todo-all .btn { white-space: normal; text-align: center; width: 100%; min-height: 44px; }
   .vrow .actions { flex-direction: column; align-items: stretch; }
-  .money-sheet .sheet-acts { flex-direction: column-reverse; align-items: stretch; }
+  .money-sheet .sheet-acts { flex-direction: column; align-items: stretch; }
+  .studio-tabs .s { padding: 8px 11px; }
   .money-sheet .sheet-acts .btn { min-height: 44px; }
   .bill-big b { font-size: 32px; }
   .hsec > summary .hs-t { min-width: 0; flex-basis: 100%; }
