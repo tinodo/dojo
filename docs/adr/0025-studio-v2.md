@@ -106,8 +106,10 @@ out of how many passages, the blocked-sentence line how many were stopped and wh
 information, not "fine". A failed try at writing a lesson again or at searching for pages is said as what became of it (`Deeper.view` gives each
 failure a `status`): `given_up` (a rewrite that failed every try) is the one thing to look at, `waiting` (Dojo tries again by itself) is information, and
 `worked` (a later try passed) or `obsolete` (its lesson or skill changed since) is history, listed closed. Three tries of one skill are one rewrite.
-Each failure is judged for itself: a failed rewrite records the lesson it was for, so one that worked stays history when the skill fails again later (a
-failure written before that was recorded is told by its time; a failed search by whether a search finished after it). The lab database switch is one visible line above the sections, never inside a closed one.
+Each failure is judged for itself, and what became of it is written down for good when its cycle ends (`closed`: a later try passed, the pages the
+skill cites were replaced and its attempts started over, or the search was for words the skill no longer has), so a later failure of the same skill,
+or of the same lesson, never brings it back. A failed rewrite records the lesson it was for: one whose lesson another lesson replaced is told by that
+(a failure written before that was recorded: by its time), and a failed search by whether a search finished after it. The lab database switch is one visible line above the sections, never inside a closed one.
 
 **The server adds**: `film_split` and `film_offer` (the rule), `Dojo.rewritten_recently` and `scheduled_rewrites`,
 `Sourcer.unsettled`, `DriftCheck.owner_todo`, `todo`, `quiet_days` and `quiet_last` in `/api/studio/courses`, `/api/studio/bill`.
