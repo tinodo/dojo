@@ -1137,26 +1137,27 @@ class Sourcer:
             return self._search_again(run, side, key, cited, entry, sorted({str(r.get("why") or r["state"]) for r in results})[:3])
         pages_now = [{k: v for k, v in a.items() if k != "asked"} for a in accepted.values()]
         asked = {r["asked"] for r in results if r["state"] == "accepted"}   # every address that led to an accepted page, also when two led to the same one
-        # What is to be written is recorded before the package is: a swap that stops half way is finished by the next step (`_settle`).
-        entry.update(state="swapping", to=[a["url"] for a in pages_now], accepted=pages_now, at=iso(now))
-        run.books.save_side("moves", side)
-        if self._swap_cited(run, key, cited, asked, refs_of({"accepted": pages_now})) is None:
+        entry.update(to=[a["url"] for a in pages_now], accepted=pages_now, at=iso(now))
+        if self._swap_cited(run, side, entry, key, cited, asked, refs_of({"accepted": pages_now})) is None:
             entry.pop("accepted", None)
+            entry.pop("expect", None)
             entry.update(state="trying", to=[])   # the exam or the skill changed meanwhile: nothing was written, and the next step looks again
             run.books.save_side("moves", side)
             return True
         return self._settle(run, side, key, entry)
 
     def _settle_swaps(self, run: Run, raw: dict, side: dict) -> bool:
-        """A swap whose package was written and whose records were not (the step stopped between its writes): finished first. A swap the package
-        did not take is tried again as the skill stands. True when one was finished."""
+        """A swap whose package was written and whose records were not (the step stopped between its writes): finished first. It is the swap
+        when the skill cites exactly the pages the record said it would; with any other pages the swap never began, or the skill changed since,
+        and it is tried again as the skill stands. True when one was finished."""
         for key, entry in list(side["skills"].items()):
             if entry.get("state") != "swapping":
                 continue
             s = next((x for x in self.skills_of(raw) if x["key"] == key), None)
-            if s is not None and {r.get("url") for r in s["sources"] if isinstance(r, dict)} & set(entry.get("to") or []):
+            if s is not None and [r.get("url") for r in s["sources"] if isinstance(r, dict) and r.get("url")] == entry.get("expect"):
                 return self._settle(run, side, key, entry)
-            entry.pop("accepted", None)
+            for k in ("accepted", "expect", "reset"):
+                entry.pop(k, None)
             entry.update(state="trying", to=[])
             run.books.save_side("moves", side)
         return False
@@ -1171,10 +1172,13 @@ class Sourcer:
             run.books.save_side("moves", side)
             return True
         pages, cited, now = entry.get("accepted") or [], entry.get("from") or [], self.now()
-        preparer = getattr(self.nx, "preparer", None)
-        if preparer is not None:
-            self._start_again(preparer, run.pid, s["id"])
-            preparer.wake()
+        if not entry.get("reset"):
+            preparer = getattr(self.nx, "preparer", None)
+            if preparer is not None:
+                self._start_again(preparer, run.pid, s["id"])
+                preparer.wake()
+            entry["reset"] = True
+            run.books.save_side("moves", side)   # the lesson's attempts are cleared once: repeating the rest never clears attempts made after the swap
         audit = run.books.side("audit", None)
         if not isinstance(audit, dict) or audit.get("v") != VERIFIER_VERSION:
             audit = {"v": VERIFIER_VERSION, "skills": {}}
@@ -1194,7 +1198,8 @@ class Sourcer:
                 doc.update(state="partial", next=None, stuck=bool(len(s["sources"]) >= MAX_ACCEPTED or self._filmed(run.pid, s["id"])))
             doc["activated"] = {"at": iso(now), "sources": len(s["sources"]), "partial": doc["state"] != "covered", "moved": True}
             run.books.save_skill(doc)
-        entry.pop("accepted", None)
+        for k in ("accepted", "expect", "reset"):
+            entry.pop(k, None)
         entry.update(state="followed", at=iso(now))
         run.books.save_side("moves", side)
         log.info("the moved page of skill %s of %s was judged by both models and now stands in the package", key, run.pid)
@@ -1217,9 +1222,11 @@ class Sourcer:
         log.info("every page of skill %s of %s is gone: the search looks for new ones", key, run.pid)
         return True
 
-    def _swap_cited(self, run: Run, key: str, cited: list[str], asked: set[str], refs: list[dict]) -> list[dict] | None:
+    def _swap_cited(self, run: Run, side: dict, entry: dict, key: str, cited: list[str], asked: set[str], refs: list[dict]) -> list[dict] | None:
         """Write the accepted pages into the package in place of the pages that moved to them: the pages the skill cites now, or None when the
-        exam is gone, or the skill cites other pages than the ones that were judged, or one of them answers again, or a new one is gone."""
+        exam is gone, or the skill cites other pages than the ones that were judged, or one of them answers again, or a new one is gone. The
+        pages the skill will cite are recorded (`swapping`, `expect`) before the package is written, so a swap that stops half way is finished
+        by the next step (`_settle_swaps`) and is told from one that never began."""
         with self._package:
             run.lease.check()   # an exam removed meanwhile (`forget`) is never written back
             raw = self.store.read("packages", run.pid, default=None)
@@ -1238,6 +1245,8 @@ class Sourcer:
                 return None   # a page that was judged has gone since: it is not cited
             replaced = {u for u in cited if (self.dojo.sources.head(u) or {}).get("moved") in asked}
             skill["sources"] = (refs + [r for r in current if not (isinstance(r, dict) and r.get("url") in replaced)])[:MAX_ACCEPTED]
+            entry.update(state="swapping", expect=[r["url"] for r in skill["sources"] if isinstance(r, dict) and r.get("url")])
+            run.books.save_side("moves", side)
             idx = run.books.index()
             idx["generation"] = int(idx.get("generation") or 0) + 1
             self.dojo.packages.add(raw)

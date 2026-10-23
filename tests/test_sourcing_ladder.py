@@ -1006,6 +1006,12 @@ class FollowTests(SourcingCase):
         self.addCleanup(run.lease.release)
         return run
 
+    def swap_record(self, key: str) -> tuple[dict, dict]:
+        """The record of the moves, and the entry of a skill that is about to be swapped."""
+        side = self.sourcer._moves_doc(None)
+        entry = side["skills"][key] = {"state": "trying", "from": [self.OLD], "targets": [self.NEW], "tries": 1, "at": iso(), "since": iso()}
+        return side, entry
+
     def accepted(self) -> dict:
         page = self.dojo.sources.candidate(self.NEW)
         said = {"grade": "teaches", "quote": "a sentence of the page", "reason": "it teaches it", "model": "a model"}
@@ -1295,10 +1301,12 @@ class FollowTests(SourcingCase):
         run = self.worker()
         refs = ladder.refs_of({"accepted": [self.accepted()]})
         key, before = self.key_of(UNSOURCED), self.generation()
-        self.assertIsNone(self.sourcer._swap_cited(run, key, [self.OLD, LEARN + DOCS_AT + "other"], {self.NEW}, refs))
+        side, entry = self.swap_record(key)
+        self.assertIsNone(self.sourcer._swap_cited(run, side, entry, key, [self.OLD, LEARN + DOCS_AT + "other"], {self.NEW}, refs))
         self.assertEqual(self.urls(), [self.OLD])
         self.assertEqual(self.generation(), before)
-        written = self.sourcer._swap_cited(run, key, [self.OLD], {self.NEW}, refs)
+        self.assertEqual(entry["state"], "trying", "nothing is recorded as begun when nothing was written")
+        written = self.sourcer._swap_cited(run, side, entry, key, [self.OLD], {self.NEW}, refs)
         self.assertEqual([r["url"] for r in written], [self.NEW])
         self.assertEqual(self.urls(), [self.NEW])
 
@@ -1308,7 +1316,8 @@ class FollowTests(SourcingCase):
         run = self.worker()
         refs = ladder.refs_of({"accepted": [self.accepted()]})
         self.dojo.sources.mark_gone(self.NEW, iso())   # the new page goes after it was judged and before it is written
-        self.assertIsNone(self.sourcer._swap_cited(run, self.key_of(UNSOURCED), [self.OLD], {self.NEW}, refs))
+        key = self.key_of(UNSOURCED)
+        self.assertIsNone(self.sourcer._swap_cited(run, *self.swap_record(key), key, [self.OLD], {self.NEW}, refs))
         self.assertEqual(self.urls(), [self.OLD])
 
     def test_two_addresses_that_lead_to_the_same_page_both_give_way_to_it(self):
@@ -1369,6 +1378,40 @@ class FollowTests(SourcingCase):
         self.assertTrue(set(new) <= {a["url"] for a in book["accepted"]})
         self.assertEqual((book["cited"], self.moves()[key]["state"]), (len(new), "followed"))
 
+    def test_a_swap_that_stops_after_the_lessons_attempts_were_cleared_does_not_clear_them_again(self):
+        self.start()
+        key = self.stuck()
+        sid = self.skill(UNSOURCED)["id"]
+        calls = []
+        again = staticmethod(lambda preparer, pid, skill: calls.append(skill))
+        real, failed = Books.save_side, []
+
+        def save_side(books, name, value):
+            if name == "audit" and not failed:
+                failed.append(name)
+                raise OSError("the disk is full")
+            return real(books, name, value)
+
+        with mock.patch.object(ladder.Sourcer, "_start_again", again), mock.patch.object(Books, "save_side", save_side), \
+                self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        self.assertEqual((self.moves()[key]["state"], calls), ("swapping", [sid]))
+        with mock.patch.object(ladder.Sourcer, "_start_again", again):
+            self.assertTrue(self.sourcer.step())
+        self.assertEqual(calls, [sid], "cleared once: attempts made after the swap are never cleared by a retry of the rest")
+        self.assertEqual(self.moves()[key]["state"], "followed")
+        self.assertNotIn("reset", self.moves()[key])
+
+    def test_a_page_the_skill_cited_before_is_no_proof_that_a_swap_was_written(self):
+        self.start()
+        retired = LEARN + DOCS_AT + "free-retired"
+        key = self.stuck({self.OLD: self.NEW, retired: None})   # cites [OLD, retired], both gone
+        side = self.sourcer._moves_doc(None)
+        side["skills"][key] = {"state": "swapping", "from": [self.OLD, retired], "targets": [self.NEW], "to": [retired], "expect": [retired],
+                               "accepted": [self.accepted()], "tries": 1, "at": iso(), "since": iso()}
+        self.assertFalse(self.sourcer._settle_swaps(self.worker(), self.raw(), side), "the package still cites [OLD, retired]: no swap was written")
+        self.assertEqual((side["skills"][key]["state"], "expect" in side["skills"][key]), ("trying", False))
+
     def test_a_swap_the_package_did_not_take_is_tried_again_as_the_skill_stands(self):
         self.start()
         key = self.stuck()
@@ -1388,7 +1431,8 @@ class FollowTests(SourcingCase):
         del self.web.redirects[urlsplit(self.OLD).path]
         self.dojo.sources.get(self.OLD, True)   # the old address answers with its own page again
         self.assertFalse(self.dojo.sources.head(self.OLD)["gone"])
-        self.assertIsNone(self.sourcer._swap_cited(run, self.key_of(UNSOURCED), [self.OLD], {self.NEW}, refs))
+        key = self.key_of(UNSOURCED)
+        self.assertIsNone(self.sourcer._swap_cited(run, *self.swap_record(key), key, [self.OLD], {self.NEW}, refs))
         self.assertEqual(self.urls(), [self.OLD])
         self.assertEqual(self.sourcer.moves(self.pid), {}, "its lesson is written from the page that is there")
 
@@ -1397,8 +1441,9 @@ class FollowTests(SourcingCase):
         self.stuck()
         run = self.worker()
         run.lease.revoke()
+        key = self.key_of(UNSOURCED)
         with self.assertRaises(LeaseLost):
-            self.sourcer._swap_cited(run, self.key_of(UNSOURCED), [self.OLD], {self.NEW}, ladder.refs_of({"accepted": [self.accepted()]}))
+            self.sourcer._swap_cited(run, *self.swap_record(key), key, [self.OLD], {self.NEW}, ladder.refs_of({"accepted": [self.accepted()]}))
         self.assertEqual(self.urls(), [self.OLD])
 
 
