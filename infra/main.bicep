@@ -208,6 +208,11 @@ resource integrationSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01
 resource endpointSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
   parent: labVnet
   name: 'endpoints'
+  // Two subnets written at the same moment in one VNet make Azure answer AnotherOperationInProgress and stop the
+  // deployment (23 Oct 2026, twice in a row): this one is written after the other.
+  dependsOn: [
+    integrationSubnet
+  ]
   properties: {
     addressPrefix: '10.72.2.0/27'
     privateEndpointNetworkPolicies: 'Disabled'
