@@ -1122,6 +1122,20 @@ class FollowTests(SourcingCase):
         self.assertTrue(book["activated"]["partial"])
         self.assertEqual(book["stuck"], len(old) >= 3, "it can gain a page unless the package cites three already")
 
+    def test_a_partly_covered_book_that_could_not_grow_is_counted_again_when_the_swap_leaves_fewer_pages(self):
+        self.start()
+        olds = {LEARN + DOCS_AT + f"free-offer-{n}": LEARN + DOCS_AT + f"free-mid-{n}" for n in (1, 2, 3)}
+        key = self.stuck(olds)   # cites three pages
+        for mid in olds.values():
+            self.web.redirects[urlsplit(mid).path] = urlsplit(self.NEW).path   # all three lead to one page
+        book = new_skill(key, 1)
+        book.update(state="partial", stuck=True, accepted=[{**self.accepted(), "url": url} for url in olds])
+        self.store.write("sourcing", self.pid, key, value=book)
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW])
+        book = self.book(UNSOURCED)
+        self.assertEqual((book["state"], book["stuck"], book["cited"]), ("partial", False, 1), "it cites one page now: the search may add to it")
+
     def test_a_page_taken_down_stays_cited_beside_the_new_page_that_took_over_from_a_moved_one(self):
         self.start()
         retired = LEARN + DOCS_AT + "free-retired"

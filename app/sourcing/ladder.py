@@ -1194,8 +1194,12 @@ class Sourcer:
             doc["cited"] = len(s["sources"])
             if doc["state"] == "covered" and not any(a.get("grade") == "teaches" for a in pages):
                 # Only `covers`: the models did not call the new page direct, and nobody has compared it with others. The search goes on as for
-                # any partly covered skill (it may add pages, while the package cites fewer than three and the lesson has no film).
-                doc.update(state="partial", next=None, stuck=bool(len(s["sources"]) >= MAX_ACCEPTED or self._filmed(run.pid, s["id"])))
+                # any partly covered skill.
+                doc["state"] = "partial"
+            if doc["state"] == "partial":
+                # It may add pages while the package cites fewer than three and the lesson has no film: counted again, as the package may cite
+                # fewer pages now (several addresses that led to one page).
+                doc.update(next=None, stuck=bool(len(s["sources"]) >= MAX_ACCEPTED or self._filmed(run.pid, s["id"])))
             doc["activated"] = {"at": iso(now), "sources": len(s["sources"]), "partial": doc["state"] != "covered", "moved": True}
             run.books.save_skill(doc)
         for k in ("accepted", "expect", "reset"):
