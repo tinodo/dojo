@@ -6111,7 +6111,7 @@ const PIPE = [
 const STUDIO_TABS = [["todo", "To do"], ["courses", "Courses"], ["money", "Money"], ["health", "Health"], ["activity", "Activity"]];
 const STUDIO_ALIAS = { checks: "health", costs: "money" };   // the links of before keep working
 const STUDIO_LEAD = {
-  todo: "What needs you, and what is optional. A gold button costs money and starts only when you press it, with its price on it. Lessons, audio and rewrites run on their own and cost money as they go: see Money.",
+  todo: "What needs you, and what is optional. A gold button costs money and starts only when you press it, with its price on it. Lessons, audio, rewrites and the search for pages run on their own and cost money as they go: see Money.",
   courses: "Does each course have what you need to study? Dojo makes the study material itself; videos and diagrams are optional extras.",
   money: "What Azure charged for Dojo's resource group this month, before tax. Azure reports its costs 8 to 24 hours late.",
   health: "Is everything working and correct? Each line says what it checks; open it for the detail.",
@@ -6226,14 +6226,61 @@ function labCard(l, act) {
     h("div", { class: "actions" }, here ? linkButton("Open the lab", `#/lab/${l.id}`, "ghost sm") : null, looked));
 }
 
+// A lesson that waits for a page, as the owner reads it (To do, Source changes). `follow` is what the search does about the skill, for a skill of an
+// added exam: `checking` or `searching` (it is looked after), `stalled` (a week on, nothing found), `unknown` (it could not be read: said apart,
+// not a thing to do). A built-in exam's skill has none: the search does not work on it, and its course's source is what changes.
+const stuckLooked = (x) => ["checking", "searching"].includes(x.follow);
+const stuckOwed = (x) => !stuckLooked(x) && x.follow !== "unknown";
+
+// Where its official pages stand and what is done about it, as the small line under the lesson.
+function stuckNote(x) {
+  const pages = x.pages || [], moved = pages.filter((p) => p.moved), one = pages.length === 1;
+  const what = !pages.length ? "Its official pages moved or are gone."
+    : !moved.length ? (one ? "Its official page is gone." : "Its official pages are gone.")
+    : moved.length === pages.length ? (one ? "Its official page moved." : "Its official pages moved.")
+    : "Its official pages moved or are gone.";
+  const address = moved.length > 1 ? "addresses" : "address";
+  const links = moved.flatMap((p, i) => [i ? ", " : null, ext(p.moved, p.title || p.moved)]);
+  if (x.follow === "checking") return [`${what} Dojo checks the new ${address} by itself.`];
+  if (x.follow === "searching") {
+    return [`${what} ${moved.length ? `The new ${address} can't be used for this skill. ` : ""}Dojo looks for another page by itself. This can take days.`];
+  }
+  if (x.follow === "stalled") {
+    return [`${what} A week on, Dojo has found no page that teaches this skill. The course needs an official page.`, moved.length ? [" The old address now leads to ", links, "."] : null];
+  }
+  if (x.follow === "unknown") return [`${what} Dojo could not read what the search does about it.`];
+  return moved.length
+    ? [`${what} Check that the page it moved to still covers this skill, then make it the course's source: `, links, "."]
+    : [`${what} The course needs a new official page.`];
+}
+
+const stuckChip = (x) => (x.follow === "stalled" ? chip("no page found", "amber") : x.follow === "unknown" ? chip("could not be read", "rose")
+  : chip((x.pages || []).some((p) => p.moved) ? "page moved" : "page gone", stuckLooked(x) ? "line" : "amber"));
+
 function stuckCard(list) {
   return h("section", { class: "panel todo-card" },
-    h("div", { class: "panel-h" }, h("h3", null, `${plural(list.length, "lesson")} can't be updated`), chip("needs a change to the course", "amber")),
-    h("p", { class: "sub" }, "Every official page they were written from is gone or moved, so Dojo cannot rewrite them. Their text stays as it is, and they can still be studied. "
-      + "There is nothing to press here: they need a new official page added to the course."),
-    capped(list, 3, "lessons whose pages are gone", (x) => h("div", { class: "near" },
-      h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "muted" }, x.exam || x.package)),
-      chip("no source page", "amber"))));
+    h("div", { class: "panel-h" }, h("h3", null, `${plural(list.length, "lesson")} can't be rewritten`), chip("waiting for a page", "amber")),
+    h("p", { class: "sub" }, "Every official page they were written from is gone or moved, so Dojo cannot rewrite them yet. Their text stays as it is, and they can still be studied. "
+      + "There is no button for this: the course's source has to change."),
+    capped(list, 3, "lessons waiting for an official page", (x) => h("div", { class: "near" },
+      h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "muted" }, x.exam || x.package),
+        h("small", { class: "block muted" }, ...stuckNote(x))),
+      stuckChip(x))));
+}
+
+// The lessons Dojo looks after by itself are not a card of the owner's: one line says so, with the way to the list. `more`: the owner's card is above it.
+function stuckQuiet(list, more) {
+  const n = list.length;
+  return h("p", { class: "conf top" }, icon("refresh", "xs"), h("span", null,
+    `${plural(n, more ? "other lesson" : "lesson")} can't be rewritten yet: ${n === 1 ? "its official page moved or is gone" : "their official pages moved or are gone"}. `
+    + "Dojo tries to fix this by itself, a few lessons a day at most. There is nothing to press. ", h("a", { class: "link", href: "#/quality/health" }, "See which")));
+}
+
+// A check that could not be read is not a thing to do: it is said apart.
+function stuckUnread(list, more) {
+  const n = list.length;
+  return h("p", { class: "conf top" }, icon("alert", "xs"), h("span", null,
+    `${plural(n, more ? "other lesson" : "lesson")} can't be rewritten yet, and Dojo could not read what it does about ${n === 1 ? "it" : "them"}. Open this page again in a minute.`));
 }
 
 function buildCard(b) {
@@ -6483,12 +6530,15 @@ async function studioTodo() {
   const show = (c) => {
     last = c;
     const t = c.todo || { labs: [], stuck: [], builds: [] };
-    const needs = [t.builds.map(buildCard), t.labs.map((l) => labCard(l, act)), t.stuck.length ? stuckCard(t.stuck) : null].flat().filter(Boolean);
+    const owed = t.stuck.filter(stuckOwed), looked = t.stuck.filter(stuckLooked), unread = t.stuck.filter((x) => x.follow === "unknown");
+    const needs = [t.builds.map(buildCard), t.labs.map((l) => labCard(l, act)), owed.length ? stuckCard(owed) : null].flat().filter(Boolean);
     const optional = [videosCard(c, act), decksCard(c, act), pageChecksCard(c, act)].filter(Boolean);
     put(host,
       notice ? h("p", { class: notice.bad ? "note bad" : "note", role: "status" }, notice.text) : null,
       todoStrip(c, bill),
       needs.length ? [h("h2", { class: "todo-h" }, "Needs you"), needs] : h("p", { class: "todo-none" }, icon("check", "sm"), "Nothing needs you right now. Lessons, Listen and Deeper Listen make themselves."),
+      looked.length ? stuckQuiet(looked, owed.length > 0) : null,
+      unread.length ? stuckUnread(unread, owed.length + looked.length > 0) : null,
       optional.length ? [h("h2", { class: "todo-h" }, "Optional · costs money"), reviewAll(c, act, bill), optional] : null,
       h("p", { class: "note top" }, `Read at ${new Date(c.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}. `,
         h("a", { class: "link", href: "#/quality/activity" }, "See what Dojo did on its own")));
@@ -6779,7 +6829,8 @@ function healthLook(dr, dl, sr, courses, lb) {
   const look = [];
   if (!unreadable(dr)) {
     if (dr.labs.length) look.push({ text: `${plural(dr.labs.length, "lab")} to look at`, href: "#/quality" });
-    if (dr.stuck.length) look.push({ text: `${plural(dr.stuck.length, "lesson")} whose official pages are gone`, href: "#/quality" });
+    const owed = dr.stuck.filter(stuckOwed);
+    if (owed.length) look.push({ text: `${plural(owed.length, "lesson")} whose official pages are gone or moved`, href: "#/quality" });
     const stopped = staleRead(dr);
     if (stopped) look.push({ text: `the daily read of the cited pages has not read a page for ${plural(stopped, "day")}`, section: "changes" });
   }
@@ -6829,12 +6880,14 @@ async function studioHealth(opts) {
   const passages = unreadable(v) ? 0 : (v.listen.slides || 0) + (v.watch.turns || 0) + ((v.deep || {}).parts || 0);
   const blocked = q.filter((x) => x.text);
   const lastBlocked = blocked.reduce((a, x) => (!a || Date.parse(x.at) > Date.parse(a) ? x.at : a), null);
+  const owed = unreadable(dr) ? [] : dr.stuck.filter(stuckOwed);
   const sections = [
-    healthSection("changes", "Source changes", unreadable(dr) ? "unread" : dr.labs.length || dr.stuck.length || staleRead(dr) ? "look" : "ok",
+    healthSection("changes", "Source changes", unreadable(dr) ? "unread" : dr.labs.length || owed.length || staleRead(dr) ? "look" : dr.stuck.length ? "info" : "ok",
       unreadable(dr) ? "The source check could not be read." : `Dojo reads every cited page again each day: ${plural(dr.pages.cited, "page")}, last read ${dr.pages.last_read ? fmtDate(dr.pages.last_read) : "not yet"}. `
         + `${plural(week, "page")} changed this week${dr.pages.gone ? `; ${dr.pages.gone} gone` : ""}.`
-        + `${dr.labs.length ? ` ${plural(dr.labs.length, "lab")} to look at: see To do.` : ""}${staleRead(dr) ? " The daily read has stopped." : ""}`,
-      driftRow(dr), false),
+        + `${dr.labs.length ? ` ${plural(dr.labs.length, "lab")} to look at: see To do.` : ""}${staleRead(dr) ? " The daily read has stopped." : ""}`
+        + `${dr.stuck.length ? ` ${plural(dr.stuck.length, "lesson")} ${dr.stuck.length === 1 ? "waits" : "wait"} for an official page${dr.stuck.every(stuckLooked) ? `, and Dojo looks after ${dr.stuck.length === 1 ? "it" : "them"}` : ""}.` : ""}`,
+      driftRow(dr), !unreadable(dr) && dr.stuck.length > 0),
     healthSection("voices", "Voices", unreadable(v) ? "unread" : "info",
       unreadable(v) ? "The voice check could not be read." : `${plural(v.listen.lessons, "lesson")} heard again; ${flagged}${passages ? ` of ${passages}` : ""} ${flagged === 1 ? "passage was" : "passages were"} read a little differently from the text. Optional to listen to.`,
       voicesPanel(v), false),
@@ -7103,13 +7156,13 @@ function driftChanges(d, paint) {
       `${now}${waiting}`),
     R ? h("p", { class: "small muted" }, `${R.used_today} of ${R.per_day} rewrites used today; ${R.waiting} waiting.`,
       R.waiting && !R.left_today ? " The rest wait for tomorrow (UTC), in the same order: your active exam first, then most exam weight." : "",
-      R.waiting_for_pages ? ` ${plural(R.waiting_for_pages, "lesson")} ${R.waiting_for_pages === 1 ? "waits" : "wait"} without using one: all ${R.waiting_for_pages === 1 ? "its" : "their"} official pages are gone or moved; update the package's source.` : "") : null,
+      R.waiting_for_pages ? ` ${plural(R.waiting_for_pages, "lesson")} ${R.waiting_for_pages === 1 ? "waits" : "wait"} without using one: all ${R.waiting_for_pages === 1 ? "its" : "their"} official pages are gone or moved, so there is no page to rewrite ${R.waiting_for_pages === 1 ? "it" : "them"} from yet.` : "") : null,
     d.rechecking ? h("p", { class: "conf top" }, icon("refresh", "xs"), h("span", null,
       `${plural(d.rechecking, "lesson")} ${d.rechecking === 1 ? "is" : "are"} being re-checked: held back from your podcast feed and written again from the page as it is now.`)) : null,
     labs.length ? h("p", { class: "conf top" }, icon("target", "xs"), h("span", null,
       `${plural(labs.length, "lab")} to look at: a page ${labs.length === 1 ? "it cites" : "they cite"} changed. A lab has no quotes to check, so compare its steps with the page, then press “I looked at it”.`)) : null,
     labs.length ? h("div", { class: "top" }, labs.map((x) => driftLab({ ...x, now: "flagged" }, paint))) : null,
-    stuck.length ? h("div", { class: "top" }, capped(stuck, 5, "lessons waiting for a source", driftStuck)) : null,
+    stuck.length ? h("div", { class: "top" }, capped(stuck, 5, "lessons waiting for an official page", driftStuck)) : null,
     d.changes.length ? h("div", { class: "top" }, capped(d.changes, 4, "earlier changes", (c) => driftChange(c, paint))) : h("p", { class: "sub top" }, "No cited page has changed its words so far."),
     d.formatting.length ? [h("h3", { class: "top" }, "Formatting only, nothing to re-check"),
       d.formatting.map((f) => h("p", { class: "prow" }, icon("check", "xs"), h("span", null, ext(f.url, f.title || f.url), ` · ${f.date}`)))] : null,
@@ -7150,12 +7203,12 @@ function driftLesson(x) {
     h("span", { class: "chips" }, chip(label, kind), film ? chip(film[0], film[1]) : null));
 }
 
-// A lesson that waits for the owner to update its package's source: named above the history, so no history can hide or lose it.
+// A lesson that waits for a page: named above the history, so no history can hide or lose it.
 function driftStuck(x) {
   return h("div", { class: "near" },
     h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "mono muted" }, `${x.package} ${x.skill}`),
-      h("small", { class: "block muted" }, "Every official page of this skill is gone or moved: update the package's source.")),
-    chip("waiting", "amber"));
+      h("small", { class: "block muted" }, ...stuckNote(x))),
+    stuckChip(x));
 }
 
 // A lab a changed page touched. Only a person can say whether its steps still match, so its flag stays

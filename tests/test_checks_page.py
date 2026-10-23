@@ -32,6 +32,7 @@ const APP = fs.readFileSync(PATH, 'utf8');
 const cut = (from, to) => { const a = APP.indexOf(from), b = APP.indexOf(to, a); if (a < 0 || b < a) throw new Error("not where it was: " + from); return APP.slice(a, b); };
 const DRIFT = cut("// A long list shows its first rows", "// ---------------------------------------------------------------- Studio: official pages for every skill (ADR 0018)");
 const HEALTH = cut("// ---------------------------------------------------------------- Health", "// What Dojo's own voices actually said (EG-19)");
+const STUCK = cut("// A lesson that waits for a page, as the owner reads it", "function stuckCard(list) {");   // what a lesson that waits for a page says, shared by the To do page
 
 const flat = (list) => list.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
 class El { constructor(tag, attrs) { this.tag = tag; this.attrs = attrs || {}; this.kids = []; this.textContent = ""; this.disabled = false; } }
@@ -45,6 +46,7 @@ const all = (el, pred) => (typeof el === "string" ? [] : [...(pred(el) ? [el] : 
 const isCls = (name) => (e) => cls(e).includes(name);
 const isTag = (name) => (e) => e.tag === name;
 const mark = (name) => h("x", { marker: name });
+const norm = (s) => s.replace(/\s+/g, " ").replace(/ ([.,:])/g, "$1").trim();   // the words as read: no space before a stop
 
 const calls = [], asked = [];
 let answers = [], confirms = [];
@@ -57,7 +59,7 @@ const context = vm.createContext({
   api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (a instanceof Error) throw a; return a; },
   window: { confirm: (message) => { asked.push(message); return confirms.length ? confirms.shift() : true; } },
 });
-vm.runInContext(DRIFT + "\nthis.part = { OPEN_MORE, capped, driftRow, driftChanges, driftChange, filmHistory };", context);
+vm.runInContext(STUCK + "\n" + DRIFT + "\nthis.part = { OPEN_MORE, capped, driftRow, driftChanges, driftChange, filmHistory };", context);
 const P = context.part;
 // The tab on its own: every block it draws is a marker that says which it is, so the order of the page is what is looked at.
 const studioHealth = async (api, opts) => {
@@ -68,7 +70,7 @@ const studioHealth = async (api, opts) => {
     voicesPanel: () => mark("voices"), driftRow: () => mark("drift"), deeperRow: () => mark("deeper"), sourcingRow: () => mark("sourcing"),
     labRow: () => mark("lab"), document: { getElementById: () => null }, Date, fmtDay: (s) => `Day(${s})`,
   });
-  return vm.runInContext(HEALTH + `\nstudioHealth(${JSON.stringify(opts || {})});`, tab);
+  return vm.runInContext(STUCK + "\n" + HEALTH + `\nstudioHealth(${JSON.stringify(opts || {})});`, tab);
 };
 const voices = (flagged) => ({ lessons: 9, listen: { lessons: 9, flagged }, watch: { flagged: 0 }, deep: { flagged: 0 } });
 const deeperView = (failures) => ({ today: { used: 3 }, limits: { per_day: 20, tries: 3 }, failures: failures || [] });
@@ -90,7 +92,7 @@ const estimate = { usd: 1.23, minutes: 4, pace: "measured", voice_priced: true, 
 const lesson = (i, extra) => ({ id: `lesson-${i}`, title: `Lesson ${i}`, skill: `s${i}`, characters: 1000 + i, why: "changed", ...extra });
 const film = (i, extra) => ({ id: `lesson-${i}`, title: `Film ${i}`, skill: `s${i}`, state: "done", ...extra });
 const drift = (changes, extra) => ({
-  pages: { cited: 9, gone: 0, moved: 0, unchecked: 0, read_today: 1, last_read: "2026-10-19T10:00:00Z", waiting: [] },
+  pages: { cited: 9, gone: 0, moved: 0, unchecked: 0, read_today: 1, last_read: new Date(Date.now() - 3600000).toISOString(), waiting: [] },   // an hour ago, whenever the tests run
   limits: { per_day: 40, gap_minutes: 5, every_hours: 20 }, status: {}, started: true, rewrites: null, rechecking: 0, labs: [], stuck: [], changes, formatting: [],
   record: "Only content is written.", refilm: { lessons: [], estimate, films: [], approvals: [] }, ...extra });
 """
@@ -147,9 +149,70 @@ const run = (n, changes) => {
 };
 const many = Array.from({ length: 30 }, (_, i) => change(i));
 console.log(JSON.stringify([run(3, []), run(6, []), run(8, []), run(8, many)]));""")
-        self.assertEqual(out, [[3, [], None], [6, [], None], [5, ["Show the other 3 lessons waiting for a source"], None],
-                               [5, ["Show the other 3 lessons waiting for a source", "Show the other 26 earlier changes"], True]],
+        self.assertEqual(out, [[3, [], None], [6, [], None], [5, ["Show the other 3 lessons waiting for an official page"], None],
+                               [5, ["Show the other 3 lessons waiting for an official page", "Show the other 26 earlier changes"], True]],
                          "named without any change to carry them, five shown, and above the history")
+
+    def test_a_lesson_that_waits_for_a_page_says_where_its_pages_stand_and_who_looks_after_it(self):
+        out = run_node("""
+const to = "https://learn.microsoft.com/b";
+const page = (extra) => ({ url: "https://learn.microsoft.com/a", title: "A page", ...extra });
+const row = (i, follow, pages) => ({ id: `lesson-w${i}`, package: "dp-300", skill: `d1.g1.s${i}`, title: `Waiting lesson ${i}`, follow, pages: pages || [page({ moved: to })] });
+const stuck = [row(0, "checking"), row(1, "searching"), row(2, "stalled"), row(3, "unknown"), row(4), row(5, undefined, [page()])];
+const host = P.driftRow(drift([], { stuck }));
+const rows = all(host, (e) => cls(e).includes("near") && text(e).includes("Waiting lesson")).map((r) => [norm(text(all(r, isTag("small"))[0])),
+  all(r, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip])[0]]);
+console.log(JSON.stringify(rows));""")
+        self.assertEqual(out, [
+            ["Its official page moved. Dojo checks the new address by itself.", ["page moved", "line"]],
+            ["Its official page moved. The new address can't be used for this skill. Dojo looks for another page by itself. This can take days.", ["page moved", "line"]],
+            ["Its official page moved. A week on, Dojo has found no page that teaches this skill. The course needs an official page. The old address now leads to A page.",
+             ["no page found", "amber"]],
+            ["Its official page moved. Dojo could not read what the search does about it.", ["could not be read", "rose"]],
+            ["Its official page moved. Check that the page it moved to still covers this skill, then make it the course's source: A page.", ["page moved", "amber"]],
+            ["Its official page is gone. The course needs a new official page.", ["page gone", "amber"]]])
+
+    def test_the_sentence_about_rewrites_that_wait_for_a_page_does_not_send_the_owner_to_a_package(self):
+        out = run_node("""
+const rewrites = (n) => ({ used_today: 1, per_day: 10, left_today: 9, waiting: 0, waiting_for_pages: n, last: null });
+console.log(JSON.stringify([1, 2].map((n) => norm(text(P.driftRow(drift([], { rewrites: rewrites(n) })))))));""")
+        self.assertIn("1 lesson waits without using one: all its official pages are gone or moved, so there is no page to rewrite it from yet.", out[0])
+        self.assertIn("2 lessons wait without using one: all their official pages are gone or moved, so there is no page to rewrite them from yet.", out[1])
+        self.assertNotIn("package", out[0] + out[1])
+
+    def test_lessons_dojo_looks_after_are_for_information_and_the_others_are_things_to_look_at(self):
+        out = run_node("""
+(async () => {
+  const row = (follow) => ({ id: "l", package: "dp-300", skill: "s", title: "T", follow, pages: [{ url: "https://learn.microsoft.com/a", title: "A", moved: "https://learn.microsoft.com/b" }] });
+  const read = async (stuck) => {
+    tabApiOver = { "/api/studio/drift": drift([], { stuck }) };
+    const body = await studioHealth(tabApi);
+    const section = all({ tag: "x", attrs: {}, kids: body.flat(Infinity) }, isTag("details")).find((d) => d.attrs.id === "health-changes");
+    return [text(body.flat(Infinity)[0]).includes("Everything Dojo checked is working."), all(section, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip])[0],
+      !!section.attrs.open, norm(text(section.kids[0]))];
+  };
+  console.log(JSON.stringify([await read([]), await read([row("checking"), row("searching")]), await read([row("stalled")]), await read([row(undefined)]), await read([row("unknown")])]));
+})();""")
+        none, looked, stalled, unowned, unread = out
+        self.assertEqual(none[:3], [True, ["fine", "sage"], False])
+        self.assertEqual(looked[:3], [True, ["for information", "line"], True], "nothing to look at, and the list is open for whoever follows the link")
+        self.assertIn("2 lessons wait for an official page, and Dojo looks after them.", looked[3])
+        for owed in (stalled, unowned):
+            self.assertEqual(owed[:3], [False, ["to look at", "amber"], True])
+            self.assertIn("1 lesson waits for an official page.", owed[3])
+            self.assertNotIn("looks after", owed[3])
+        self.assertEqual(unread[:3], [True, ["for information", "line"], True], "a check that could not be read is not a thing to look at")
+        self.assertNotIn("looks after", unread[3])
+
+    def test_what_the_summary_says_about_lessons_that_wait_for_a_page(self):
+        out = run_node("""
+(async () => {
+  const row = (follow) => ({ id: "l", package: "dp-300", skill: "s", title: "T", follow, pages: [] });
+  tabApiOver = { "/api/studio/drift": drift([], { stuck: [row("stalled"), row("checking")] }) };
+  const body = await studioHealth(tabApi);
+  console.log(JSON.stringify(norm(text(body.flat(Infinity)[0]))));
+})();""")
+        self.assertIn("1 lesson whose official pages are gone or moved.", out, "only the one nobody looks after")
 
     def test_the_lab_to_look_at_comes_before_the_history(self):
         out = run_node("""

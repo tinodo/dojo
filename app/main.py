@@ -1787,7 +1787,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     def studio_drift(learner: Learner = Admin) -> dict:
         # The removed quotes are words from the official pages that lessons taught.
         _no_help_during_exam(learner, "Source changes are closed")
-        return drift.summary()
+        summary = drift.summary()
+        return {**summary, "stuck": studio.with_follow(summary["stuck"])}
 
     @app.post("/api/studio/drift/refilm")
     def studio_refilm(learner: Learner = Admin) -> dict:

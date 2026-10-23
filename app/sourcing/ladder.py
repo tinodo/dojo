@@ -16,9 +16,12 @@ accepted pages of a `partial` skill are written too (the lesson checker refuses 
 and the search goes on at the retry schedule of `exhausted`: three days in a row, then weekly. Only skills
 without sources are written, so no lesson, narration or film is ever orphaned; a skill whose cited pages both
 models refuse (twice, a day apart) is replaced whether or not its lesson has a film (ADR 0021), and a `partial`
-skill gains pages only while its lesson has no film. A step that failed three times blocks its skill
-for the day; `exhausted` is reached only when every step of the four rounds succeeded and nothing was
-accepted: it says that the configured retrieval is exhausted, never that the documentation lacks a page."""
+skill gains pages only while its lesson has no film. A skill whose every cited page is gone is dealt with too
+(ADR 0006): the page a moved address leads to is judged by both models and cited in its place, and for pages
+that were taken down, or a page that does not teach the skill, the search looks for new ones. A step that
+failed three times blocks its skill for the day; `exhausted` is reached only when every step of the four rounds
+succeeded and nothing was accepted: it says that the configured retrieval is exhausted, never that the
+documentation lacks a page."""
 from __future__ import annotations
 
 import logging
@@ -67,6 +70,10 @@ AUDIT_PER_STEP = 4
 AUDIT_TRIES = 3             # tries of the audit of one skill, counted before each paid call: then it is left `unchecked`
 REPLACE_PER_DAY = 3        # skills whose cited pages both models refused, put back to the search, in a UTC day
 CONFIRM_HOURS = 20         # a skill whose cited pages were refused is judged once more after this, before anything is replaced
+FOLLOW_PER_DAY = 3         # skills whose gone pages are taken up in a UTC day (a few model calls for the moved page): a site that renames many pages must not spend without end
+FOLLOW_TRIES = 3           # tries of one skill's moved page, counted before each paid call: then it waits a day
+FOLLOW_UNREAD_H = 6        # hours until a moved page that could not be read is tried again
+FOLLOW_STALLED_DAYS = 7    # days a skill's pages have been gone before the owner is told the search found nothing (it goes on trying)
 SEED_TOP = 3               # pages of each skill that grow the inventory
 WEB_CHECK_H = 24            # hours between two web search self-tests
 SUMMARY_S = 8               # seconds the exam page's numbers are kept
@@ -406,6 +413,8 @@ class Sourcer:
     def _work(self, run: Run, raw: dict) -> bool:
         raw = self._tidy(run, raw)
         if self._resume_replacements(run, raw):
+            return True
+        if self._follow(run, raw):
             return True
         items = self._items(run, raw)
         if not items:
@@ -1022,6 +1031,213 @@ class Sourcer:
             run.books.save_side("audit", side)
         return True
 
+    # ------------------------------------------------------------ skills whose every cited page is gone (ADR 0006, amended 23 October 2026)
+
+    @staticmethod
+    def _moves_doc(doc: Any) -> dict:
+        """The record of the gone pages (`side-moves`): what was done for each skill, and which skills were taken up on each day."""
+        doc = doc if isinstance(doc, dict) and doc.get("v") == VERIFIER_VERSION else {}
+        doc["v"] = VERIFIER_VERSION
+        if not isinstance(doc.get("skills"), dict):
+            doc["skills"] = {}
+        doc["days"] = {d: v for d, v in (doc.get("days") if isinstance(doc.get("days"), dict) else {}).items() if isinstance(v, list)}
+        return doc
+
+    def _gone_all(self, s: dict) -> tuple[list[str], list[str]] | None:
+        """(the pages the skill cites, the addresses they moved to: none when they were taken down) when every cited page is gone, as
+        Drift counts it (`gone_skills`). A skill that still cites a page that is there is written again from it, so nothing waits."""
+        cited = [r["url"] for r in s["sources"] if isinstance(r, dict) and isinstance(r.get("url"), str) and r["url"]]
+        heads = [self.dojo.sources.head(u) or {} for u in cited]
+        if not cited or not all(h.get("gone") for h in heads):
+            return None
+        return cited, list(dict.fromkeys(h["moved"] for h in heads if isinstance(h.get("moved"), str) and h["moved"]))
+
+    @staticmethod
+    def _taken(entry: dict | None, cited: list[str], targets: list[str]) -> bool:
+        """Whether what was recorded for a skill is about these very pages and addresses, not about an earlier set of them."""
+        return bool(entry) and entry.get("from") == cited and entry.get("targets") == targets
+
+    def _to_follow(self, pid: str, raw: dict, side: dict) -> list[tuple[dict, list[str], list[str]]]:
+        """The skills whose gone pages nothing has dealt with yet, heaviest first: not those put back to the search, and not those whose
+        page could not be read and wait for their next try."""
+        now, out = self.now(), []
+        for s in self.skills_of(raw):
+            found = self._gone_all(s)
+            if found is None:
+                continue
+            entry = side["skills"].get(s["key"])
+            if self._taken(entry, *found) and (entry.get("state") == "searching"
+                                               or (entry.get("wait_until") and parse_iso(entry["wait_until"]) > now)):
+                continue
+            out.append((s, *found))
+        return sorted(out, key=lambda x: (-self._share(pid, x[0]["id"]), x[0]["id"]))
+
+    def _due_follow(self, pid: str, raw: dict, side: dict) -> list[tuple[dict, list[str], list[str]]]:
+        """The skills to take up now: `_to_follow`, but when the day's few skills were taken up, only those among them, which may be tried
+        again (a skill is counted once a day, however many tries it takes, so one that fails never uses the day up for the others)."""
+        taken = side["days"].get(self.now().date().isoformat()) or []
+        todo = self._to_follow(pid, raw, side)
+        return todo if len(taken) < FOLLOW_PER_DAY else [t for t in todo if t[0]["key"] in taken]
+
+    def _follow(self, run: Run, raw: dict) -> bool:
+        """A skill whose every cited page is gone cannot be written again, and the owner has no button for it. When a page moved (ADR 0006: its
+        address now leads to another page), the page it leads to is judged as any candidate is, by both models and with a quote found word for
+        word on the page. A page both accept takes the old address's place in the package, and the preparer writes the lesson again from it.
+        A citation never follows a redirect unjudged. When no page is accepted, or the pages were taken down, the search looks for new ones, as
+        it does for pages both models refuse (ADR 0021). One skill a step, a few a day. True when it did something."""
+        side = self._moves_doc(run.books.side("moves", None))
+        now = self.now()
+        today = now.date().isoformat()
+        todo = self._due_follow(run.pid, raw, side)
+        if not todo:
+            return False
+        s, cited, targets = todo[0]
+        key = s["key"]
+        before = side["skills"].get(key)
+        same = self._taken(before, cited, targets)
+        tries = int(before.get("tries") or 0) if same else 0
+        if tries >= FOLLOW_TRIES:
+            side["skills"][key] = {**before, "state": "unread", "tries": 0, "wait_until": iso(now + timedelta(days=1))}
+            run.books.save_side("moves", side)
+            return True
+        cutoff = (now - timedelta(days=3)).date().isoformat()
+        side["days"] = {d: v for d, v in side["days"].items() if d >= cutoff}
+        if key not in side["days"].setdefault(today, []):
+            side["days"][today].append(key)
+        entry = side["skills"][key] = {"state": "trying", "from": cited, "targets": targets, "tries": tries + 1, "at": iso(now),
+                                       "since": (before.get("since") if same else None) or iso(now)}
+        if not targets:
+            return self._search_again(run, side, key, cited, entry, ["gone"])
+        run.books.save_side("moves", side)   # the try is written down before the paid call: a check that keeps failing ends
+        titles = {}
+        for r in s["sources"]:
+            moved = (self.dojo.sources.head(r.get("url")) or {}).get("moved") if isinstance(r, dict) else None
+            if moved and r.get("title"):
+                titles.setdefault(moved, r["title"])
+        pages = [{"url": t, "title": titles.get(t) or title_of(t)} for t in targets[:MAX_ACCEPTED]]
+        results = run.verifier.grade_pages(self._context(raw, s), pages, both_all=True)
+        accepted: dict[str, dict] = {}
+        for r in results:
+            if r["state"] == "accepted" and r["url"] not in accepted:
+                accepted[r["url"]] = {"url": r["url"], "title": r["title"], "grade": r["grade"], "gate": _slim(r["gate"]),
+                                      "author": _slim(r["author"]), "sha256": r["sha256"], "by": ["moved"], "rank": 1, "at": r["at"],
+                                      "asked": r["asked"]}
+        if not accepted:
+            if any(r["state"] == "unread" for r in results):   # a page that could not be read may be read later: it is not a refusal
+                entry.update(state="unread", at=iso(now), wait_until=iso(now + timedelta(hours=FOLLOW_UNREAD_H)))
+                run.books.save_side("moves", side)
+                return True
+            return self._search_again(run, side, key, cited, entry, sorted({str(r.get("why") or r["state"]) for r in results})[:3])
+        pages_now = [{k: v for k, v in a.items() if k != "asked"} for a in accepted.values()]
+        written = self._swap_cited(run, key, cited, {a["asked"] for a in accepted.values()}, refs_of({"accepted": pages_now}))
+        if written is None:
+            return True   # the exam or the skill changed meanwhile: nothing is recorded, and the next step looks again
+        sid, sources = written
+        audit = run.books.side("audit", None)
+        if not isinstance(audit, dict) or audit.get("v") != VERIFIER_VERSION:
+            audit = {"v": VERIFIER_VERSION, "skills": {}}
+        audit.setdefault("skills", {})[key] = {"verdict": "supported", "at": iso(now), "moved_from": cited,
+                                                "pages": [{"url": a["url"], "state": "accepted", "grade": a["grade"], "why": None, "refused": False}
+                                                          for a in pages_now]}
+        run.books.save_side("audit", audit)
+        doc = self.store.read("sourcing", run.pid, key, default=None)
+        if isinstance(doc, dict) and doc.get("key") == key and doc.get("accepted"):
+            # The skill's own book: the old pages are out of it and the new ones in, so a later step never writes a gone page back.
+            doc["accepted"] = [a for a in doc["accepted"] if not _cites([a], cited)] + [a for a in pages_now if not _cites(doc["accepted"], [a["url"]])]
+            doc["ranked"] = doc["set"] = None
+            doc["cited"] = len(sources)
+            doc["activated"] = {"at": iso(now), "sources": len(sources), "partial": False, "moved": True}
+            run.books.save_skill(doc)
+        entry.update(state="followed", to=[a["url"] for a in pages_now], at=iso(now))
+        run.books.save_side("moves", side)
+        log.info("the moved page of skill %s of %s was judged by both models and now stands in the package", key, run.pid)
+        return True
+
+    def _search_again(self, run: Run, side: dict, key: str, cited: list[str], entry: dict, why: list[str]) -> bool:
+        """Put the skill back to the search: it looks for pages again, and the pages it accepts take the gone ones' place when it is done
+        (`replacing`, as for pages both models refuse, ADR 0021). The gone pages leave the pages its book keeps, so none is written back."""
+        doc = run.books.skill(key)
+        doc["accepted"] = [a for a in doc["accepted"] if not _cites([a], cited)]
+        doc["ranked"] = doc["set"] = None
+        doc["replacing"] = list(cited)
+        doc.pop("replacement_waits", None)
+        doc.pop("stuck", None)
+        if doc["state"] != "searching":
+            self._restart(doc)
+        run.books.save_skill(doc)
+        entry.update(state="searching", why=why, at=iso(self.now()))
+        run.books.save_side("moves", side)
+        log.info("every page of skill %s of %s is gone: the search looks for new ones", key, run.pid)
+        return True
+
+    def _swap_cited(self, run: Run, key: str, cited: list[str], asked: set[str], refs: list[dict]) -> tuple[str, list[dict]] | None:
+        """Write the accepted pages into the package in place of the pages that moved to them: (the skill's id, the pages it cites now), or
+        None when the exam is gone, or the skill cites other pages than the ones that were judged, or one of them answers again."""
+        with self._package:
+            run.lease.check()   # an exam removed meanwhile (`forget`) is never written back
+            raw = self.store.read("packages", run.pid, default=None)
+            if not isinstance(raw, dict):
+                return None
+            skill = next((s for d in raw["domains"] for g in d["groups"] for s in g["skills"]
+                          if skill_key(d["title"], g["title"], s["text"]) == key), None)
+            if skill is None:
+                return None
+            current = skill.get("sources") or []
+            if [r.get("url") for r in current if isinstance(r, dict) and r.get("url")] != cited:
+                return None
+            if not all((self.dojo.sources.head(u) or {}).get("gone") for u in cited):
+                return None   # a page answers again meanwhile: the lesson is written from it, and nothing is taken over
+            replaced = {u for u in cited if (self.dojo.sources.head(u) or {}).get("moved") in asked}
+            skill["sources"] = (refs + [r for r in current if not (isinstance(r, dict) and r.get("url") in replaced)])[:MAX_ACCEPTED]
+            idx = run.books.index()
+            idx["generation"] = int(idx.get("generation") or 0) + 1
+            self.dojo.packages.add(raw)
+            run.books.save_index(idx)
+            sid, sources = skill["id"], list(skill["sources"])
+        preparer = getattr(self.nx, "preparer", None)
+        if preparer is not None:
+            self._start_again(preparer, run.pid, sid)
+            preparer.wake()
+        return sid, sources
+
+    def moves(self, pid: str) -> dict[str, str]:
+        """For Studio's To do: what the search does about each skill of an added exam whose every cited page is gone, by skill id. `checking`:
+        the page its address now leads to is judged now or soon. `searching`: the pages were taken down, or the page is not what the skill
+        teaches, and the search looks for others. `stalled`: a week after the search took the skill up (or, when it never did, after its
+        last page went), and still no page: the owner is told, and the search goes on. Nothing for a built-in exam: the search does not
+        work on those."""
+        raw = self.store.read("packages", pid, default=None)
+        if not isinstance(raw, dict) or not self.dojo.packages.is_added(pid):
+            return {}
+        side = self._moves_doc(self.store.read("sourcing", pid, "side-moves", default=None))
+        now, out = self.now(), {}
+        for s in self.skills_of(raw):
+            found = self._gone_all(s)
+            if not found:
+                continue
+            entry = side["skills"].get(s["key"])
+            taken = self._taken(entry, *found)
+            out[s["id"]] = "searching" if (taken and entry.get("state") == "searching") or not found[1] else "checking"
+            gone = [parse_iso(h["gone"]) for h in (self.dojo.sources.head(u) or {} for u in found[0]) if isinstance(h.get("gone"), str)]
+            began = parse_iso(entry["since"]) if taken and entry.get("since") else max(gone, default=None)
+            if began and now - began >= timedelta(days=FOLLOW_STALLED_DAYS):
+                out[s["id"]] = "stalled"
+        return out
+
+    def follows(self, pid: str, since: Any) -> list[dict]:
+        """When the search took over the page a moved address leads to, or put a skill whose pages are gone back to the search, since `since`,
+        newest first, for Studio's activity: the skill, what was done, and the new page when there is one."""
+        raw = self.store.read("packages", pid, default=None)
+        if not isinstance(raw, dict):
+            return []
+        side = self._moves_doc(self.store.read("sourcing", pid, "side-moves", default=None))
+        out = []
+        for s in self.skills_of(raw):
+            e = side["skills"].get(s["key"]) or {}
+            if e.get("state") in ("followed", "searching") and e.get("at") and parse_iso(e["at"]) >= since:
+                out.append({"at": e["at"], "skill": s["text"], "state": e["state"], "to": (e.get("to") or [None])[0]})
+        return sorted(out, key=lambda x: x["at"], reverse=True)
+
     # ------------------------------------------------------------ what Studio and the exam page show
 
     def status(self, pid: str) -> dict:
@@ -1162,6 +1378,9 @@ class Sourcer:
                 for entry in (audit.get("skills") or {}).values():
                     if entry.get("verdict") == "invalid" and not entry.get("confirmed") and entry.get("wait_until"):
                         soonest = min(soonest, (parse_iso(entry["wait_until"]) - now).total_seconds())
+                side = self._moves_doc(self.store.read("sourcing", pid, "side-moves", default=None))
+                if self._due_follow(pid, raw, side):
+                    return 15.0   # a skill whose pages are gone waits to be taken up
         except Exception:  # noqa: BLE001 - the pause is only a preference
             return 60.0
         return max(15.0, min(1800.0, soonest))

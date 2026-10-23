@@ -50,6 +50,7 @@ const visible = (el) => {
 };
 const buttons = (el) => outside(el, (e) => e.tag === "button").map((b) => text(b).replace(/\s+/g, " ").trim());
 const links = (el) => outside(el, (e) => e.tag === "a").map((a) => [text(a).replace(/\s+/g, " ").trim(), a.attrs.href]);
+const norm = (s) => s.replace(/\s+/g, " ").replace(/ ([.,:])/g, "$1").trim();   // the words as read: no space before a stop
 
 const calls = [], sheets = [];
 let answers = [], sheetAnswers = [];
@@ -71,7 +72,7 @@ const context = vm.createContext({
   api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (a instanceof Error) throw a; return typeof a === "function" ? a(path, opts) : a; },
 });
 vm.runInContext(CAPPED + "\nthis.capped = capped; this.OPEN_MORE = OPEN_MORE;", context);
-vm.runInContext(STUDIO + "\nthis.part = { STUDIO_TABS, STUDIO_ALIAS, STUDIO_LEAD, money, dayOf, studioNav, viewQuality, studioTodo, studioCourses, studioMoney, todoStrip, labCard, stuckCard, buildCard, videosCard, videoRow, decksCard, pageChecksCard, reviewAll, courseCard, billPanels, groupRow, dayBars, filmLeftOut, studioActivity };", context);
+vm.runInContext(STUDIO + "\nthis.part = { STUDIO_TABS, STUDIO_ALIAS, STUDIO_LEAD, money, dayOf, studioNav, viewQuality, studioTodo, studioCourses, studioMoney, todoStrip, labCard, stuckCard, stuckNote, stuckChip, stuckOwed, buildCard, videosCard, videoRow, decksCard, pageChecksCard, reviewAll, courseCard, billPanels, groupRow, dayBars, filmLeftOut, studioActivity };", context);
 const P = context.part;
 const usd = context.usd;
 // Studio's own sheet is tested on its own below: here a press on a money button is answered by the test, and what was asked is kept
@@ -153,7 +154,7 @@ class ToDoTests(unittest.TestCase):
         heads, kinds, order, face = out
         self.assertEqual(heads, ["Needs you", "Optional · costs money"])
         needs, optional = kinds[:3], kinds[3:]
-        self.assertEqual([k[0] for k in needs], ["The build of XY-110 stopped", "Look at the lab “ Make a vector product table ”", "1 lesson can't be updated"])
+        self.assertEqual([k[0] for k in needs], ["The build of XY-110 stopped", "Look at the lab “ Make a vector product table ”", "1 lesson can't be rewritten"])
         for _, buttons in needs:
             self.assertFalse(any("$" in b for b in buttons), "what needs him costs nothing")
         self.assertEqual([k[0] for k in optional], ["Videos", "Diagrams", "Page check"])
@@ -163,7 +164,82 @@ class ToDoTests(unittest.TestCase):
         self.assertLess(everything, order.index("Film 68 lessons · about $130.56"), "the one button for everything is the first thing in the optional group")
         self.assertGreater(everything, order.index("I looked at it"), "after what needs him, which costs nothing")
         self.assertIn("A gold button costs money and starts only when you press it, with its price on it.", face)
-        self.assertIn("Lessons, audio and rewrites run on their own and cost money as they go: see Money.", face)
+        self.assertIn("Lessons, audio, rewrites and the search for pages run on their own and cost money as they go: see Money.", face)
+
+    def test_a_lesson_whose_pages_moved_or_are_gone_is_told_apart_by_who_looks_after_it(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const old = "https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer?view=azuresql-db";
+  const to = "https://learn.microsoft.com/en-us/azure/azure-sql/database/free-tier?view=azuresql-db";
+  const page = (extra) => ({ url: old, title: "Try Azure SQL Database for free", publisher: "Microsoft Learn", ...extra });
+  const row = (id, extra) => ({ id: `lesson-${id}`, package: "dp-300", exam: "DP-300", skill: `d1.g1.s${id}`, title: `Lesson ${id}`, pages: [page({ moved: to })], ...extra });
+  const stuck = [row(1, { follow: "checking" }), row(2, { follow: "searching" }), row(3, { follow: "stalled" }), row(4, { follow: "unknown" }),
+    row(5, { pages: [page()] }), row(6, {}), row(7, { follow: "searching", pages: [page()] })];
+  answers = [data([course("dp-300", "DP-300")], { todo: { labs: [], builds: [], stuck } }), bill()];
+  const host = await P.studioTodo();
+  const card = outside(host, isCls("todo-card")).find((c) => text(c).includes("can't be rewritten"));
+  const rows = all(card, isCls("near")).map((r) => [text(all(r, isTag("a"))[0]), norm(text(all(r, isTag("small"))[0])), all(r, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip]),
+    all(r, isTag("a")).slice(1).map((a) => a.attrs.href)]);
+  const lines = outside(host, isCls("conf")).map((l) => norm(text(l)));
+  console.log(JSON.stringify([text(all(card, isTag("h3"))[0]), norm(text(all(card, isCls("sub"))[0])), rows, lines, links(host).filter(([, href]) => href === "#/quality/health"), visible(host)]));
+})();""")
+        title, lead, rows, lines, health, face = out
+        self.assertEqual(title, "3 lessons can't be rewritten", "only what nobody looks after: a lesson that was written from a page a built-in exam cites, or one Dojo found nothing for")
+        self.assertIn("There is no button for this: the course's source has to change.", lead)
+        self.assertEqual([r[0] for r in rows], ["Lesson 3", "Lesson 5", "Lesson 6"])
+        self.assertEqual(rows[0][1], "Its official page moved. A week on, Dojo has found no page that teaches this skill. The course needs an official page. "
+                                     "The old address now leads to Try Azure SQL Database for free.")
+        self.assertEqual(rows[1][1], "Its official page is gone. The course needs a new official page.")
+        self.assertEqual(rows[2][1], "Its official page moved. Check that the page it moved to still covers this skill, then make it the course's source: Try Azure SQL Database for free.")
+        self.assertEqual([r[2] for r in rows], [[["no page found", "amber"]], [["page gone", "amber"]], [["page moved", "amber"]]])
+        self.assertIn("free-tier", rows[2][3][0], "the owner can open the page the old address leads to")
+        self.assertEqual(lines, ["3 other lessons can't be rewritten yet: their official pages moved or are gone. Dojo tries to fix this by itself, a few lessons a day at most. "
+                                 "There is nothing to press. See which",
+                                 "1 other lesson can't be rewritten yet, and Dojo could not read what it does about it. Open this page again in a minute."],
+                         "the lessons nobody looks after are the card above them: these are others")
+        self.assertEqual(len(health), 1, "one way to the list of the lessons Dojo looks after")
+        self.assertIsNone(BANNED.search(face), "no word of Dojo's insides on the face")
+
+    def test_lessons_dojo_looks_after_are_not_what_needs_the_owner(self):
+        out = run_node("""
+(async () => {
+  reset();
+  const row = (id, follow) => ({ id: `lesson-${id}`, package: "dp-300", exam: "DP-300", skill: `d1.g1.s${id}`, title: `Lesson ${id}`, follow,
+    pages: [{ url: "https://learn.microsoft.com/a", title: "A", publisher: "Microsoft Learn", moved: "https://learn.microsoft.com/b" }] });
+  answers = [data([course("dp-300", "DP-300")], { todo: { labs: [], builds: [], stuck: [row(1, "checking")] } }), bill()];
+  const host = await P.studioTodo();
+  console.log(JSON.stringify([outside(host, isTag("h2")).map(text), visible(host).includes("Nothing needs you right now."), outside(host, isCls("todo-card")).length,
+    outside(host, isCls("conf")).map((l) => norm(text(l)))]));
+})();""")
+        heads, none, cards, lines = out
+        self.assertEqual((heads, none, cards), ([], True, 0), "no card, no heading over nothing")
+        self.assertEqual(lines, ["1 lesson can't be rewritten yet: its official page moved or is gone. Dojo tries to fix this by itself, a few lessons a day at most. "
+                                 "There is nothing to press. See which"])
+
+    def test_a_row_from_a_server_that_does_not_say_which_pages_still_reads_true(self):
+        out = run_node("""
+(async () => {
+  const x = { id: "lesson-1", package: "gh-300", skill: "d1.g1.s1", title: "T" };
+  console.log(JSON.stringify([P.stuckNote(x).join(""), text(P.stuckChip(x)), P.stuckOwed(x), P.stuckNote({ ...x, pages: [] , follow: "searching"}).join("")]));
+})();""")
+        self.assertEqual(out, ["Its official pages moved or are gone. The course needs a new official page.", "page gone", True,
+                               "Its official pages moved or are gone. Dojo looks for another page by itself. This can take days."])
+
+    def test_what_the_search_says_for_each_state_of_a_lesson_with_several_pages(self):
+        out = run_node("""
+(async () => {
+  const a = { url: "https://learn.microsoft.com/a", title: "A", moved: "https://learn.microsoft.com/a2" }, b = { url: "https://learn.microsoft.com/b", title: "B" };
+  const c = { url: "https://learn.microsoft.com/c", title: "C", moved: "https://learn.microsoft.com/c2" };
+  const x = (pages, follow) => ({ id: "l", package: "p", skill: "s", title: "T", pages, follow });
+  const say = (pages, follow) => P.stuckNote(x(pages, follow)).join("");
+  console.log(JSON.stringify([say([a, b], "checking"), say([a, c], "checking"), say([a, c], "searching"), say([b, b], "searching"), say([a, b], "searching")]));
+})();""")
+        self.assertEqual(out, ["Its official pages moved or are gone. Dojo checks the new address by itself.",
+                               "Its official pages moved. Dojo checks the new addresses by itself.",
+                               "Its official pages moved. The new addresses can't be used for this skill. Dojo looks for another page by itself. This can take days.",
+                               "Its official pages are gone. Dojo looks for another page by itself. This can take days.",
+                               "Its official pages moved or are gone. The new address can't be used for this skill. Dojo looks for another page by itself. This can take days."])
 
     def test_there_is_one_row_for_each_course_with_its_button_and_what_was_left_out(self):
         out = run_node("""

@@ -148,6 +148,34 @@ share. No new question can be written from that page, so those questions are los
 the quality log, and the exam comes out shorter (`dropped`). Readiness still asks for 5 scored questions
 in each domain, so a shorter exam is never read in the learner's favour.
 
+**A skill whose every page is gone is taken up (amended 23 October 2026).** Until then nothing followed a moved
+page and nothing replaced a gone one: for an added exam, the lesson waited for the owner to change the package's
+source, and the owner has no button for that. The owner found it on the To do page ("no source page") for a lesson
+whose page Microsoft had renamed, and Dojo had recorded the new address 16 hours before. So for an added exam the
+search (`Sourcer._follow`, `app/sourcing/ladder.py`) takes up each skill whose every cited page is gone, one skill a
+step, at most 3 skills a day (`FOLLOW_PER_DAY`), heaviest first. It never changes a citation unjudged:
+
+- **A page that moved** (the address now leads to another page): the page it leads to is read as any candidate is
+  (`Sources.candidate`, above) and judged by both models, with a quote found word for word on the page. A page both
+  accept is written into the package in place of the old address, the skill's own book follows, and the lesson is
+  written again from it by the Preparer, in the ordinary queue (one of the 10 a day; the old lesson stays until the
+  new one passes). A page that was taken down stays cited beside it: it may come back, and the lesson is written
+  from the page that is there. The package is rechecked under the lock before it is written, and a change made
+  meanwhile is left alone.
+- **A page both models do not accept, an address that leads out of the documentation, or a page taken down and moved
+  nowhere:** the skill goes back to the ordinary search for pages, as for pages both models refuse (ADR 0021), at its
+  retry schedule (daily three times, then weekly). The pages it accepts take the gone ones' place.
+- **A page that could not be read** (site trouble) is not a refusal: it is asked again after 6 hours, three tries, then
+  after a day.
+- A skill counts once a day however many tries it takes, so one that keeps failing does not use the day up for the
+  others. A try is written down before the paid call, as the audit does, so a check that keeps failing ends.
+
+What it did is in `sourcing/<exam>/side-moves`. Studio says it on the To do page and in Source changes: a lesson Dojo
+looks after (`checking`, `searching`) is one quiet line and not a card of the owner's; one still without a page a
+week after the search took it up (`stalled`, 7 days, `FOLLOW_STALLED_DAYS`; the search goes on) comes back under
+"Needs you", as does a skill of a built-in exam, which the search does not work on. Studio's activity lists what was
+taken over and what was put back to the search.
+
 **The plan.** The plan (ADR 0004) links a practice, a check or a later check to the skill's page, where
 a new question is written from the page as it is now. So a held item is never planned and never blocks
 a session. Two things would lead nowhere, so they are not planned while they last:
@@ -197,8 +225,8 @@ skill), item and practice-exam question that cites it is looked for in the new t
 - A rewrite that cannot work is not tried. When every page the skill cites is gone, moved included
   (`DriftCheck.gone_skills`), nothing can be written from them, so the Preparer skips the skill
   (`Preparer.rewrites`): it uses none of the day's rewrites and calls no model. The lesson stays held
-  and marked. In Studio it shows as "waiting", with "All its official pages are gone or moved; update
-  the package's source.", and it is counted apart from the lessons waiting for a rewrite. Once one of its
+  and marked. In Studio it shows as "waiting", with "All its official pages are gone or moved, so there is
+  nothing to rewrite it from yet.", and it is counted apart from the lessons waiting for a rewrite. Once one of its
   pages answers again, or its package cites another page, the skill is back in the queue in its usual
   place. So a site that moves many pages at once cannot use up the day's rewrites and starve the lessons
   that can be written again. The check can mark a skill's last page gone after the Preparer picked the
@@ -213,7 +241,7 @@ skill), item and practice-exam question that cites it is looked for in the new t
   Rewrites do not take turns between exams, and they do not move the turn that new lessons and
   narration take (ADR 0005), so the day's allowance never alternates between exams. Studio and
   `/api/diag` show it: "3 of 10 rewrites used today; 12 waiting. 2 lessons wait without using one: all
-  their official pages are gone or moved; update the package's source." A skill with no lesson yet is
+  their official pages are gone or moved, so there is no page to rewrite them from yet." A skill with no lesson yet is
   prepared as before, and the learner's own "Write the lesson" is not limited: it is one lesson, asked
   for by a person.
 - Nothing is filmed on its own. A rewritten lesson whose earlier version was filmed has no video yet:
@@ -308,7 +336,8 @@ flag the lab for a person to look at.
   an episode it already downloaded.
 - Model spend: one rewrite per lesson that lost a quote, the same as preparing a new one, and never more
   than 10 a day. A lesson whose every page is gone costs nothing until a page is back or its package
-  cites another page. Video spend only after the button.
+  cites another page; for an added exam the search then judges the new address (about two model calls for each
+  page, three skills a day at most) or goes back to its ordinary search for pages. Video spend only after the button.
 - Limits:
   - Only quotes are checked, not claims. A quote still on the page holds, even if a new sentence next
     to it changes what it means.
@@ -322,7 +351,8 @@ flag the lab for a person to look at.
   - A page renamed by a redirect is gone to Dojo, even when the new page says the same. Its lessons are
     held until they can be written again from the skill's other pages. A skill whose only page moved
     stays held, using none of the day's rewrites, until its package cites the new page: a citation never
-    follows on its own. Only choosing pages again follows it, as Add an exam does for candidates.
+    follows on its own. Only choosing pages again follows it, as Add an exam does for candidates. For an added
+    exam the search chooses again by itself (above). For a built-in exam the course's own source has to change.
   - A cited page that now leads only to another language is never read, and never counts as gone.
     Nothing new is written from it (ADR 0005 reads English only), what was written from it is judged
     against the last good copy, and the page is tried again each day.
@@ -333,8 +363,11 @@ flag the lab for a person to look at.
   gate re-judgement of claims.
 - A site complains or blocks Dojo: lower `DAILY_FETCHES` or raise `FETCH_GAP_S`.
 - Lessons keep waiting for a rewrite day after day: raise `DAILY_REWRITES`.
-- Cited pages move often (a documentation site renames a section): consider checking the quotes on the
-  page an address now leads to, and offering it to the owner as the skill's new source.
+- Cited pages move often (a documentation site renames a section): done for added exams (above): the search
+  judges the page an address now leads to and takes it over. Give a built-in exam the same step when one of
+  its skills is stuck.
+- The search takes up more than 3 skills a day for many days, or the lessons it puts back never find a page
+  (`stalled`): raise `FOLLOW_PER_DAY`, or let the owner choose a page for a skill.
 - The owner wants films made without pressing the button: that needs a spending limit, never open-ended
   filming.
 - Anyone other than the owner gets access to Dojo.
