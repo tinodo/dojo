@@ -161,7 +161,12 @@ step, at most 3 skills a day (`FOLLOW_PER_DAY`), heaviest first. It never change
   written again from it by the Preparer, in the ordinary queue (one of the 10 a day; the old lesson stays until the
   new one passes). A page that was taken down stays cited beside it: it may come back, and the lesson is written
   from the page that is there. The package is rechecked under the lock before it is written, and a change made
-  meanwhile is left alone.
+  meanwhile is left alone: the skill cites the pages that were judged, they are still gone, and the new ones are
+  not. What is to be written is recorded before the package is (`swapping`), so a swap that stops half way is
+  finished by the next step: the lesson's failed attempts are cleared, and the audit and the skill's book are
+  written, every write the same when it is made again. A book that was `covered` stays so only when a new page
+  is called direct by both models (`teaches`); a page that only `covers` the skill leaves it partly covered, and
+  the search goes on as for any such skill.
 - **A page both models do not accept, an address that leads out of the documentation, or a page taken down and moved
   nowhere:** the skill goes back to the ordinary search for pages, as for pages both models refuse (ADR 0021), at its
   retry schedule (daily three times, then weekly). The pages it accepts take the gone ones' place.
@@ -173,8 +178,9 @@ step, at most 3 skills a day (`FOLLOW_PER_DAY`), heaviest first. It never change
 What it did is in `sourcing/<exam>/side-moves`. Studio says it on the To do page and in Source changes: a lesson Dojo
 looks after (`checking`, `searching`) is one quiet line and not a card of the owner's; one still without a page a
 week after the search took it up (`stalled`, 7 days, `FOLLOW_STALLED_DAYS`; the search goes on) comes back under
-"Needs you", as does a skill of a built-in exam, which the search does not work on. Studio's activity lists what was
-taken over and what was put back to the search.
+"Needs you", as does one the search has not taken up a week after its last page went (`late`: a backlog of more than
+3 skills a day, or the search does not run), and a skill of a built-in exam, which the search does not work on.
+Studio's activity lists what was taken over and what was put back to the search.
 
 **The plan.** The plan (ADR 0004) links a practice, a check or a later check to the skill's page, where
 a new question is written from the page as it is now. So a held item is never planned and never blocks

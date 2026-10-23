@@ -175,7 +175,7 @@ class ToDoTests(unittest.TestCase):
   const page = (extra) => ({ url: old, title: "Try Azure SQL Database for free", publisher: "Microsoft Learn", ...extra });
   const row = (id, extra) => ({ id: `lesson-${id}`, package: "dp-300", exam: "DP-300", skill: `d1.g1.s${id}`, title: `Lesson ${id}`, pages: [page({ moved: to })], ...extra });
   const stuck = [row(1, { follow: "checking" }), row(2, { follow: "searching" }), row(3, { follow: "stalled" }), row(4, { follow: "unknown" }),
-    row(5, { pages: [page()] }), row(6, {}), row(7, { follow: "searching", pages: [page()] })];
+    row(5, { pages: [page()] }), row(6, {}), row(7, { follow: "searching", pages: [page()] }), row(8, { follow: "late" })];
   answers = [data([course("dp-300", "DP-300")], { todo: { labs: [], builds: [], stuck } }), bill()];
   const host = await P.studioTodo();
   const card = outside(host, isCls("todo-card")).find((c) => text(c).includes("can't be rewritten"));
@@ -185,14 +185,16 @@ class ToDoTests(unittest.TestCase):
   console.log(JSON.stringify([text(all(card, isTag("h3"))[0]), norm(text(all(card, isCls("sub"))[0])), rows, lines, links(host).filter(([, href]) => href === "#/quality/health"), visible(host)]));
 })();""")
         title, lead, rows, lines, health, face = out
-        self.assertEqual(title, "3 lessons can't be rewritten", "only what nobody looks after: a lesson that was written from a page a built-in exam cites, or one Dojo found nothing for")
-        self.assertIn("There is no button for this: the course's source has to change.", lead)
-        self.assertEqual([r[0] for r in rows], ["Lesson 3", "Lesson 5", "Lesson 6"])
-        self.assertEqual(rows[0][1], "Its official page moved. A week on, Dojo has found no page that teaches this skill. The course needs an official page. "
-                                     "The old address now leads to Try Azure SQL Database for free.")
+        self.assertEqual(title, "4 lessons can't be rewritten", "only what nobody looks after: a built-in exam's lesson, one Dojo found nothing for, or one it has not got to")
+        self.assertIn("they can still be studied. There is no button for this.", lead)
+        self.assertEqual([r[0] for r in rows], ["Lesson 3", "Lesson 5", "Lesson 6", "Lesson 8"])
+        self.assertEqual(rows[0][1], "Its official page moved. A week on, no page has taken its place. The course needs an official page. "
+                                     "The old address now leads to learn.microsoft.com/en-us/azure/azure-sql/database/free-tier.")
         self.assertEqual(rows[1][1], "Its official page is gone. The course needs a new official page.")
-        self.assertEqual(rows[2][1], "Its official page moved. Check that the page it moved to still covers this skill, then make it the course's source: Try Azure SQL Database for free.")
-        self.assertEqual([r[2] for r in rows], [[["no page found", "amber"]], [["page gone", "amber"]], [["page moved", "amber"]]])
+        self.assertEqual(rows[2][1], "Its official page moved. Check that the new page still covers this skill, then make it the course's source: "
+                                     "learn.microsoft.com/en-us/azure/azure-sql/database/free-tier.")
+        self.assertEqual(rows[3][1], "Its official page moved. A week on, Dojo has not got to it. Look at Lesson sources under Health.", "not that a search found nothing: none ran")
+        self.assertEqual([r[2] for r in rows], [[["no page found", "amber"]], [["page gone", "amber"]], [["page moved", "amber"]], [["search not started", "amber"]]])
         self.assertIn("free-tier", rows[2][3][0], "the owner can open the page the old address leads to")
         self.assertEqual(lines, ["3 other lessons can't be rewritten yet: their official pages moved or are gone. Dojo tries to fix this by itself, a few lessons a day at most. "
                                  "There is nothing to press. See which",

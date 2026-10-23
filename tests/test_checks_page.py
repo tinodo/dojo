@@ -158,7 +158,7 @@ console.log(JSON.stringify([run(3, []), run(6, []), run(8, []), run(8, many)]));
 const to = "https://learn.microsoft.com/b";
 const page = (extra) => ({ url: "https://learn.microsoft.com/a", title: "A page", ...extra });
 const row = (i, follow, pages) => ({ id: `lesson-w${i}`, package: "dp-300", skill: `d1.g1.s${i}`, title: `Waiting lesson ${i}`, follow, pages: pages || [page({ moved: to })] });
-const stuck = [row(0, "checking"), row(1, "searching"), row(2, "stalled"), row(3, "unknown"), row(4), row(5, undefined, [page()])];
+const stuck = [row(0, "checking"), row(1, "searching"), row(2, "stalled"), row(3, "unknown"), row(4), row(5, undefined, [page()]), row(6, "late")];
 const host = P.driftRow(drift([], { stuck }));
 const rows = all(host, (e) => cls(e).includes("near") && text(e).includes("Waiting lesson")).map((r) => [norm(text(all(r, isTag("small"))[0])),
   all(r, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip])[0]]);
@@ -166,11 +166,12 @@ console.log(JSON.stringify(rows));""")
         self.assertEqual(out, [
             ["Its official page moved. Dojo checks the new address by itself.", ["page moved", "line"]],
             ["Its official page moved. The new address can't be used for this skill. Dojo looks for another page by itself. This can take days.", ["page moved", "line"]],
-            ["Its official page moved. A week on, Dojo has found no page that teaches this skill. The course needs an official page. The old address now leads to A page.",
+            ["Its official page moved. A week on, no page has taken its place. The course needs an official page. The old address now leads to learn.microsoft.com/b.",
              ["no page found", "amber"]],
             ["Its official page moved. Dojo could not read what the search does about it.", ["could not be read", "rose"]],
-            ["Its official page moved. Check that the page it moved to still covers this skill, then make it the course's source: A page.", ["page moved", "amber"]],
-            ["Its official page is gone. The course needs a new official page.", ["page gone", "amber"]]])
+            ["Its official page moved. Check that the new page still covers this skill, then make it the course's source: learn.microsoft.com/b.", ["page moved", "amber"]],
+            ["Its official page is gone. The course needs a new official page.", ["page gone", "amber"]],
+            ["Its official page moved. A week on, Dojo has not got to it. Look at Lesson sources under Health.", ["search not started", "amber"]]])
 
     def test_the_sentence_about_rewrites_that_wait_for_a_page_does_not_send_the_owner_to_a_package(self):
         out = run_node("""
@@ -191,13 +192,13 @@ console.log(JSON.stringify([1, 2].map((n) => norm(text(P.driftRow(drift([], { re
     return [text(body.flat(Infinity)[0]).includes("Everything Dojo checked is working."), all(section, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip])[0],
       !!section.attrs.open, norm(text(section.kids[0]))];
   };
-  console.log(JSON.stringify([await read([]), await read([row("checking"), row("searching")]), await read([row("stalled")]), await read([row(undefined)]), await read([row("unknown")])]));
+  console.log(JSON.stringify([await read([]), await read([row("checking"), row("searching")]), await read([row("stalled")]), await read([row(undefined)]), await read([row("unknown")]), await read([row("late")])]));
 })();""")
-        none, looked, stalled, unowned, unread = out
+        none, looked, stalled, unowned, unread, late = out
         self.assertEqual(none[:3], [True, ["fine", "sage"], False])
         self.assertEqual(looked[:3], [True, ["for information", "line"], True], "nothing to look at, and the list is open for whoever follows the link")
         self.assertIn("2 lessons wait for an official page, and Dojo looks after them.", looked[3])
-        for owed in (stalled, unowned):
+        for owed in (stalled, unowned, late):
             self.assertEqual(owed[:3], [False, ["to look at", "amber"], True])
             self.assertIn("1 lesson waits for an official page.", owed[3])
             self.assertNotIn("looks after", owed[3])

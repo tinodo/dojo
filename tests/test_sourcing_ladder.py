@@ -26,7 +26,7 @@ from app.core import iso, utcnow, current_spend  # noqa: E402
 from app.learning import LESSON_TEMPLATE  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from app.sourcing.inventory import Inventory  # noqa: E402
-from app.sourcing.state import LeaseLost, new_skill, skill_key  # noqa: E402
+from app.sourcing.state import Books, LeaseLost, new_skill, skill_key  # noqa: E402
 from app.sourcing.verify import VERIFIER_VERSION, Verifier  # noqa: E402
 from tests.test_api import POST  # noqa: E402
 from tests.test_newexam import DOCS_AT, LEARN, Web, done, html, make_app, post, skills_of  # noqa: E402
@@ -1097,8 +1097,24 @@ class FollowTests(SourcingCase):
         self.assertEqual(book["state"], "covered")
         self.assertIsNone(book["ranked"])
         self.assertEqual((book["cited"], book["activated"]["sources"]), (len(new), len(new)))
+        self.assertEqual([a for a in self.sourcer.activations(self.pid, utcnow() - timedelta(days=1)) if a["skill"] == text], [],
+                         "a page taken over is not listed as a page the search found")
         self.steps()
         self.assertEqual(self.urls(text), new)
+
+    def test_a_covered_skill_whose_new_pages_only_cover_it_is_partly_covered_and_the_search_may_add_to_them(self):
+        self.start()
+        text = next(s["text"] for s in skills_of(self.raw()) if s["sources"])
+        old = self.urls(text)
+        for url in old:
+            self.move(url, url + "-renamed")
+        self.ai.grades = lambda role, title, t: "covers"   # accepted, but not called direct by both models
+        self.sourcer.step()
+        self.assertEqual(self.urls(text), [u + "-renamed" for u in old])
+        book = self.book(text)
+        self.assertEqual(book["state"], "partial", "the exam page no longer calls it covered")
+        self.assertTrue(book["activated"]["partial"])
+        self.assertEqual(book["stuck"], len(old) >= 3, "it can gain a page unless the package cites three already")
 
     def test_a_page_taken_down_stays_cited_beside_the_new_page_that_took_over_from_a_moved_one(self):
         self.start()
@@ -1227,13 +1243,28 @@ class FollowTests(SourcingCase):
         self.later(days=1, hours=1)
         self.assertEqual(self.sourcer.moves(self.pid), {sid: "stalled"}, "the owner is told; the search goes on")
 
-    def test_a_skill_the_search_never_took_up_is_stalled_a_week_after_its_page_went(self):
+    def test_a_skill_the_search_never_took_up_is_late_a_week_after_its_page_went(self):
         self.start()
         sid = self.skill(UNSOURCED)["id"]
         self.stuck()
         self.assertEqual(self.sourcer.moves(self.pid), {sid: "checking"})
         self.later(days=ladder.FOLLOW_STALLED_DAYS, hours=1)
-        self.assertEqual(self.sourcer.moves(self.pid), {sid: "stalled"}, "nothing acts on it: the page is not hidden behind a promise")
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "late"}, "nothing acts on it: it is not hidden behind a promise, and no search is said to have failed")
+
+    def test_a_page_that_came_back_and_went_again_is_a_new_case_not_the_one_put_back_to_the_search(self):
+        self.start()
+        sid = self.skill(UNSOURCED)["id"]
+        key = self.stuck()
+        self.refuse_the_old_title()
+        self.sourcer.step()
+        self.assertEqual(self.moves()[key]["state"], "searching")
+        del self.web.redirects[urlsplit(self.OLD).path]
+        self.dojo.sources.get(self.OLD, True)   # the old address answers with its own page again
+        self.assertEqual(self.sourcer.moves(self.pid), {})
+        self.web.redirects[urlsplit(self.OLD).path] = urlsplit(self.NEW).path
+        self.dojo.sources.mark_gone(self.OLD, iso(utcnow() + timedelta(hours=1)), to=self.NEW)   # and goes again, later
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "checking"}, "it is looked at afresh, and a week is counted from now")
+        self.assertTrue(self.sourcer._due_follow(self.pid, self.raw(), self.sourcer._moves_doc(self.store.read("sourcing", self.pid, "side-moves"))))
 
     def test_what_the_search_did_about_gone_pages_is_listed_for_the_activity(self):
         self.start()
@@ -1268,8 +1299,86 @@ class FollowTests(SourcingCase):
         self.assertEqual(self.urls(), [self.OLD])
         self.assertEqual(self.generation(), before)
         written = self.sourcer._swap_cited(run, key, [self.OLD], {self.NEW}, refs)
-        self.assertEqual(written[0], self.skill(UNSOURCED)["id"])
+        self.assertEqual([r["url"] for r in written], [self.NEW])
         self.assertEqual(self.urls(), [self.NEW])
+
+    def test_a_page_that_was_judged_and_has_gone_since_is_not_cited(self):
+        self.start()
+        self.stuck()
+        run = self.worker()
+        refs = ladder.refs_of({"accepted": [self.accepted()]})
+        self.dojo.sources.mark_gone(self.NEW, iso())   # the new page goes after it was judged and before it is written
+        self.assertIsNone(self.sourcer._swap_cited(run, self.key_of(UNSOURCED), [self.OLD], {self.NEW}, refs))
+        self.assertEqual(self.urls(), [self.OLD])
+
+    def test_two_addresses_that_lead_to_the_same_page_both_give_way_to_it(self):
+        self.start()
+        a, b = LEARN + DOCS_AT + "alpha-old", LEARN + DOCS_AT + "beta-old"
+        mid_a, mid_b = LEARN + DOCS_AT + "alpha-mid", LEARN + DOCS_AT + "beta-mid"
+        self.stuck({a: mid_a, b: mid_b})
+        for mid in (mid_a, mid_b):
+            self.web.redirects[urlsplit(mid).path] = urlsplit(self.NEW).path   # both lead on to the same page
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW], "neither old address is left behind")
+
+    def test_a_swap_that_stops_after_the_package_was_written_is_finished_by_the_next_step(self):
+        self.start()
+        key = self.stuck()
+        sid = self.skill(UNSOURCED)["id"]
+        calls = []
+
+        def start_again(preparer, pid, skill):
+            calls.append(skill)
+            if len(calls) == 1:
+                raise OSError("the disk is full")
+
+        with mock.patch.object(ladder.Sourcer, "_start_again", staticmethod(start_again)), self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        self.assertEqual(self.urls(), [self.NEW], "the package took it")
+        self.assertEqual(self.moves()[key]["state"], "swapping", "what is left to do is on record")
+        with mock.patch.object(ladder.Sourcer, "_start_again", staticmethod(start_again)):
+            self.assertTrue(self.sourcer.step(), "finishing it is the next step's work")
+        self.assertEqual(calls, [sid, sid], "the lesson's failed attempts are cleared, on the second try")
+        entry = self.moves()[key]
+        self.assertEqual((entry["state"], entry["to"], "accepted" in entry), ("followed", [self.NEW], False))
+        self.assertEqual(self.store.read("sourcing", self.pid, "side-audit")["skills"][key]["moved_from"], [self.OLD])
+
+    def test_a_swap_that_stops_before_the_skills_book_is_written_is_finished_by_the_next_step(self):
+        self.start()
+        text = next(s["text"] for s in skills_of(self.raw()) if s["sources"])
+        old = self.urls(text)
+        for url in old:
+            self.move(url, url + "-renamed")
+        real, calls = Books.save_skill, []
+
+        def save_skill(books, doc):
+            calls.append(doc["key"])
+            if len(calls) == 1:
+                raise OSError("the disk is full")
+            return real(books, doc)
+
+        with mock.patch.object(Books, "save_skill", save_skill), self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        new, key = self.urls(text), self.key_of(text)
+        self.assertEqual(new, [u + "-renamed" for u in old], "the package took it")
+        self.assertEqual(self.moves()[key]["state"], "swapping")
+        self.assertTrue({a["url"] for a in self.book(text)["accepted"]} & set(old), "the book still says the old pages")
+        self.assertTrue(self.sourcer.step())
+        book = self.book(text)
+        self.assertFalse({a["url"] for a in book["accepted"]} & set(old))
+        self.assertTrue(set(new) <= {a["url"] for a in book["accepted"]})
+        self.assertEqual((book["cited"], self.moves()[key]["state"]), (len(new), "followed"))
+
+    def test_a_swap_the_package_did_not_take_is_tried_again_as_the_skill_stands(self):
+        self.start()
+        key = self.stuck()
+        side = self.sourcer._moves_doc(None)
+        side["skills"][key] = {"state": "swapping", "from": [self.OLD], "targets": [self.NEW], "to": [self.NEW], "accepted": [self.accepted()], "tries": 1,
+                               "at": iso(), "since": iso()}
+        self.store.write("sourcing", self.pid, "side-moves", value=side)
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW], "judged again and taken, the package had not taken the first time")
+        self.assertEqual(self.moves()[key]["state"], "followed")
 
     def test_a_page_that_answers_again_meanwhile_is_not_taken_over(self):
         self.start()

@@ -134,7 +134,8 @@ class Studio:
 
     def with_follow(self, rows: list[dict]) -> list[dict]:
         """The lessons that wait for a page, each with what the search does about its skill (`follow`) when it is a skill of an added exam:
-        `checking` or `searching` (Dojo looks after it), `stalled` (a week on, no page found), or `unknown` (that could not be read). A
+        `checking` or `searching` (Dojo looks after it), `stalled` (a week on, no page found), `late` (a week on, not taken up), or `unknown`
+        (that could not be read). A
         built-in exam's skill has no such key: the search does not work on it, and its package's source is what changes. Read for each exam
         once, and never fails the page it is for."""
         moves: dict[str, dict | None] = {}

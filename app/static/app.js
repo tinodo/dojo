@@ -6227,8 +6227,9 @@ function labCard(l, act) {
 }
 
 // A lesson that waits for a page, as the owner reads it (To do, Source changes). `follow` is what the search does about the skill, for a skill of an
-// added exam: `checking` or `searching` (it is looked after), `stalled` (a week on, nothing found), `unknown` (it could not be read: said apart,
-// not a thing to do). A built-in exam's skill has none: the search does not work on it, and its course's source is what changes.
+// added exam: `checking` or `searching` (it is looked after), `stalled` (a week on, nothing found), `late` (a week on, not taken up), `unknown`
+// (it could not be read: said apart, not a thing to do). A built-in exam's skill has none: the search does not work on it, and its course's source
+// is what changes.
 const stuckLooked = (x) => ["checking", "searching"].includes(x.follow);
 const stuckOwed = (x) => !stuckLooked(x) && x.follow !== "unknown";
 
@@ -6240,28 +6241,30 @@ function stuckNote(x) {
     : moved.length === pages.length ? (one ? "Its official page moved." : "Its official pages moved.")
     : "Its official pages moved or are gone.";
   const address = moved.length > 1 ? "addresses" : "address";
-  const links = moved.flatMap((p, i) => [i ? ", " : null, ext(p.moved, p.title || p.moved)]);
+  const links = moved.flatMap((p, i) => [i ? ", " : null, ext(p.moved, String(p.moved).replace(/^https?:\/\//, "").replace(/[?#].*$/, ""))]);
   if (x.follow === "checking") return [`${what} Dojo checks the new ${address} by itself.`];
   if (x.follow === "searching") {
     return [`${what} ${moved.length ? `The new ${address} can't be used for this skill. ` : ""}Dojo looks for another page by itself. This can take days.`];
   }
   if (x.follow === "stalled") {
-    return [`${what} A week on, Dojo has found no page that teaches this skill. The course needs an official page.`, moved.length ? [" The old address now leads to ", links, "."] : null];
+    return [`${what} A week on, no page has taken its place. The course needs an official page.`,
+      moved.length ? [` The old ${moved.length > 1 ? "addresses now lead" : "address now leads"} to `, links, "."] : null];
   }
+  if (x.follow === "late") return [`${what} A week on, Dojo has not got to it. Look at Lesson sources under Health.`];
   if (x.follow === "unknown") return [`${what} Dojo could not read what the search does about it.`];
   return moved.length
-    ? [`${what} Check that the page it moved to still covers this skill, then make it the course's source: `, links, "."]
+    ? [`${what} Check that the new ${moved.length > 1 ? "pages still cover" : "page still covers"} this skill, then make ${moved.length > 1 ? "them" : "it"} the course's source: `, links, "."]
     : [`${what} The course needs a new official page.`];
 }
 
-const stuckChip = (x) => (x.follow === "stalled" ? chip("no page found", "amber") : x.follow === "unknown" ? chip("could not be read", "rose")
+const stuckChip = (x) => (x.follow === "stalled" ? chip("no page found", "amber") : x.follow === "late" ? chip("search not started", "amber") : x.follow === "unknown" ? chip("could not be read", "rose")
   : chip((x.pages || []).some((p) => p.moved) ? "page moved" : "page gone", stuckLooked(x) ? "line" : "amber"));
 
 function stuckCard(list) {
   return h("section", { class: "panel todo-card" },
     h("div", { class: "panel-h" }, h("h3", null, `${plural(list.length, "lesson")} can't be rewritten`), chip("waiting for a page", "amber")),
     h("p", { class: "sub" }, "Every official page they were written from is gone or moved, so Dojo cannot rewrite them yet. Their text stays as it is, and they can still be studied. "
-      + "There is no button for this: the course's source has to change."),
+      + "There is no button for this."),
     capped(list, 3, "lessons waiting for an official page", (x) => h("div", { class: "near" },
       h("span", null, h("a", { class: "link", href: `#/lesson/${x.id}` }, x.title || x.skill), " ", h("span", { class: "muted" }, x.exam || x.package),
         h("small", { class: "block muted" }, ...stuckNote(x))),
