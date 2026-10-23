@@ -1778,6 +1778,8 @@ class GoneRewriteTests(DriftCase):
         self.assertEqual({x["skill"] for x in studio["stuck"]}, gone, "named, and not only counted")
         self.assertTrue(all(x["package"] == PID and x["id"] and x["title"] for x in studio["stuck"]))
         self.assertEqual(self.drift.owner_todo()["stuck"], studio["stuck"], "the To do page names them too")
+        for x in studio["stuck"]:
+            self.assertEqual([(p["url"], p.get("moved")) for p in x["pages"]], [(URL, None)], "the page it waits for, which went and did not move")
         change = next(c for c in studio["changes"] if c["url"] == URL)
         self.assertEqual({x["skill"]: (x["now"], x.get("why")) for x in change["lessons"]},
                          {sid: ("waiting", drift_mod.PAGES_GONE) for sid in gone})
@@ -1800,6 +1802,9 @@ class GoneRewriteTests(DriftCase):
         self.assertEqual(self.prep.next_skill(), (PID, first))
         self.assertEqual(self.get("/api/studio/drift")["rewrites"]["waiting_for_pages"], len(gone) - 1)
         self.assertEqual({x["skill"] for x in self.get("/api/studio/drift")["stuck"]}, gone - {first})
+        for x in self.get("/api/studio/drift")["stuck"]:
+            self.assertEqual([(p["url"], p.get("moved")) for p in x["pages"]], [(URL, "https://docs.github.com" + ELSEWHERE)],
+                             "the page it waits for and the address that page now leads to")
 
         # Back to the page it cited, which answers again but lost a quote the lessons use.
         self.dojo.packages.by_id = {**self.dojo.packages.by_id, PID: pkg}

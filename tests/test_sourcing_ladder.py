@@ -11,6 +11,7 @@ import threading
 import unittest
 from datetime import timedelta
 from unittest import mock
+from urllib.parse import urlsplit
 
 os.environ.setdefault("DOJO_LOCAL", "1")
 os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-import-"))
@@ -25,8 +26,8 @@ from app.core import iso, utcnow, current_spend  # noqa: E402
 from app.learning import LESSON_TEMPLATE  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from app.sourcing.inventory import Inventory  # noqa: E402
-from app.sourcing.state import LeaseLost, new_skill, skill_key  # noqa: E402
-from app.sourcing.verify import Verifier  # noqa: E402
+from app.sourcing.state import Books, LeaseLost, new_skill, skill_key  # noqa: E402
+from app.sourcing.verify import VERIFIER_VERSION, Verifier  # noqa: E402
 from tests.test_api import POST  # noqa: E402
 from tests.test_newexam import DOCS_AT, LEARN, Web, done, html, make_app, post, skills_of  # noqa: E402
 
@@ -913,6 +914,551 @@ class AuditTests(SourcingCase):
         self.later(hours=21)
         self.steps()
         self.assertNotEqual(self.skill(UNSOURCED)["sources"], before, "the next day's allowance puts it back")
+
+
+class FollowWeb(TocWeb):
+    """The mock site, with pages that were taken down and pages whose address now leads to another page."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.taken: set[str] = set()          # addresses (paths) that answer 404
+        self.redirects: dict[str, str] = {}   # address (path) -> the address (path) it now leads to
+
+    def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+        if path in self.taken:
+            return httpx.Response(404)
+        if path in self.redirects:
+            return httpx.Response(301, headers={"location": self.redirects[path]})
+        return super().learn(path, params)
+
+
+class FollowTests(SourcingCase):
+    """A skill whose every cited page is gone (ADR 0006, amended 23 October 2026): the page a moved address leads to is judged like any
+    candidate and cited in its place; when none is accepted, or the pages were taken down, the search looks for new pages. A citation never
+    follows a redirect unjudged."""
+
+    OLD = LEARN + DOCS_AT + "free-offer"
+    NEW = LEARN + DOCS_AT + "free-tier"
+
+    def start(self) -> FollowWeb:
+        self.build(FollowWeb())
+        return self.web
+
+    def key_of(self, text: str) -> str:
+        for d in self.raw()["domains"]:
+            for g in d["groups"]:
+                for s in g["skills"]:
+                    if s["text"] == text:
+                        return skill_key(d["title"], g["title"], text)
+        raise AssertionError(text)
+
+    def move(self, url: str, to: str | None) -> None:
+        """The page was read once. Now its address leads to `to`, or the page was taken down (None): as the daily read finds out."""
+        self.dojo.sources.get(url)
+        self.dojo.sources.mark_gone(url, iso(), to=to)
+        path = urlsplit(url).path
+        if to is None:
+            self.web.taken.add(path)
+        else:
+            self.web.redirects[path] = urlsplit(to).path
+
+    def stuck(self, moved: dict | None = None, text: str = UNSOURCED, keep: tuple = (), audited: bool = True) -> str:
+        """The skill cites pages that are gone: each moved to where `moved` says, or was taken down (None). `keep`: pages it cites that are
+        still there. `audited`: the check of pages cited before the search existed has judged them already. Returns the skill's key."""
+        moved = {self.OLD: self.NEW} if moved is None else moved
+        raw = self.raw()
+        s = next(x for x in skills_of(raw) if x["text"] == text)
+        donor = next(x for x in skills_of(raw) if x["sources"] and x is not s)["sources"][0]
+        s["sources"] = [{**json.loads(json.dumps(donor)), "url": url, "title": "Free offer"} for url in (*moved, *keep)]
+        self.dojo.packages.add(raw)
+        for url, to in moved.items():
+            self.move(url, to)
+        key = self.key_of(text)
+        if audited:
+            side = self.store.read("sourcing", self.pid, "side-audit", default=None)
+            side = side if isinstance(side, dict) and side.get("v") == VERIFIER_VERSION else {"v": VERIFIER_VERSION, "skills": {}}
+            side["skills"][key] = {"verdict": "supported", "pages": [], "at": iso()}
+            self.store.write("sourcing", self.pid, "side-audit", value=side)
+        return key
+
+    def urls(self, text: str = UNSOURCED) -> list[str]:
+        return [r["url"] for r in self.skill(text)["sources"]]
+
+    def moves(self) -> dict:
+        return (self.store.read("sourcing", self.pid, "side-moves", default=None) or {}).get("skills", {})
+
+    def gone(self) -> set[str]:
+        return self.app.state.drift.gone_skills(self.pid)
+
+    def generation(self) -> int:
+        return self.sourcer.status(self.pid)["generation"]
+
+    def paid(self, text: str = UNSOURCED) -> int:
+        """The model calls made about this skill's pages."""
+        return sum(1 for _, task, _, user in self.ai.prompts if task == "verify_graded" and f"<study-guide-skill>{text}" in user)
+
+    def refuse_the_old_title(self) -> None:
+        self.ai.grades = lambda role, title, text: "no" if title == "Free offer" else "teaches"
+
+    def worker(self) -> ladder.Run:
+        run = ladder.Run(self.sourcer, self.pid, self.sourcer._found(self.raw()))
+        self.assertTrue(run.lease.acquire())
+        self.addCleanup(run.lease.release)
+        return run
+
+    def swap_record(self, key: str) -> tuple[dict, dict]:
+        """The record of the moves, and the entry of a skill that is about to be swapped."""
+        side = self.sourcer._moves_doc(None)
+        entry = side["skills"][key] = {"state": "trying", "from": [self.OLD], "targets": [self.NEW], "tries": 1, "at": iso(), "since": iso()}
+        return side, entry
+
+    def accepted(self) -> dict:
+        page = self.dojo.sources.candidate(self.NEW)
+        said = {"grade": "teaches", "quote": "a sentence of the page", "reason": "it teaches it", "model": "a model"}
+        return {"url": page["url"], "title": "Free offer", "grade": "teaches", "gate": said, "author": said, "sha256": page["sha256"],
+                "by": ["moved"], "rank": 1, "at": iso()}
+
+    def test_a_moved_page_both_models_accept_is_cited_in_place_of_the_old_address(self):
+        self.start()
+        key = self.stuck()
+        sid = self.skill(UNSOURCED)["id"]
+        self.assertIn(sid, self.gone(), "every page it cites is gone: its lesson cannot be written again")
+        deeper = self.nx.preparer.deeper
+        failed = f"{self.pid}/{sid}"
+        record = deeper._doc()
+        record["skills"][failed] = {"lesson": "lesson-0", "tries": 3, "last": iso(), "outcome": "failed", "given_up": iso(), "error": "No answer."}
+        deeper._save(record)
+        generation = self.generation()
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW])
+        self.assertTrue(self.ai.calls_of("verify_graded", "gate") and self.ai.calls_of("verify_graded", "author"), "both models judged it")
+        self.assertNotIn(sid, self.gone(), "its lesson is written again from the new page")
+        self.assertEqual(self.generation(), generation + 1)
+        self.assertNotIn(failed, deeper._doc()["skills"], "what failed for the old lesson does not count for the new one")
+        entry = self.moves()[key]
+        self.assertEqual((entry["state"], entry["from"], entry["to"]), ("followed", [self.OLD], [self.NEW]))
+        audit = self.store.read("sourcing", self.pid, "side-audit")["skills"][key]
+        self.assertEqual((audit["verdict"], audit["moved_from"], [p["url"] for p in audit["pages"]]), ("supported", [self.OLD], [self.NEW]))
+        ref = self.skill(UNSOURCED)["sources"][0]
+        self.assertEqual((ref["use"], ref["publisher"]), ("ground", "Microsoft Learn"))
+        self.assertTrue(ref["verified"]["quote"], "the sentence both models found on the new page")
+        self.assertEqual(self.sourcer.moves(self.pid), {})
+        self.steps()
+        self.assertEqual(self.urls(), [self.NEW], "and nothing else is written for it")
+
+    def test_a_moved_page_both_models_refuse_is_not_cited_and_the_search_looks_for_others(self):
+        self.start()
+        key = self.stuck()
+        self.refuse_the_old_title()
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.OLD], "nothing is cited in its place")
+        self.assertEqual(self.moves()[key]["state"], "searching")
+        self.assertEqual(self.book(UNSOURCED)["replacing"], [self.OLD])
+        self.assertEqual(self.sourcer.moves(self.pid), {self.skill(UNSOURCED)["id"]: "searching"})
+        self.steps()
+        urls = self.urls()
+        self.assertTrue(urls and self.OLD not in urls and self.NEW not in urls, urls)
+        self.assertNotIn(self.skill(UNSOURCED)["id"], self.gone())
+        self.assertEqual(self.book(UNSOURCED)["state"], "covered")
+
+    def test_a_refusal_is_not_judged_again_for_the_same_pages(self):
+        self.start()
+        self.stuck()
+        self.refuse_the_old_title()
+        self.sourcer.step()
+        paid = self.paid()
+        self.assertTrue(paid)
+        run = self.worker()
+        for _ in range(3):
+            self.assertFalse(self.sourcer._follow(run, self.raw()))
+        self.assertEqual(self.paid(), paid)
+
+    def test_pages_that_were_taken_down_send_the_skill_back_to_the_search_without_a_model_call(self):
+        self.start()
+        key = self.stuck({self.OLD: None})
+        self.assertEqual(self.sourcer.moves(self.pid), {self.skill(UNSOURCED)["id"]: "searching"}, "there is no address to follow")
+        asked = len(self.ai.prompts)
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(len(self.ai.prompts), asked, "nothing to judge")
+        self.assertEqual((self.moves()[key]["state"], self.moves()[key]["targets"]), ("searching", []))
+        self.assertEqual(self.book(UNSOURCED)["replacing"], [self.OLD])
+        self.steps()
+        urls = self.urls()
+        self.assertTrue(urls and self.OLD not in urls, urls)
+        self.assertNotIn(self.skill(UNSOURCED)["id"], self.gone())
+
+    def test_a_book_that_covered_the_skill_gets_the_new_pages_and_never_writes_the_old_ones_back(self):
+        self.start()
+        text = next(s["text"] for s in skills_of(self.raw()) if s["sources"])
+        old = self.urls(text)
+        self.assertEqual(self.book(text)["state"], "covered")
+        for url in old:
+            self.move(url, url + "-renamed")
+        self.sourcer.step()
+        new = self.urls(text)
+        self.assertEqual(new, [u + "-renamed" for u in old])
+        book = self.book(text)
+        self.assertFalse({a["url"] for a in book["accepted"]} & set(old), "a gone page is not kept as accepted")
+        self.assertTrue(set(new) <= {a["url"] for a in book["accepted"]})
+        self.assertEqual(book["state"], "covered")
+        self.assertIsNone(book["ranked"])
+        self.assertEqual((book["cited"], book["activated"]["sources"]), (len(new), len(new)))
+        self.assertEqual([a for a in self.sourcer.activations(self.pid, utcnow() - timedelta(days=1)) if a["skill"] == text], [],
+                         "a page taken over is not listed as a page the search found")
+        self.steps()
+        self.assertEqual(self.urls(text), new)
+
+    def test_a_covered_skill_whose_new_pages_only_cover_it_is_partly_covered_and_the_search_may_add_to_them(self):
+        self.start()
+        text = next(s["text"] for s in skills_of(self.raw()) if s["sources"])
+        old = self.urls(text)
+        for url in old:
+            self.move(url, url + "-renamed")
+        self.ai.grades = lambda role, title, t: "covers"   # accepted, but not called direct by both models
+        self.sourcer.step()
+        self.assertEqual(self.urls(text), [u + "-renamed" for u in old])
+        book = self.book(text)
+        self.assertEqual(book["state"], "partial", "the exam page no longer calls it covered")
+        self.assertTrue(book["activated"]["partial"])
+        self.assertEqual(book["stuck"], len(old) >= 3, "it can gain a page unless the package cites three already")
+
+    def test_a_partly_covered_book_that_could_not_grow_is_counted_again_when_the_swap_leaves_fewer_pages(self):
+        self.start()
+        olds = {LEARN + DOCS_AT + f"free-offer-{n}": LEARN + DOCS_AT + f"free-mid-{n}" for n in (1, 2, 3)}
+        key = self.stuck(olds)   # cites three pages
+        for mid in olds.values():
+            self.web.redirects[urlsplit(mid).path] = urlsplit(self.NEW).path   # all three lead to one page
+        book = new_skill(key, 1)
+        book.update(state="partial", stuck=True, accepted=[{**self.accepted(), "url": url} for url in olds])
+        self.store.write("sourcing", self.pid, key, value=book)
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW])
+        book = self.book(UNSOURCED)
+        self.assertEqual((book["state"], book["stuck"], book["cited"]), ("partial", False, 1), "it cites one page now: the search may add to it")
+
+    def test_a_page_taken_down_stays_cited_beside_the_new_page_that_took_over_from_a_moved_one(self):
+        self.start()
+        retired = LEARN + DOCS_AT + "free-retired"
+        key = self.stuck({self.OLD: self.NEW, retired: None})
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW, retired], "it may come back, and the other pages do not depend on it")
+        self.assertEqual(self.moves()[key]["state"], "followed")
+        self.assertNotIn(self.skill(UNSOURCED)["id"], self.gone(), "one page is there: the lesson is written from it")
+
+    def test_a_skill_that_still_cites_a_page_that_is_there_is_left_to_the_ordinary_rewrite(self):
+        self.start()
+        key = self.stuck(keep=(LEARN + DOCS_AT + "still-here",))
+        before = self.skill(UNSOURCED)["sources"]
+        self.assertEqual(self.sourcer.moves(self.pid), {})
+        self.steps()
+        self.assertEqual(self.skill(UNSOURCED)["sources"], before)
+        self.assertNotIn(key, self.moves())
+
+    def test_an_address_that_now_leads_out_of_the_documentation_is_not_followed_and_not_asked_for(self):
+        self.start()
+        training = LEARN + "/en-us/training/modules/free-tier/"
+        key = self.stuck({self.OLD: training})
+        self.assertTrue(self.sourcer.step())
+        self.assertFalse([u for u in self.web.seen if "/training/modules/free-tier" in u], "a redirect out of the documentation is refused unread")
+        self.assertEqual(self.urls(), [self.OLD])
+        self.assertEqual(self.moves()[key]["state"], "searching")
+
+    def test_a_moved_page_that_cannot_be_read_is_asked_again_later_and_is_not_a_refusal(self):
+        web = self.start()
+        key = self.stuck()
+        web.flaky["free-tier"] = 1000
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.moves()[key]["state"], "unread")
+        self.assertEqual(self.urls(), [self.OLD])
+        self.assertNotIn("replacing", self.book(UNSOURCED) or {}, "a page that may be read later is no reason to search")
+        self.assertEqual(self.sourcer.moves(self.pid), {self.skill(UNSOURCED)["id"]: "checking"})
+        asked = len([u for u in web.seen if "free-tier" in u])
+        self.steps()
+        self.assertEqual(len([u for u in web.seen if "free-tier" in u]), asked, "it is not asked again before its time")
+        web.flaky.clear()
+        self.later(hours=ladder.FOLLOW_UNREAD_H + 1)
+        self.sourcer.step()
+        self.assertEqual(self.urls(), [self.NEW])
+
+    def test_a_check_that_keeps_failing_is_given_up_after_three_tries_and_waits_a_day(self):
+        self.start()
+        key = self.stuck()
+        self.ai.fail["verify_graded"] = 1000
+        with self.assertLogs("dojo.sourcing", level="ERROR"):
+            for _ in range(4):
+                self.sourcer.step()
+        entry = self.moves()[key]
+        self.assertEqual(entry["state"], "unread")
+        wait = parse_next({"next": entry["wait_until"]}) - self.clock[0]
+        self.assertTrue(timedelta(hours=23) < wait <= timedelta(days=1), wait)
+        paid = self.paid()
+        self.assertEqual(paid, 3, "three tries")
+        self.assertEqual(self.urls(), [self.OLD])
+        self.steps()
+        self.assertEqual(self.paid(), paid, "nothing more is paid for it until the wait is over")
+        self.ai.fail["verify_graded"] = 0
+        self.later(days=1, hours=1)
+        self.sourcer.step()
+        self.assertEqual(self.urls(), [self.NEW], "tried afresh a day later")
+
+    def test_only_a_few_skills_a_day_are_taken_up(self):
+        self.start()
+        other = next(s["text"] for s in skills_of(self.raw()) if s["text"] != UNSOURCED)
+        a = self.stuck({self.OLD: self.NEW})
+        b = self.stuck({LEARN + DOCS_AT + "beta-old": LEARN + DOCS_AT + "beta-new"}, text=other)
+        states = lambda: sorted(v["state"] for v in self.moves().values())   # noqa: E731
+        with mock.patch.object(ladder, "FOLLOW_PER_DAY", 1):
+            self.assertTrue(self.sourcer.step())
+            self.assertEqual(states(), ["followed"], "one skill the first day")
+            side = self.sourcer._moves_doc(self.store.read("sourcing", self.pid, "side-moves"))
+            self.assertEqual(len(side["days"][self.clock[0].date().isoformat()]), 1)
+            self.assertEqual(self.sourcer._due_follow(self.pid, self.raw(), side), [], "the day's allowance is used")
+            self.steps()
+            self.assertEqual(states(), ["followed"])
+            self.later(days=1)
+            self.sourcer.step()
+            self.assertEqual(states(), ["followed", "followed"], "the next day's allowance takes up the other")
+        self.assertEqual(set(self.moves()), {a, b})
+
+    def test_a_skill_that_was_taken_up_today_may_be_tried_again_when_the_allowance_is_used(self):
+        self.start()
+        a = self.stuck()
+        raw = self.raw()
+        side = self.sourcer._moves_doc(None)
+        today = self.clock[0].date().isoformat()
+        with mock.patch.object(ladder, "FOLLOW_PER_DAY", 1):
+            self.assertEqual([t[0]["key"] for t in self.sourcer._due_follow(self.pid, raw, side)], [a])
+            side["days"][today] = ["another skill"]
+            self.assertEqual(self.sourcer._due_follow(self.pid, raw, side), [], "one other skill used the allowance")
+            side["days"][today] = [a]
+            self.assertEqual([t[0]["key"] for t in self.sourcer._due_follow(self.pid, raw, side)], [a], "its own retry is not another skill")
+
+    def test_the_heaviest_skill_is_taken_up_first(self):
+        self.start()
+        texts = [s["text"] for s in skills_of(self.raw()) if s["text"] != UNSOURCED][:2]
+        keys = [self.stuck({LEARN + DOCS_AT + f"{n}-old": LEARN + DOCS_AT + f"{n}-new"}, text=t) for n, t in zip(("alpha", "beta"), texts)]
+        heavy = self.skill(texts[1])["id"]
+        with mock.patch.object(self.sourcer, "_share", lambda pid, sid: 1.0 if sid == heavy else 0.1), mock.patch.object(ladder, "FOLLOW_PER_DAY", 1):
+            self.sourcer.step()
+        self.assertEqual([k for k, v in self.moves().items() if v["state"] == "followed"], [keys[1]])
+
+    def test_the_search_says_what_it_does_about_each_skill_whose_pages_are_gone(self):
+        self.start()
+        sid = self.skill(UNSOURCED)["id"]
+        self.assertEqual(self.sourcer.moves(self.pid), {})
+        self.stuck()
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "checking"})
+        self.sourcer.step()
+        self.assertEqual(self.sourcer.moves(self.pid), {}, "taken over: its page is there")
+        self.assertEqual(self.sourcer.moves("gh-300"), {}, "the search does not work on a built-in exam")
+
+    def test_a_skill_still_without_a_page_a_week_after_the_search_took_it_up_is_said_to_be_stalled(self):
+        self.start()
+        sid = self.skill(UNSOURCED)["id"]
+        self.stuck({self.OLD: None})
+        self.sourcer.step()
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "searching"})
+        self.later(days=ladder.FOLLOW_STALLED_DAYS - 1)
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "searching"})
+        self.later(days=1, hours=1)
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "stalled"}, "the owner is told; the search goes on")
+
+    def test_a_skill_the_search_never_took_up_is_late_a_week_after_its_page_went(self):
+        self.start()
+        sid = self.skill(UNSOURCED)["id"]
+        self.stuck()
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "checking"})
+        self.later(days=ladder.FOLLOW_STALLED_DAYS, hours=1)
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "late"}, "nothing acts on it: it is not hidden behind a promise, and no search is said to have failed")
+
+    def test_a_page_that_came_back_and_went_again_is_a_new_case_not_the_one_put_back_to_the_search(self):
+        self.start()
+        sid = self.skill(UNSOURCED)["id"]
+        key = self.stuck()
+        self.refuse_the_old_title()
+        self.sourcer.step()
+        self.assertEqual(self.moves()[key]["state"], "searching")
+        del self.web.redirects[urlsplit(self.OLD).path]
+        self.dojo.sources.get(self.OLD, True)   # the old address answers with its own page again
+        self.assertEqual(self.sourcer.moves(self.pid), {})
+        self.web.redirects[urlsplit(self.OLD).path] = urlsplit(self.NEW).path
+        self.dojo.sources.mark_gone(self.OLD, iso(utcnow() + timedelta(hours=1)), to=self.NEW)   # and goes again, later
+        self.assertEqual(self.sourcer.moves(self.pid), {sid: "checking"}, "it is looked at afresh, and a week is counted from now")
+        self.assertTrue(self.sourcer._due_follow(self.pid, self.raw(), self.sourcer._moves_doc(self.store.read("sourcing", self.pid, "side-moves"))))
+
+    def test_what_the_search_did_about_gone_pages_is_listed_for_the_activity(self):
+        self.start()
+        before = utcnow() - timedelta(minutes=1)
+        self.assertEqual(self.sourcer.follows(self.pid, before), [])
+        self.stuck()
+        self.sourcer.step()
+        [followed] = self.sourcer.follows(self.pid, before)
+        self.assertEqual((followed["skill"], followed["state"], followed["to"]), (UNSOURCED, "followed", self.NEW))
+        self.assertEqual(self.sourcer.follows(self.pid, utcnow() + timedelta(days=1)), [], "only what happened since")
+        self.stuck({LEARN + DOCS_AT + "beta-old": None}, text=next(s["text"] for s in skills_of(self.raw()) if s["text"] != UNSOURCED))
+        self.sourcer.step()
+        states = {f["skill"]: f["state"] for f in self.sourcer.follows(self.pid, before)}
+        self.assertEqual(sorted(states.values()), ["followed", "searching"])
+
+    def test_the_search_waits_for_a_skill_whose_pages_are_gone_and_for_nothing_else(self):
+        self.start()
+        self.steps()
+        self.assertGreater(self.sourcer.wait_s(), 15, "nothing is due")
+        self.stuck()
+        self.assertEqual(self.sourcer.wait_s(), 15.0, "a skill whose pages are gone is due")
+        with mock.patch.object(ladder, "FOLLOW_PER_DAY", 0):
+            self.assertGreater(self.sourcer.wait_s(), 15, "not when the day's allowance is used")
+
+    def test_pages_that_changed_since_they_were_judged_are_not_replaced(self):
+        self.start()
+        self.stuck()
+        run = self.worker()
+        refs = ladder.refs_of({"accepted": [self.accepted()]})
+        key, before = self.key_of(UNSOURCED), self.generation()
+        side, entry = self.swap_record(key)
+        self.assertIsNone(self.sourcer._swap_cited(run, side, entry, key, [self.OLD, LEARN + DOCS_AT + "other"], {self.NEW}, refs))
+        self.assertEqual(self.urls(), [self.OLD])
+        self.assertEqual(self.generation(), before)
+        self.assertEqual(entry["state"], "trying", "nothing is recorded as begun when nothing was written")
+        written = self.sourcer._swap_cited(run, side, entry, key, [self.OLD], {self.NEW}, refs)
+        self.assertEqual([r["url"] for r in written], [self.NEW])
+        self.assertEqual(self.urls(), [self.NEW])
+
+    def test_a_page_that_was_judged_and_has_gone_since_is_not_cited(self):
+        self.start()
+        self.stuck()
+        run = self.worker()
+        refs = ladder.refs_of({"accepted": [self.accepted()]})
+        self.dojo.sources.mark_gone(self.NEW, iso())   # the new page goes after it was judged and before it is written
+        key = self.key_of(UNSOURCED)
+        self.assertIsNone(self.sourcer._swap_cited(run, *self.swap_record(key), key, [self.OLD], {self.NEW}, refs))
+        self.assertEqual(self.urls(), [self.OLD])
+
+    def test_two_addresses_that_lead_to_the_same_page_both_give_way_to_it(self):
+        self.start()
+        a, b = LEARN + DOCS_AT + "alpha-old", LEARN + DOCS_AT + "beta-old"
+        mid_a, mid_b = LEARN + DOCS_AT + "alpha-mid", LEARN + DOCS_AT + "beta-mid"
+        self.stuck({a: mid_a, b: mid_b})
+        for mid in (mid_a, mid_b):
+            self.web.redirects[urlsplit(mid).path] = urlsplit(self.NEW).path   # both lead on to the same page
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW], "neither old address is left behind")
+
+    def test_a_swap_that_stops_after_the_package_was_written_is_finished_by_the_next_step(self):
+        self.start()
+        key = self.stuck()
+        sid = self.skill(UNSOURCED)["id"]
+        calls = []
+
+        def start_again(preparer, pid, skill):
+            calls.append(skill)
+            if len(calls) == 1:
+                raise OSError("the disk is full")
+
+        with mock.patch.object(ladder.Sourcer, "_start_again", staticmethod(start_again)), self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        self.assertEqual(self.urls(), [self.NEW], "the package took it")
+        self.assertEqual(self.moves()[key]["state"], "swapping", "what is left to do is on record")
+        with mock.patch.object(ladder.Sourcer, "_start_again", staticmethod(start_again)):
+            self.assertTrue(self.sourcer.step(), "finishing it is the next step's work")
+        self.assertEqual(calls, [sid, sid], "the lesson's failed attempts are cleared, on the second try")
+        entry = self.moves()[key]
+        self.assertEqual((entry["state"], entry["to"], "accepted" in entry), ("followed", [self.NEW], False))
+        self.assertEqual(self.store.read("sourcing", self.pid, "side-audit")["skills"][key]["moved_from"], [self.OLD])
+
+    def test_a_swap_that_stops_before_the_skills_book_is_written_is_finished_by_the_next_step(self):
+        self.start()
+        text = next(s["text"] for s in skills_of(self.raw()) if s["sources"])
+        old = self.urls(text)
+        for url in old:
+            self.move(url, url + "-renamed")
+        real, calls = Books.save_skill, []
+
+        def save_skill(books, doc):
+            calls.append(doc["key"])
+            if len(calls) == 1:
+                raise OSError("the disk is full")
+            return real(books, doc)
+
+        with mock.patch.object(Books, "save_skill", save_skill), self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        new, key = self.urls(text), self.key_of(text)
+        self.assertEqual(new, [u + "-renamed" for u in old], "the package took it")
+        self.assertEqual(self.moves()[key]["state"], "swapping")
+        self.assertTrue({a["url"] for a in self.book(text)["accepted"]} & set(old), "the book still says the old pages")
+        self.assertTrue(self.sourcer.step())
+        book = self.book(text)
+        self.assertFalse({a["url"] for a in book["accepted"]} & set(old))
+        self.assertTrue(set(new) <= {a["url"] for a in book["accepted"]})
+        self.assertEqual((book["cited"], self.moves()[key]["state"]), (len(new), "followed"))
+
+    def test_a_swap_that_stops_after_the_lessons_attempts_were_cleared_does_not_clear_them_again(self):
+        self.start()
+        key = self.stuck()
+        sid = self.skill(UNSOURCED)["id"]
+        calls = []
+        again = staticmethod(lambda preparer, pid, skill: calls.append(skill))
+        real, failed = Books.save_side, []
+
+        def save_side(books, name, value):
+            if name == "audit" and not failed:
+                failed.append(name)
+                raise OSError("the disk is full")
+            return real(books, name, value)
+
+        with mock.patch.object(ladder.Sourcer, "_start_again", again), mock.patch.object(Books, "save_side", save_side), \
+                self.assertLogs("dojo.sourcing", level="ERROR"):
+            self.sourcer.step()
+        self.assertEqual((self.moves()[key]["state"], calls), ("swapping", [sid]))
+        with mock.patch.object(ladder.Sourcer, "_start_again", again):
+            self.assertTrue(self.sourcer.step())
+        self.assertEqual(calls, [sid], "cleared once: attempts made after the swap are never cleared by a retry of the rest")
+        self.assertEqual(self.moves()[key]["state"], "followed")
+        self.assertNotIn("reset", self.moves()[key])
+
+    def test_a_page_the_skill_cited_before_is_no_proof_that_a_swap_was_written(self):
+        self.start()
+        retired = LEARN + DOCS_AT + "free-retired"
+        key = self.stuck({self.OLD: self.NEW, retired: None})   # cites [OLD, retired], both gone
+        side = self.sourcer._moves_doc(None)
+        side["skills"][key] = {"state": "swapping", "from": [self.OLD, retired], "targets": [self.NEW], "to": [retired], "expect": [retired],
+                               "accepted": [self.accepted()], "tries": 1, "at": iso(), "since": iso()}
+        self.assertFalse(self.sourcer._settle_swaps(self.worker(), self.raw(), side), "the package still cites [OLD, retired]: no swap was written")
+        self.assertEqual((side["skills"][key]["state"], "expect" in side["skills"][key]), ("trying", False))
+
+    def test_a_swap_the_package_did_not_take_is_tried_again_as_the_skill_stands(self):
+        self.start()
+        key = self.stuck()
+        side = self.sourcer._moves_doc(None)
+        side["skills"][key] = {"state": "swapping", "from": [self.OLD], "targets": [self.NEW], "to": [self.NEW], "accepted": [self.accepted()], "tries": 1,
+                               "at": iso(), "since": iso()}
+        self.store.write("sourcing", self.pid, "side-moves", value=side)
+        self.assertTrue(self.sourcer.step())
+        self.assertEqual(self.urls(), [self.NEW], "judged again and taken, the package had not taken the first time")
+        self.assertEqual(self.moves()[key]["state"], "followed")
+
+    def test_a_page_that_answers_again_meanwhile_is_not_taken_over(self):
+        self.start()
+        self.stuck()
+        run = self.worker()
+        refs = ladder.refs_of({"accepted": [self.accepted()]})
+        del self.web.redirects[urlsplit(self.OLD).path]
+        self.dojo.sources.get(self.OLD, True)   # the old address answers with its own page again
+        self.assertFalse(self.dojo.sources.head(self.OLD)["gone"])
+        key = self.key_of(UNSOURCED)
+        self.assertIsNone(self.sourcer._swap_cited(run, *self.swap_record(key), key, [self.OLD], {self.NEW}, refs))
+        self.assertEqual(self.urls(), [self.OLD])
+        self.assertEqual(self.sourcer.moves(self.pid), {}, "its lesson is written from the page that is there")
+
+    def test_a_removed_exam_is_not_written_back(self):
+        self.start()
+        self.stuck()
+        run = self.worker()
+        run.lease.revoke()
+        key = self.key_of(UNSOURCED)
+        with self.assertRaises(LeaseLost):
+            self.sourcer._swap_cited(run, *self.swap_record(key), key, [self.OLD], {self.NEW}, ladder.refs_of({"accepted": [self.accepted()]}))
+        self.assertEqual(self.urls(), [self.OLD])
 
 
 class ReadinessTests(unittest.TestCase):

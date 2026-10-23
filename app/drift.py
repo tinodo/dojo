@@ -92,7 +92,7 @@ FILM_REMAKING = "The video is being remade. Until then, use Present, Read or Lis
 RECORD_NOTE = ("Your record is never rewritten. An answer given before a page changed stays as it was; the skill page "
                "says that the source changed after it.")
 LAB_NOTICE = "A source page changed on {date}. Dojo flagged this lab for a look: check its steps against the official docs."
-PAGES_GONE = "All its official pages are gone or moved; update the package's source."
+PAGES_GONE = "All its official pages are gone or moved, so there is nothing to rewrite it from yet."
 PUBLISHERS = {"learn.microsoft.com": "Microsoft Learn", "docs.github.com": "GitHub Docs"}
 
 
@@ -1261,13 +1261,17 @@ class DriftCheck:
 
     def _stuck(self, by: dict, gone: dict[str, set[str]]) -> list[dict]:
         """The lessons that wait, and use no rewrite, because every official page of their skill is gone or moved: the owner
-        updates the package's source. Named here and not only counted, so a long history of changes cannot hide or lose them."""
+        updates the package's source, or, for an added exam, the search takes it over (app/sourcing/ladder.py). Named here and not
+        only counted, so a long history of changes cannot hide or lose them. Each says which pages it cites and where a moved one leads."""
         out = []
         for pid in self.dojo.packages.ids():
             latest = self._latest(pid, by)
             held = {sid for sid, m in latest.items() if self.withheld(m["id"])}
             stuck = held & self._gone_memo(pid, gone) if held else set()
-            out += [{"id": latest[sid]["id"], "package": pid, "skill": sid, "title": latest[sid].get("title")} for sid in sorted(stuck)]
+            skills = (self.dojo.packages.by_id.get(pid) or {}).get("skills") or {}
+            out += [{"id": latest[sid]["id"], "package": pid, "skill": sid, "title": latest[sid].get("title"),
+                     "pages": [self._page(r["url"]) for r in (skills.get(sid) or {}).get("sources") or [] if isinstance(r, dict) and r.get("url")]}
+                    for sid in sorted(stuck)]
         return out
 
     @staticmethod

@@ -132,16 +132,36 @@ class Studio:
                 log.exception("studio: could not read the course %s", pid)
         return {"at": iso(), "courses": out, "make": self._make(out, storage), "todo": self._todo()}
 
+    def with_follow(self, rows: list[dict]) -> list[dict]:
+        """The lessons that wait for a page, each with what the search does about its skill (`follow`) when it is a skill of an added exam:
+        `checking` or `searching` (Dojo looks after it), `stalled` (a week on, no page found), `late` (a week on, not taken up), or `unknown`
+        (that could not be read). A
+        built-in exam's skill has no such key: the search does not work on it, and its package's source is what changes. Read for each exam
+        once, and never fails the page it is for."""
+        moves: dict[str, dict | None] = {}
+        out = []
+        for r in rows:
+            pid = r.get("package")
+            if pid not in moves:
+                try:
+                    moves[pid] = self.newexams.sourcer.moves(pid)
+                except Exception:  # noqa: BLE001 - the page still shows, and says that it could not read what the search does
+                    log.exception("studio: could not read what the search does about the gone pages of %s", pid)
+                    moves[pid] = None
+            follow = "unknown" if moves[pid] is None else moves[pid].get(r.get("skill"))
+            out.append({**r, "follow": follow} if follow else r)
+        return out
+
     def _todo(self) -> dict:
         """What only the owner can do about what Dojo found, for the To do page: the labs to look at, the lessons whose every official
-        page is gone (a change to the course's source, not a button), and the exam builds that stopped. Each is read on its own, so one
-        that cannot be read never hides the others."""
+        page is gone or moved (a change to the course's source, not a button, unless the search looks after them: `follow`), and the exam
+        builds that stopped. Each is read on its own, so one that cannot be read never hides the others."""
         out: dict = {"labs": [], "stuck": [], "builds": []}
         try:
             if self.drift is not None:
                 found = self.drift.owner_todo()
                 out["labs"] = found["labs"]
-                out["stuck"] = [{**s, "exam": self._exam(s["package"])} for s in found["stuck"]]
+                out["stuck"] = [{**s, "exam": self._exam(s["package"])} for s in self.with_follow(found["stuck"])]
         except Exception:  # noqa: BLE001 - the rest of the page still shows
             log.exception("studio: could not read the labs and lessons that wait for the owner")
         try:
@@ -714,6 +734,12 @@ class Studio:
                 out.append({"at": a["at"], "kind": "pages", "tone": "warn" if partly else "info", "course": self._exam(pid),
                             "title": f"Found official pages for “{a['skill']}”",
                             "detail": f"{_plural(a['pages'], 'page')}" + (", covering it only partly" if partly else ""), "link": None})
+            for f in self.newexams.sourcer.follows(pid, since):
+                took = f["state"] == "followed"
+                out.append({"at": f["at"], "kind": "pages", "tone": "info" if took else "warn", "course": self._exam(pid),
+                            "title": f"Took over the new page for “{f['skill']}”" if took else f"Started looking for a new page for “{f['skill']}”",
+                            "detail": ("Its old address moved. Two models read the page it leads to and both accepted it. The lesson will be rewritten from it."
+                                       if took else "Every official page it was written from has moved or is gone."), "link": None})
         return out
 
     def _change_events(self, since: Any) -> list[dict]:

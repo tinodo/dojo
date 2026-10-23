@@ -760,6 +760,20 @@ class ActivityTests(StudioCase):
             self.assertRegex(e["detail"], r"^\d+ pages?")
         self.assertLessEqual(len(events), len(self.app.state.newexams.sourcer.skills_of(raw)))
 
+    def test_what_the_search_did_about_pages_that_moved_or_went_is_listed_beside_the_pages_it_found(self):
+        sourcer = self.app.state.newexams.sourcer
+        done = [{"at": iso(), "skill": "Compare widgets", "state": "followed", "to": "https://learn.microsoft.com/en-us/x/new"},
+                {"at": iso(), "skill": "Size a widget", "state": "searching", "to": None}]
+        with mock.patch.object(sourcer, "follows", return_value=done):
+            events = [e for e in self.read("activity")["events"] if e["kind"] == "pages" and not e["title"].startswith("Found")]
+        by = {e["title"]: e for e in events}
+        took = by["Took over the new page for “Compare widgets”"]
+        self.assertEqual((took["tone"], took["course"]), ("info", "XY-110"))
+        self.assertIn("The lesson will be rewritten from it.", took["detail"])
+        looking = by["Started looking for a new page for “Size a widget”"]
+        self.assertEqual(looking["tone"], "warn")
+        self.assertEqual(looking["detail"], "Every official page it was written from has moved or is gone.")
+
     def test_a_failed_job_of_the_owner_is_listed_and_another_learners_job_never_is(self):
         store = self.dojo.store
         now = iso()
@@ -1004,6 +1018,33 @@ class ToDoViewTests(StudioCase):
             todo = self.read()["todo"]
         self.assertEqual(todo["labs"], [lab])
         self.assertEqual(todo["stuck"], [{**stuck, "exam": "XY-110"}], "the exam is named, so the page need not look it up")
+
+    def test_a_lesson_whose_pages_are_gone_says_what_the_search_does_about_its_skill(self):
+        sourcer = self.app.state.newexams.sourcer
+        a, b = self.skills[0]["id"], self.skills[1]["id"]
+        stuck = lambda sid: {"id": f"lesson-{sid}", "package": self.pid, "skill": sid, "title": "A lesson", "pages": []}   # noqa: E731
+        with mock.patch.object(self.app.state.drift, "owner_todo", return_value={"labs": [], "stuck": [stuck(a), stuck(b)]}), \
+                mock.patch.object(sourcer, "moves", return_value={a: "checking"}):
+            rows = self.read()["todo"]["stuck"]
+        self.assertEqual([(r["skill"], r.get("follow")) for r in rows], [(a, "checking"), (b, None)], "no word for a skill the search does not work on")
+        with mock.patch.object(self.app.state.drift, "owner_todo", return_value={"labs": [], "stuck": [stuck(a)]}), \
+                mock.patch.object(sourcer, "moves", return_value={a: "stalled"}):
+            self.assertEqual(self.read()["todo"]["stuck"][0]["follow"], "stalled")
+
+    def test_what_the_search_does_about_a_lesson_that_could_not_be_read_is_said_so_and_not_taken_for_a_built_in_exam(self):
+        sourcer = self.app.state.newexams.sourcer
+        sid = self.skills[0]["id"]
+        with mock.patch.object(self.app.state.drift, "owner_todo", return_value={"labs": [], "stuck": [{"id": "l", "package": self.pid, "skill": sid, "title": "T", "pages": []}]}), \
+                mock.patch.object(sourcer, "moves", side_effect=OSError("the disk")), self.assertLogs("dojo.studio", level="ERROR"):
+            rows = self.read()["todo"]["stuck"]
+        self.assertEqual([r["follow"] for r in rows], ["unknown"])
+
+    def test_the_drift_page_says_the_same_about_each_lesson_that_waits(self):
+        sourcer = self.app.state.newexams.sourcer
+        sid = self.skills[0]["id"]
+        row = {"id": "l", "package": self.pid, "skill": sid, "title": "T", "pages": []}
+        with mock.patch.object(self.app.state.drift, "summary", return_value={"stuck": [row]}), mock.patch.object(sourcer, "moves", return_value={sid: "searching"}):
+            self.assertEqual(self.c.get("/api/studio/drift").json()["stuck"], [{**row, "follow": "searching"}])
 
     def test_a_build_that_stopped_is_there_and_an_exam_that_was_built_is_not(self):
         films = self.app.state.newexams
