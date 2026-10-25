@@ -112,7 +112,7 @@ const SEEN_AS = {
   podcast: "You said you listened in a podcast app",
 };
 const SEEN_DEEP = "Started the Deeper Listen audio";
-const NOT_A_PREDICTION = "Dojo records conditions, not scores. None of this is a pass prediction.";
+const NOT_A_PREDICTION = "This is not a pass prediction.";
 // The two presenters. The same person reads a role everywhere: the narration voices come from this
 // same table on the server (app/avatar.py PRESENTERS). The keys are the filmed roles and never
 // change; the role words here are labels only — Harry is the coach who explains, Meg the classmate
@@ -345,7 +345,7 @@ function sourceList(list) {
 function quoteToggle(p, sources) {
   const src = (sources || []).find((x) => x.n === p.source);
   const box = h("blockquote", { class: "quote", hidden: true }, `“${p.quote}”`,
-    h("footer", null, "From ", src ? ext(src.url, src.title) : `source ${p.source}`, ", word for word"));
+    h("footer", null, "From ", src ? ext(src.url, src.title) : `source ${p.source}`));
   const btn = h("button", { class: "cite", type: "button", "aria-expanded": "false", title: "Show the exact words from the source" }, `[${p.source}]`);
   btn.addEventListener("click", () => { box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden)); });
   return [btn, box];
@@ -482,8 +482,7 @@ function renderSide() {
     isAdmin() && state.me.team ? navLink("#/members", "shield", "Members") : null,
     exams,
     h("div", { class: "foot" }, h("a", { href: "#/help" }, "Help"), h("a", { href: "#/phone" }, "On your phone"), h("a", { href: "#/about" }, "How Dojo works"),
-      h("a", { href: "#/record" }, "Export or delete"),
-      h("span", null, "Not a pass prediction.")));
+      h("a", { href: "#/record" }, "Export or delete")));
   markNav();
 }
 
@@ -622,7 +621,7 @@ function heroCard(s, sk, weight) {
     h("div", { class: "why" }, icon("sparkle", "sm"),
       h("div", null, h("p", { class: "eyebrow" }, "Why this, now"), h("p", null, s.why))),
     h("div", { class: "panel-h tight" }, h("p", { class: "eyebrow" }, hasLesson ? "Choose how to learn it" : "Start here"),
-      hasLesson ? h("span", { class: "small muted" }, "every format teaches the same thing · none counts as proof on its own") : null),
+      hasLesson ? h("span", { class: "small muted" }, "Reading or listening is not a check.") : null),
     h("div", { class: "fmts" }, fmts),
     h("div", { class: "then" },
       h("p", { class: "prow" }, icon("arrow", "xs"), h("span", null, h("b", null, "Then: "), then)),
@@ -797,7 +796,7 @@ async function viewFive() {
       } catch (e) {
         if (token !== state.nav) return;
         // withProgress replaced the page: draw the repair step again, with a calm note.
-        fiveNote = "Dojo could not write the question just now. Nothing is lost; try again in a moment.";
+        fiveNote = "Dojo could not write the question just now. Try again in a moment.";
         route();
       }
     }, "amber");
@@ -886,7 +885,7 @@ function rehearsalCard(t, x) {
     h("p", { class: "note top" }, "Multiple-choice answers can be guesses, so they never fill a pip. They sit beside your evidence, not in it."),
     h("div", { class: "divider" }),
     h("a", { class: "rv", href: "#/readiness" }, h("span", null, h("b", null, "Should you book the exam?"),
-      h("small", null, "Dojo's advice from your record and your practice exams. Not a prediction.")), icon("right", "sm")));
+      h("small", null, "Dojo's advice from your record and your practice exams.")), icon("right", "sm")));
 }
 
 async function viewToday() {
@@ -1010,7 +1009,7 @@ async function viewSkills() {
   let filter = "", query = "";
   const onPick = (s, el) => {
     state.pickedSkill = s.id;
-    for (const n of body.querySelectorAll(".skill")) n.classList.toggle("selected", n === el);
+    for (const n of body.querySelectorAll(".skill")) { n.classList.toggle("selected", n === el); if (n === el) n.setAttribute("aria-current", "true"); else n.removeAttribute("aria-current"); }
     skillDetail(detail, state.pid, s.id);
   };
   const render = () => {
@@ -1039,7 +1038,7 @@ async function viewSkills() {
     }));
     if (state.pickedSkill) {
       const el = body.querySelector(`.skill[data-sid="${state.pickedSkill}"]`);
-      if (el) el.classList.add("selected");
+      if (el) { el.classList.add("selected"); el.setAttribute("aria-current", "true"); }
     }
   };
   const chipFor = (key, label, n) => {
@@ -1070,7 +1069,7 @@ async function viewSkills() {
     h("span", null, h("span", { class: "notyet" }, "not yet"), "tried, not shown"),
     h("span", null, icon("eye", "xs"), "lesson seen"),
     drifted ? h("span", null, h("span", { class: "chip amber s-drift" }, icon("refresh", "xs"), "re-checking"), "a source page changed") : null);
-  return [pageHead(`${p.meta.exam} · ${p.meta.title}`, `${p.coverage.skills} skills, word for word from the official study guide. ${NOT_A_PREDICTION}`,
+  return [pageHead(`${p.meta.exam} · ${p.meta.title}`, `${p.coverage.skills} skills from the official study guide.`,
       eyebrow("course", "Course · built from the official study guide"), helpQ("course-and-skills")),
     state.pid === "dp-800" ? panel(eyebrow("target", "Hands-on in Azure SQL"),
       h("p", { class: "sub" }, "Three small labs in a private, authorized live-write sandbox. Dojo checks the database, not a screenshot."),
@@ -1136,7 +1135,7 @@ async function viewSkill(pid, sid) {
     h("section", { class: "panel" },
       h("div", { class: "panel-h" }, eyebrow("scale", "What the record shows"), chip(e.state_label, e.state === "untested" ? "" : "amber")),
       big,
-      h("p", { class: "note top" }, "The fourth condition, in a new situation, is not part of this version: nothing is claimed about it."),
+      h("p", { class: "note top" }, "“In a new situation” is not recorded in this version."),
       h("div", { class: "divider wide" }),
       e.shown.map((x) => h("p", { class: "prow" }, icon("check", "xs"), x)),
       e.not_yet_shown.map((x) => h("p", { class: "prow" }, icon("x", "xs"), h("span", null, h("b", null, "Not yet: "), x))),
@@ -1168,7 +1167,7 @@ async function viewSkill(pid, sid) {
         button("Practise with hints", () => act("practice", pid, sid), "ghost sm"),
         button("Check, no help", () => act("check", pid, sid), "sm")),
       h("p", { class: "note top" }, s.kind === "scenario"
-        ? "A doing skill: every item is a scenario with one changed condition, so the same answer never works twice."
+        ? "A doing skill: every item is a scenario with one changed condition."
         : "An explaining skill: items ask you to explain it in your own words.")) : null,
     pid === "dp-800" && LAB_SKILLS[sid] ? h("section", { class: "panel" }, eyebrow("target", "Hands-on lab"),
       labsOn() ? h("p", { class: "sub" }, "Write SQL in your private sandbox. A database check is shown here as practice, not a pip.") : null,
@@ -1181,8 +1180,7 @@ async function viewSkill(pid, sid) {
     v.asks.length ? h("section", { class: "panel" }, eyebrow("chat", "Your questions"),
       v.asks.map((a) => h("a", { class: "near", href: `#/answer/${a.id}` }, h("b", null, a.question), icon("right", "sm")))) : null,
     taught ? h("section", { class: "panel" }, h("div", { class: "panel-h" }, eyebrow("file", "Official sources"), chip(plural(s.sources.length, "page"), "line")),
-      sourceList(s.sources),
-      h("p", { class: "small muted top note" }, "Everything Dojo teaches for this skill is grounded in these pages and quoted word for word.")) : null);
+      sourceList(s.sources)) : null);
   return [
     h("nav", { class: "crumb" }, h("a", { href: "#/skills" }, "Course"), h("span", { class: "sep" }, "›"), s.domain_title,
       h("span", { class: "sep" }, "›"), h("b", null, s.group)),
@@ -1661,7 +1659,7 @@ function appPanel() {
     put(box, head, h("h3", { class: "pod-h" }, "Put Dojo on your Home Screen"),
       h("p", { class: "sub" }, "Dojo then opens from its own icon, in its own window. It is the same Dojo: nothing else is downloaded, and it needs the internet as before."),
       how,
-      h("p", { class: "small muted top" }, "Nothing private is kept on the device: no lessons, answers or record are stored for offline use."));
+      h("p", { class: "small muted top" }, "Lessons, answers and your record are not stored on the device for offline use."));
   };
   window.addEventListener("dojo-install", render);
   render();
@@ -3762,7 +3760,7 @@ function watchPlayer(L) {
     put(saidBox,
       h("p", { class: "eyebrow" }, "What you said before you watched"),
       h("blockquote", { class: "saidq mine" }, text),
-      h("p", { class: "small muted" }, "Yours to compare with, nothing more. It was never kept, graded or recorded."));
+      h("p", { class: "small muted" }, "Your own words, saved in this tab for comparison. They are not graded or added to your Record."));
   }
 
   const tbtn = (name, label, onclick, cls) => h("button", { class: cls ? `tbtn ${cls}` : "tbtn", type: "button", "aria-label": label, title: label, onclick }, icon(name, "sm"));
@@ -3812,7 +3810,7 @@ function watchPlayer(L) {
     yourTurn,
     h("div", { class: "strip" }, h("span", { class: "ic" }, icon("shield", "sm")),
       h("span", { class: "tx" }, h("b", null, "Space plays, arrow keys move. "),
-        `${PRESENTER.guide.role} ${PRESENTER.guide.name} and ${PRESENTER.coach.role.toLowerCase()} ${PRESENTER.coach.name} are synthetic presenters reading the checked narration. They add nothing of their own.`)));
+        `${PRESENTER.guide.role} ${PRESENTER.guide.name} and ${PRESENTER.coach.role.toLowerCase()} ${PRESENTER.coach.name} are synthetic presenters reading the checked narration.`)));
   paintSlide();
   paintPlay();
   paintSaid();
@@ -4153,8 +4151,7 @@ async function viewItem(id) {
       h("p", { class: "cond" }, icon(it.mode === "practice" ? "hand" : "target", "sm"), h("span", null, MODE_TEXT[it.mode])),
       it.changed_condition ? h("p", { class: "cond" }, icon("refresh", "sm"), h("span", null, h("b", null, "Changed condition: "), it.changed_condition)) : null,
       spokenCondition(it.answer),
-      h("p", { class: "cond" }, icon("record", "sm"), h("span", null, "What is recorded: whether each point was met, and under which conditions. Never a score.")),
-      h("p", { class: "note top" }, NOT_A_PREDICTION)),
+      h("p", { class: "cond" }, icon("record", "sm"), h("span", null, "What is recorded: whether each point was met, and under which conditions. Never a score."))),
     h("section", { class: "panel" }, eyebrow("course", "The skill"),
       h("p", { class: "sub" }, it.skill_text),
       h("div", { class: "actions top" }, linkButton("Open the skill", `#/skill/${it.package}/${it.skill}`, "ghost sm"),
@@ -4734,7 +4731,7 @@ function examPane(R, startAt) {
         h("p", null, h("strong", null, q.correct ? "Right. " : `Not this time: the answer is ${"ABCD"[q.answer]}. `), q.rationale),
         !q.correct && (q.confidence === "certain" || q.confidence === "fair") ? h("p", { class: "small ink2" }, icon("eye", "xs"), " ",
           SURE_NOT_YET, " It is in your Record, under Know what you know.") : null,
-        h("blockquote", { class: "quote" }, `“${q.quote}”`, h("footer", null, "From ", ext(q.source.url, q.source.title), ", word for word")),
+        h("blockquote", { class: "quote" }, `“${q.quote}”`, h("footer", null, "From ", ext(q.source.url, q.source.title))),
         h("p", { class: "small" }, h("a", { class: "link", href: `#/skill/${R.package}/${q.skill}` }, `Skill: ${q.skill_text}`))) : null,
       h("div", { class: "qfoot" },
         h("div", { class: "actions" },
@@ -5644,7 +5641,7 @@ function examDomainTable(X) {
       })))),
     h("p", { class: "note top" }, `Your average in this exam was ${X.average}%. A domain is called weakest when it sits ${X.weak_gap} points or more below it and had at least ${X.weak_min} questions to judge it on — the same definition the readiness rules use.`,
       X.by_domain.some((d) => !d.judged) ? ` ${X.by_domain.filter((d) => !d.judged).length} of ${X.by_domain.length} domains had fewer than ${X.weak_min} questions here, too few to judge either way.` : "",
-      " Domains, weights and question counts come from the published study guide. Dojo never turns this into Microsoft's scaled score and never draws a pass line."));
+      " Domains, weights and question counts come from the published study guide. This is not Microsoft's scaled score, and there is no pass line."));
 }
 
 function examPatterns(X) {
@@ -5663,7 +5660,7 @@ function examPatterns(X) {
       h("span", { class: "small muted" }, "grouped by domain and skill")),
     X.patterns.length
       ? h("p", { class: "sub" }, `${X.patterns.length} skill${X.patterns.length === 1 ? "" : "s"} you missed more than once.`)
-      : h("p", { class: "sub" }, "No skill was missed more than once, so there is no pattern to name. Dojo does not invent one."),
+      : h("p", { class: "sub" }, "No skill was missed more than once, so there is no pattern to name."),
     X.single_misses ? h("p", { class: "small muted" }, `${X.single_misses} other skill${X.single_misses === 1 ? " was" : "s were"} missed once.`) : null,
     steps.length ? h("div", { class: "divider wide" }) : null,
     steps.length ? eyebrow("plan", "Next steps") : null,
@@ -5697,7 +5694,7 @@ function reviewLines(q) {
 
 function reviewQuotes(q) {
   return (q.quotes || []).map((x) => h("blockquote", { class: "quote" }, x.part ? h("b", { class: "qpart" }, `${x.part}: `) : null, `“${x.quote}”`,
-    h("footer", null, "From ", x.source ? ext(x.source.url, x.source.title) : "the source", ", word for word")));
+    h("footer", null, "From ", x.source ? ext(x.source.url, x.source.title) : "the source")));
 }
 
 function examReview(X) {
@@ -5736,7 +5733,7 @@ function examReview(X) {
           h("div", { class: "rchoice" }, done ? `you chose ${"ABCDEF"[q.choice]} · answer ${"ABCDEF"[q.answer]}` : `not answered · answer ${"ABCDEF"[q.answer]}`),
           q.rationale ? h("p", { class: "ex" }, q.rationale) : null,
           q.quote ? h("blockquote", { class: "quote" }, `“${q.quote}”`,
-            h("footer", null, "From ", q.source ? ext(q.source.url, q.source.title) : "the source", ", word for word")) : null,
+            h("footer", null, "From ", q.source ? ext(q.source.url, q.source.title) : "the source")) : null,
           h("p", { class: "rlinks" }, h("a", { class: "link small", href: `#/skill/${X.package}/${q.skill}` }, q.skill_text),
             q.flagged ? h("span", { class: "small muted" }, "you flagged this") : null)));
     })));
@@ -5812,7 +5809,7 @@ function ruleExtra(r, pid, refresh) {
     try { await api("/api/readiness/official", { method: "POST", body: { package: pid } }); refresh(); }
     catch (e) { put($view(), errorPanel(e)); }
   }, "ghost sm")));
-  if (r.taken_at) bits.push(h("p", { class: "small muted" }, `You told Dojo you took it on ${fmtWhen(r.taken_at)}. Dojo never asks for the result.`));
+  if (r.taken_at) bits.push(h("p", { class: "small muted" }, `You told Dojo you took it on ${fmtWhen(r.taken_at)}.`));
   return h("div", null, bits);
 }
 
@@ -5852,8 +5849,7 @@ async function viewReadiness() {
     h("div", { class: "divider wide" }),
     h("p", { class: "eyebrow" }, "Why, in Dojo's reading of your evidence"),
     h("ul", { class: "whylist" }, a.reasons.map((s) => h("li", null, s))),
-    h("div", { class: "note top" }, a.scope.map((s) => h("p", null, s)),
-      h("p", null, "This is Dojo reading your own record out loud, so you can disagree with the reasoning rather than with a number.")));
+    h("div", { class: "note top" }, a.scope.map((s) => h("p", null, s))));
   const rules = h("section", { class: "panel" },
     h("div", { class: "panel-h" }, eyebrow("check", "What would make Dojo say “book it”"),
       h("span", { class: "small muted" }, "every rule, its definition and where you stand")),
@@ -5882,12 +5878,7 @@ async function viewReadiness() {
             h("p", { class: "small muted" }, r4.note))
         : h("div", null, h("p", { class: "sub" }, r4.value === "none verified" ? "None verified." : r4.value),
             h("p", { class: "small muted" }, r4.note)),
-      h("p", { class: "note top" }, "Rule 4 never blocks the advice: Dojo will not hold a missing Microsoft page against you.")),
-    h("section", { class: "panel" }, eyebrow("alert", "What Dojo will not do"),
-      h("ul", { class: "tips" },
-        h("li", null, icon("x", "sm"), h("span", null, "No probability of passing and no predicted score.")),
-        h("li", null, icon("x", "sm"), h("span", null, "No mapping to Microsoft's 1–1000 scale and no pass line.")),
-        h("li", null, icon("x", "sm"), h("span", null, "Nothing from how you click, how long you stay, or any other telemetry.")))));
+      h("p", { class: "note top" }, "Microsoft's practice assessment does not change the booking recommendation.")));
   return [pageHead("Should you book the exam?", `${a.exam} · ${a.title}. Dojo's advice from your own record and your own practice exams.`,
       h("p", { class: "eyebrow" }, `Advice as of ${fmtDate(a.at)}`), helpQ("readiness")),
     h("div", { class: "row stackable grow" }, h("div", { class: "col grow" }, hero, rules), side)];
@@ -5912,7 +5903,7 @@ async function viewAsk(sid) {
       if (token === state.nav) location.hash = `#/answer/${res.ask}`;
     } catch (e) { if (token === state.nav) put($view(), errorPanel(e)); }
   });
-  return [pageHead("Ask the coach", "Answers come only from the skill's official sources, with the exact words they rely on. Nothing is invented.", null, helpQ("ask-the-coach")),
+  return [pageHead("Ask the coach", "Answers come only from the skill's official sources, with the exact words they rely on.", null, helpQ("ask-the-coach")),
     h("div", { class: "row stackable" },
       h("section", { class: "panel grow" }, eyebrow("chat", "Your question"),
         h("label", { class: "field", for: "askskill" }, "Skill", sel),
@@ -6040,7 +6031,7 @@ function recordDetail(box, pid, sid, cal) {
       cal && cal.skills[sid] ? confLine(cal.skills[sid].levels, cal.min_answers) : null,
       attemptTimeline(e),
       h("p", { class: "share-line top note" }, icon("shield", "sm"),
-        h("span", null, "Every line here is an event in the hash chain. Nothing is scored, nothing is predicted.")));
+        h("span", null, "This timeline shows your attempts and lesson views.")));
   }).catch((err) => { if (token === state.nav) put(box, h("p", { class: "sub" }, err.message)); });
 }
 
@@ -6055,13 +6046,14 @@ async function viewRecord() {
   const detail = h("section", { class: "panel grow stack scroll" }, h("p", { class: "sub" }, "Pick a skill to see every attempt Dojo recorded."));
   const list = h("div", { class: "rec-list" }, withEvidence.map((s) => {
     const el = h("button", { class: "rec", type: "button", onclick: () => {
-      for (const n of list.querySelectorAll(".rec")) n.classList.remove("on");
+      for (const n of list.querySelectorAll(".rec")) { n.classList.remove("on"); n.removeAttribute("aria-current"); }
       el.classList.add("on");
+      el.setAttribute("aria-current", "true");
       recordDetail(detail, state.pid, s.id, cal);
     } }, h("span", { class: "rn" }, s.text), evidence(s));
     return el;
   }));
-  if (withEvidence.length) { list.firstChild.classList.add("on"); recordDetail(detail, state.pid, withEvidence[0].id, cal); }
+  if (withEvidence.length) { list.firstChild.classList.add("on"); list.firstChild.setAttribute("aria-current", "true"); recordDetail(detail, state.pid, withEvidence[0].id, cal); }
   const confirmBox = h("input", { type: "text", id: "delconfirm", placeholder: "Type DELETE" });
   const status = h("p", { class: "small muted" });
   const del = button("Delete my whole record", async () => {
@@ -6073,9 +6065,9 @@ async function viewRecord() {
     shelfPanel(pl),
     h("section", { class: "panel" }, eyebrow("shield", "Integrity"),
       chain.ok
-        ? h("p", { class: "status-sage" }, icon("check", "sm"), `${chain.events} events. Each one is chained to the one before it by a hash, and the whole chain checks out.`)
-        : h("p", { class: "status-slate" }, icon("alert", "sm"), `The chain is broken at event ${chain.broken_at + 1} of ${chain.events}: the record was changed outside Dojo.`),
-      h("p", { class: "small muted top" }, "The record is append-only. Disputed judgements stay visible but count neither way. An answer judged again keeps its earlier judgement visible; only the new one counts.")),
+        ? h("p", { class: "status-sage" }, icon("check", "sm"), `Record check passed: ${plural(chain.events, "event")}.`)
+        : h("p", { class: "status-slate" }, icon("alert", "sm"), `Record check failed at event ${chain.broken_at + 1} of ${chain.events}: its stored hash or its link to the event before does not match.`),
+      h("p", { class: "small muted top" }, "Dojo checks the stored hash of each event and its link to the one before. The record is append-only. A disputed judgement stays visible and counts neither way, unless a review finds it right. An answer judged again keeps its earlier judgement visible; only the new one counts.")),
     h("section", { class: "panel" }, eyebrow("download", "Export"),
       h("p", { class: "sub" }, "Download your learning record as one JSON file: events, items, answers, judgements, practice exams, questions, studio notes and your settings. Answer keys stay out until the answer is judged or the exam has ended."),
       running
@@ -6097,12 +6089,12 @@ async function viewRecord() {
 // ---------------------------------------------------------------- studio
 
 const PIPE = [
-  ["01", "Sources", "official pages only", "file"],
+  ["01", "Sources", "official pages", "file"],
   ["02", "Author", "writes the lesson", "wand"],
-  ["03", "Gate", "checks every element", "shield"],
+  ["03", "Gate", "a second model checks it", "shield"],
   ["04", "You", "read, listen or present", "read"],
-  ["05", "Grader", "must quote your words", "scale"],
-  ["06", "Record", "hash-chained events", "record"],
+  ["05", "Grader", "judges your answers", "scale"],
+  ["06", "Record", "keeps the events", "record"],
 ];
 
 // ---------------------------------------------------------------- Studio (ADR 0019, ADR 0025)
@@ -6434,7 +6426,7 @@ function pageCheckRow(x, act) {
   if (pc.state === "running") return h("div", { class: "vrow" }, h("div", { class: "vrow-h" }, h("b", null, x.exam), chip("running now", "amber")));
   const go = price ? button(`${part ? "Check the rest" : "Check pages"} · ${price}`, async () => {
     const ask = { lines: [{ label: `${plural(pc.price.pages, "page")} of ${x.exam}`, usd: pc.price.total }], title: (n, total) => `Check the pages of ${x.exam}? About ${usd(total)}`,
-      confirm: () => "Check the pages", notes: [`Two AI models read the ${plural(pc.price.pages, "page")} ${x.exam} points to and say whether each really teaches its skill. Nothing changes: no page, lesson or video. The result shows on Courses.`,
+      confirm: () => "Check the pages", notes: [`Two AI models read the ${plural(pc.price.pages, "page")} ${x.exam} points to and say whether each teaches its skill. Nothing changes: no page, lesson or video. The result shows on Courses.`,
         PRICE_NOTE] };
     if (!(await moneySheet(ask))) return;
     go.disabled = true;
@@ -6452,7 +6444,7 @@ function pageChecksCard(c, act) {
   if (!rows.length) return null;
   return h("section", { class: "panel todo-card" },
     h("div", { class: "panel-h" }, h("h3", null, "Page check")),
-    h("p", { class: "sub" }, "Two AI models read the pages a built-in course points to and say whether each really teaches its skill. Nothing changes: no page, lesson or video. The result shows on Courses."),
+    h("p", { class: "sub" }, "Two AI models read the pages a built-in course points to and say whether each teaches its skill. Nothing changes: no page, lesson or video. The result shows on Courses."),
     rows.map((x) => pageCheckRow(x, act)));
 }
 
@@ -6607,7 +6599,7 @@ function courseCard(x, c) {
   const attn = (x.attention || []).map((a) => h("div", { class: "attn-row" }, ATTN_CHIP[a.level] ? chip(ATTN_CHIP[a.level][0], ATTN_CHIP[a.level][1]) : h("i", { class: "attn-dot" }),
     h("span", null, a.text, " ", a.link ? h("a", { class: "link", href: a.link }, a.link_text || "Open") : null)));
   const own = v ? v.have : x.video.own;
-  return h("section", { class: x.ready ? "panel course" : "panel course edge-amber" },
+  return h("section", { class: "panel course" },
     h("div", { class: "panel-h" }, eyebrow("course", `${x.exam} · ${x.title}`),
       h("span", { class: "chips" }, chip(x.added ? "added by you" : "original course", "line"), x.ready ? chip("Ready to study", "sage") : chip("Not complete yet", "amber"))),
     h("p", { class: "sub" }, `${plural(x.skills, "skill")}. ${x.verdict}`,
@@ -6768,7 +6760,7 @@ function feedDay(d) {
 function spendPanel(a) {
   return panel(h("div", { class: "panel-h" }, eyebrow("scale", "Dojo's own count"), chip("not the bill", "amber")),
     a.metered ? [a.spend.map((s) => h("div", { class: "now-row" }, h("b", null, fmtDay(s.day)), h("span", null, usd(s.usd)))),
-      h("p", { class: "small muted top" }, "What Dojo's own model and voice calls cost on each day (UTC), as it counted them. The bill under Money is the figure to trust.")]
+      h("p", { class: "small muted top" }, "What Dojo's own model and voice calls cost on each day (UTC), as it counted them. For what Azure charged, see Money.")]
       : h("p", { class: "sub" }, "Dojo counts its calls only in team mode. Money shows what Azure charged."));
 }
 
@@ -6916,17 +6908,13 @@ async function studioHealth(opts) {
             x.text ? h("p", { class: "blocked-line" }, x.text) : null,
             x.reason ? h("p", { class: "small ink2" }, h("b", null, "Why: "), x.reason) : null)) : h("p", { class: "sub" }, "Nothing so far.")),
         h("div", { class: "col w430" },
-          h("section", { class: "panel" }, eyebrow("scale", "The rule"),
-            h("p", { class: "sub" }, "Every model-written sentence you see has to survive an independent model from a different family, element by element. What does not hold is removed and written down here, with the reason."),
+          h("section", { class: "panel" }, eyebrow("scale", "How checking works"),
+            h("p", { class: "sub" }, "Each lesson part, question and diagram is checked against the official sources. Dojo matches source quotes word for word, and a model from a different family checks the draft against the sources. A part that fails is left out or replaced, and listed here with the reason."),
             h("dl", { class: "mrow top" }, h("dt", null, "Blocked text"), h("dd", null, Array.isArray(log) ? `${blocked.length}` : "–")),
             h("dl", { class: "mrow" }, h("dt", null, "Entries"), h("dd", null, Array.isArray(log) ? `${q.length}` : "–")),
             a ? h("dl", { class: "mrow" }, h("dt", null, "Author"), h("dd", { class: "jname" }, a.models.author)) : null,
             a ? h("dl", { class: "mrow" }, h("dt", null, "Gate"), h("dd", { class: "jname" }, a.models.gate)) : null,
-            a ? h("dl", { class: "mrow" }, h("dt", null, "Grader"), h("dd", { class: "jname" }, a.models.grader)) : null),
-          h("section", { class: "panel" }, eyebrow("shield", "Why you can trust the gaps"),
-            h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "A blocked claim never reaches you, so a thin lesson is honest, not broken.")),
-            h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, "Quotes are matched word for word by Dojo itself, not by a model.")),
-            h("p", { class: "note top" }, NOT_A_PREDICTION))))], !!(opts && opts.open === "blocked")),
+            a ? h("dl", { class: "mrow" }, h("dt", null, "Grader"), h("dd", { class: "jname" }, a.models.grader)) : null)))], !!(opts && opts.open === "blocked")),
   ];
   return [healthTop(parts, look), labRow(lb), sections];
 }
@@ -6975,7 +6963,7 @@ function voiceKinds(v) {
 }
 
 function voicesPanel(v) {
-  const head = (extra) => h("div", { class: "panel-h" }, eyebrow("listen", "What the voices actually said"), extra || null);
+  const head = (extra) => h("div", { class: "panel-h" }, eyebrow("listen", "What the voices said"), extra || null);
   if (!v || v.error) return h("section", { class: "panel grow" }, head(), h("p", { class: "sub" }, (v && v.error) || "The voice check could not be read."));
   const L = v.listen, W = v.watch, D = v.deep || { lessons: 0, parts: 0, flagged: 0, median_wer: null };
   const flagged = L.flagged + W.flagged + D.flagged;
@@ -6998,7 +6986,7 @@ function voicesPanel(v) {
       `and ${v.today.watch} of ${v.daily.watch}. ${status}${large}`),
     v.worst.length
       ? [h("h3", { class: "top" }, "Where the words differ most"), h("div", { class: "vlist" }, v.worst.map(voiceCase))]
-      : h("p", { class: "sub top" }, L.lessons || W.lessons || D.lessons ? "Every checked slide and part was heard exactly as approved." : "Nothing has been checked yet."),
+      : h("p", { class: "sub top" }, L.lessons || W.lessons || D.lessons ? "The transcription check found no differences in the audio checked." : "Nothing has been checked yet."),
     h("p", { class: "note top" }, v.note));
 }
 
@@ -7474,16 +7462,16 @@ async function viewAbout() {
     h("div", { class: "row stackable grow" },
       h("div", { class: "col grow article" },
         h("section", { class: "panel" }, eyebrow("today", "What Dojo is"),
-          h("p", { class: "lead" }, "It teaches each skill from the official study guide in three ways — read, listen, present — tests you on new items, and keeps an honest record of what you have and have not yet shown."),
-          h("p", { class: "note top" }, "Dojo does not predict exam results, does not use real exam questions and does not score you against a pass mark.")),
+          h("p", { class: "lead" }, "It teaches each skill from the official study guide in three ways — read, listen, present — tests you on new items, and keeps a record of what you have shown and what you have not yet."),
+          h("p", { class: "note top" }, "Dojo writes its own questions, not real exam questions. It does not predict exam results or score you against a pass mark.")),
         h("section", { class: "panel" }, eyebrow("scale", "Three AI models, each with one job"),
           h("div", { class: "jrow" }, h("span", { class: "jrole" }, "Author"), h("span", { class: "jname" }, a.models.author)),
           h("p", { class: "judge" }, "Writes lessons, items, hints, practice questions and answers."),
           h("div", { class: "jrow" }, h("span", { class: "jrole" }, "Gate"), h("span", { class: "jname" }, a.models.gate)),
-          h("p", { class: "judge" }, "A different model family. Checks every model-written text you see against the official sources, element by element. What does not hold is removed and logged in the studio."),
+          h("p", { class: "judge" }, "A different model family. Checks drafts against the official sources. What fails is left out or replaced and shown in Studio."),
           h("div", { class: "jrow" }, h("span", { class: "jrole" }, "Grader"), h("span", { class: "jname" }, a.models.grader)),
           h("p", { class: "judge" }, "A third family. Judges your answers and must quote your own words for every point it gives you."),
-          h("p", { class: "small muted top" }, "All three run in Azure AI Foundry. Dojo itself also matches every quote from a source word for word.")),
+          h("p", { class: "small muted top" }, "The models run in Azure AI Foundry.")),
         h("section", { class: "panel" }, eyebrow("record", "The evidence language"),
           h("p", { class: "sub" }, "A skill is not a percentage. Dojo records the conditions under which you showed it."),
           h("div", { class: "piplegend" }, h("span", { class: "lead" }, "Four conditions:"),
@@ -7491,7 +7479,7 @@ async function viewAbout() {
             h("span", null, h("i", { class: "pip own" }), "on your own"),
             h("span", null, h("i", { class: "pip own" }), "later"),
             h("span", null, h("i", { class: "pip" }), "in a new situation")),
-          h("p", { class: "note top" }, "This version records the first three. Nothing is claimed about the fourth, so that ring is always empty.")),
+          h("p", { class: "note top" }, "This version records the first three. The fourth ring stays empty.")),
         h("section", { class: "panel" }, eyebrow("file", "Sources and licences"),
           h("p", { class: "sub" }, "Skills and weights come from the official study guides. Lessons are grounded in GitHub Docs and Microsoft Learn pages, licensed CC BY 4.0 by their publishers; Dojo quotes them and links back. Dojo is an independent tool, not endorsed by Microsoft or GitHub."),
           a.packages.map((p) => h("div", { class: "src" }, icon("file", "sm"), h("div", null,
@@ -7549,7 +7537,7 @@ async function showGate(kind) {
 async function viewStudioLog() {
   const log = await api("/api/quality").catch((e) => ({ error: e.message }));
   const q = Array.isArray(log) ? log : [];
-  return [pageHead("Studio log", "Everything the checker removed from what you were shown, and why. Nothing is dropped silently.", null, helpQ("how-judging-works")),
+  return [pageHead("Studio log", "What the checks left out or replaced, and why.", null, helpQ("how-judging-works")),
     h("section", { class: "panel grow stack scroll logbox", tabindex: "0", role: "region", "aria-label": "What was blocked, and why" },
       h("div", { class: "panel-h" }, eyebrow("alert", "What was blocked, and why"), Array.isArray(log) ? chip(`${q.length} entries`, "line") : null),
       !Array.isArray(log) ? h("p", { class: "sub" }, log.error || "The log could not be read.")
@@ -7591,7 +7579,7 @@ async function viewAccess() {
   const r = a.request;
   const body = !r
     ? [h("p", { class: "sub" }, `You are signed in as ${a.shown_as}. This Dojo is run by its owner for a small group of colleagues, and the owner decides who joins.`),
-      h("p", { class: "sub" }, "If you ask, the owner sees the name and email address your sign-in gives Dojo, and the day you asked. Nothing else is stored about you until you are approved."),
+      h("p", { class: "sub" }, "If you ask, the owner sees the name and email address your sign-in gives Dojo, and the day you asked."),
       h("label", { class: "conf top", for: "usedbefore" }, before,
         h("span", null, "I used this Dojo before with an account that no longer works. The owner checks with you directly before your old record is joined to this account.")),
       h("div", { class: "actions top" }, ask), status]
@@ -7773,7 +7761,7 @@ function budgetPanel(b, paint) {
     : h("p", { class: "small muted" }, "Nothing yet.");
   return h("div", { class: "row stackable" },
     h("div", { class: "col grow" }, panel(eyebrow("scale", "Daily allowances per member"),
-      h("p", { class: "sub" }, "Each member can do this much a day; it starts again at midnight UTC. You are metered, never limited. Dojo enforces these itself, so you never see a member's numbers."),
+      h("p", { class: "sub" }, "Each member can do this much a day; it starts again at midnight UTC. You are counted but not limited. You do not see any member's numbers."),
       h("div", { class: "table-scroll" }, h("table", { class: "t" }, h("tbody", null, rows))),
       h("div", { class: "datefield top" }, h("label", { class: "field", for: "capusd" }, "Members' daily cap, USD at list price", cap), save), status)),
     h("div", { class: "col w430" }, panel(eyebrow("scale", "Costs, totals only"),
@@ -8006,7 +7994,7 @@ const CHECK_GUIDE_MS = 180000;
 const CHECK_POLL_MS = 2000;
 const CHECK_POLL_TRIES = 5;   // failed looks in a row before the waiting screen says it lost touch
 const CHECK_NEXT = "Your answers are judged in the background, from the official sources, quoting your own words. "
-  + "Each result appears in your Record when it is ready. Nothing here predicts an exam result.";
+  + "Results appear in your Record when they are ready.";
 
 /* One question, one clock, nothing else: the sidebar steps aside, as it does for a timed exam. */
 function checkMode(on) {
@@ -8082,9 +8070,9 @@ async function viewCheckStart(recall) {
     } catch (e) { status.textContent = e.message; go.disabled = false; }
   }, "amber") : null;
   const how = [
-    ["mic", "Dojo reads each question out loud in the coach's voice. The words are on the screen as well — always."],
+    ["mic", "Dojo reads each question out loud in the coach's voice and shows the words on screen."],
     ["target", "You answer out loud and Dojo writes it down, or you type. Both count exactly the same."],
-    ["clock", `${plan.minutes} minutes is a guide, not a limit. Nothing is ever cut off mid-answer.`],
+    ["clock", `${plan.minutes} minutes is a guide, not a limit.`],
     ["record", "Each answer is judged in the background. The result appears in your Record, never here."],
   ];
   if (recall) how.splice(1, 0, ["bell", "Each question is new. Right again: the next recall comes a little later. "
@@ -8101,14 +8089,13 @@ async function viewCheckStart(recall) {
             : h("p", { class: "sub" }, recall ? "No recalls are due right now. They come back on the day they are due."
               : "Nothing is due for a check right now. Pick any skill in the course instead."),
           h("p", { class: "note top" }, recall
-            ? "Oldest due first, heaviest in the exam first. At most a few a day, so a backlog never becomes a wall."
+            ? "Oldest due first, heaviest in the exam first. Up to five a day."
             : "Recalls due today come first, then skills that would show you still know it later, then skills that "
               + "have never been tried, heaviest in the exam first."),
           h("div", { class: "actions top" }, go, linkButton("Not now", "#/today", "ghost")), status)),
       h("div", { class: "col w430" },
         h("section", { class: "panel" }, eyebrow("scale", "How it works"),
-          h("ul", { class: "tips big" }, how.map(([name, text]) => h("li", null, icon(name, "sm"), h("span", null, text)))),
-          h("p", { class: "note top" }, NOT_A_PREDICTION))))];
+          h("ul", { class: "tips big" }, how.map(([name, text]) => h("li", null, icon(name, "sm"), h("span", null, text)))))))];
 }
 
 /* #/check/<id> - the session itself. */
@@ -8285,8 +8272,7 @@ async function viewCheckRun(cid) {
         left.length ? h("p", { class: "note top" }, `${plural(left.length, "question")} went unanswered. `
           + "Unanswered questions are not recorded either way - you can answer them from the Record whenever you like.") : null,
         h("div", { class: "actions top" }, inFive ? linkButton("Go on with your 5 minutes", "#/five", "amber") : linkButton("Open the Record", "#/record", "amber"),
-          linkButton("Back to Today", "#/today", "ghost")),
-        h("p", { class: "note top" }, NOT_A_PREDICTION))));
+          linkButton("Back to Today", "#/today", "ghost")))));
   }
 
   function draw() {
@@ -8746,7 +8732,7 @@ function planHorizon(v, onDate) {
       h("span", null, h("i", { class: "sw reh" }), "practice exams"), h("span", null, h("i", { class: "sw flag" }), "exam")) : null,
     h("p", { class: "note top" }, "Dojo places sessions two weeks ahead, and nothing on an exam day or after it. ",
       "It plans a practice exam every week in the last four weeks before an exam, and a DP-800 lab a week until you pass each one. ",
-      v.unplaced ? `${plural(v.unplaced, "more step")} wait for room after that. ` : "", "Nothing here is a pass prediction."));
+      v.unplaced ? `${plural(v.unplaced, "more step")} wait for room after that.` : ""));
 }
 
 function planSheet(s, v, update) {
@@ -8912,16 +8898,10 @@ const COURSE_POLL_MS = 15000;
 let lookupFresh = false;   // "Try again" asks Microsoft Learn again instead of using the page read a moment ago
 
 const BUILD_STEPS = [
-  ["Read the study guide", "every skill measured and its weight, word for word"],
+  ["Read the study guide", "every skill measured and its weight"],
   ["Match official sources", "Microsoft Learn and GitHub Docs pages; a second AI must quote each one"],
   ["Write, then check", "a second AI can block any line"],
   ["Narrate", "Listen and your podcast. Presenter videos only when you approve their price"],
-];
-const BUILD_RULES = [
-  "Official sources only, linked and quoted",
-  "A page is read as data: nothing written on it gives Dojo orders",
-  "Watching or listening never counts as proof",
-  "No pass prediction: the exam decides",
 ];
 
 const stepHead = (n, title, note) => h("div", { class: "panel-h" },
@@ -8931,11 +8911,6 @@ function howBuiltPanel() {
   return panel(h("div", { class: "panel-h" }, eyebrow(null, "How it is built"), h("a", { class: "link small", href: "#/quality" }, "See Studio")),
     h("ol", { class: "bsteps" }, BUILD_STEPS.map(([b, s], i) => h("li", null, h("span", { class: "n" }, i + 1),
       h("div", null, h("b", null, b), h("small", null, s))))));
-}
-
-function rulesPanel() {
-  return panel(eyebrow(null, "The rules it keeps"),
-    h("div", { class: "top" }, BUILD_RULES.map((r) => h("p", { class: "share-line" }, icon("check", "sm"), h("span", null, r)))));
 }
 
 // Priced lines as the Studio shows them: a line with no list price says so and is not guessed, and the
@@ -8980,7 +8955,7 @@ function foundCard(f) {
   const top = Math.max(1, ...f.domains.map((d) => d.weight_max));
   const when = !g.as_of ? "no date on the page" : g.forthcoming ? `skills measured from ${fmtAsOf(g.as_of)}` : `skills measured as of ${fmtAsOf(g.as_of)}`;
   const facts = [
-    `${plural(f.domains.length, "domain")}, ${plural(f.groups, "group")} and ${plural(f.skills, "skill")}, word for word from the study guide.`,
+    `${plural(f.domains.length, "domain")}, ${plural(f.groups, "group")} and ${plural(f.skills, "skill")} from the study guide.`,
     g.forthcoming ? `This version of the skills starts on ${fmtAsOf(g.as_of)}. Until then the exam may still follow the earlier list.` : null,
     g.changes ? `The change log lists ${plural(g.changes, "change")}${g.changed ? ` for ${fmtDay(g.changed)}` : ""}.` : null,
     f.cert && f.cert.update_quote ? ["The exam page says: ", h("q", null, f.cert.update_quote)] : null,
@@ -9131,7 +9106,7 @@ function addExamPage(f, list, token) {
     found ? h("section", { class: "panel" }, stepHead(2, "Your exam date", "optional · change it later"),
       h("div", { class: "datefield" }, h("label", { class: "field", for: "exam-date" }, "Exam date", date),
         h("p", { class: "small muted" }, "Planned or booked. Leave it empty if you do not know yet."))) : null);
-  const right = h("div", { class: "col w440" }, found ? buildPanel(f, date, kept, token) : null, addedList(list, token), howBuiltPanel(), rulesPanel());
+  const right = h("div", { class: "col w440" }, found ? buildPanel(f, date, kept, token) : null, addedList(list, token), howBuiltPanel());
   return [
     h("div", { class: "between top" },
       pageHead("Type an exam code. Dojo builds the course.", null, eyebrow(null, "Add an exam · Microsoft or GitHub certifications"), helpQ("add-an-exam")),
@@ -9309,7 +9284,7 @@ function examProgress(st) {
       (s.added ? refreshMe() : Promise.resolve()).catch(() => null).then(() => { if (token === state.nav) route(); });
       return false;
     });
-    return [head, h("div", { class: "row stackable" }, h("div", { class: "col grow" }, box), h("div", { class: "col w440" }, howBuiltPanel(), rulesPanel()))];
+    return [head, h("div", { class: "row stackable" }, h("div", { class: "col grow" }, box), h("div", { class: "col w440" }, howBuiltPanel()))];
   }
   if (!st.added) {
     return [head, panel(eyebrow("alert", "The build stopped", "rose"), h("p", { class: "sub" }, st.matching.error || "It stopped before the course was put together."),
@@ -9563,7 +9538,7 @@ function playOff() {
     h("div", { class: "row stackable grow" },
       h("div", { class: "col grow" },
         panel(eyebrow("flag", "What it is"),
-          what("flag", "Your week", `Pick 3, 4, 5 or 6 study days a week; which days does not matter. ${PLAY_DAY} The only number is weeks met. It never goes down: there is nothing to keep going and nothing to lose.`),
+          what("flag", "Your week", `Pick 3, 4, 5 or 6 study days a week; which days does not matter. ${PLAY_DAY} The only number is weeks met: the weeks you reached your target. Missing a week does not subtract one.`),
           what("sparkle", "Study points", `Points for this week's effort: study days, answers, lessons and labs, with daily and weekly limits. ${PLAY_POINTS} They are not a level.`),
           what("check", "Your shelf", "Moments from your record: a skill shown on your own a day later or in a new situation, a skill relearned through spaced recalls, a domain or exam where every skill is, and passes you report. From Dojo's own questions; not a certification. Something to come back to on a hard week.")),
         panel(eyebrow("shield", "Who sees it"),
@@ -9910,7 +9885,7 @@ function duelInvite(dv) {
 function duelsPanel(dv) {
   if (!dv || !dv.opted) return null;
   return panel(h("div", { class: "panel-h" }, eyebrow("quiz", "Duels"), dv.duels.length ? chip(plural(dv.duels.length, "duel"), "line") : null),
-    h("p", { class: "sub" }, `By invitation: the same ${dv.limits.questions} questions for both, ${dv.limits.hours} hours to answer, no clock. Only the two of you see the two numbers right, once both have finished. No win, no loss, no record; deleted after ${dv.limits.keep_days} days.`),
+    h("p", { class: "sub" }, `By invitation: the same ${dv.limits.questions} questions for both, ${dv.limits.hours} hours to answer, no clock. Only the two of you see the two numbers right, once both have finished. The shared duel is deleted after ${dv.limits.keep_days} days. Your practice questions and answers remain.`),
     dv.duels.map(duelCard),
     dv.owner ? h("p", { class: "small muted top" }, "You run this Dojo, so you do not invite anyone to a duel. You take part when a member invites you, shown as \u201cruns this Dojo\u201d.") : duelInvite(dv));
 }
