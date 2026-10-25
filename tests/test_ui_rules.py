@@ -38,41 +38,80 @@ def by_selector(css: str) -> dict[str, str]:
 
 
 def js_strings(src: str):
-    """The text of every string literal of a JavaScript file with the line it starts on, comments left out."""
-    out, i, n, line = [], 0, len(src), 1
-    while i < n:
-        c = src[i]
-        if c == "\n":
-            line += 1
+    """The text of every string literal of a JavaScript file with the line it starts on, comments left out.
+
+    A template literal can hold `${...}` and that code can hold strings and templates of its own, so the scan follows the
+    nesting: the pieces of text of a template are returned one by one, and what is inside `${...}` is read as code."""
+    out: list[tuple[int, str]] = []
+    n = len(src)
+    pos = [0, 1]   # index, line
+
+    def regex_may_start(i: int) -> bool:
+        k = i - 1
+        while k >= 0 and src[k] in " \t":
+            k -= 1
+        return k < 0 or src[k] in "(,=:[!&|?{};" or src[max(0, k - 5):k + 1] == "return"
+
+    def quoted(q: str) -> None:
+        i, line, buf = pos[0] + 1, pos[1], []
+        start = line
+        while i < n and src[i] != q:
+            if src[i] == "\\" and i + 1 < n:
+                buf.append(src[i + 1])
+                i += 2
+                continue
+            if src[i] == "\n":
+                break
+            buf.append(src[i])
             i += 1
-        elif src.startswith("//", i) and (i == 0 or src[i - 1] != ":"):
-            while i < n and src[i] != "\n":
+        out.append((start, "".join(buf)))
+        pos[0] = i + 1
+
+    def template() -> None:
+        i, buf, start = pos[0] + 1, [], pos[1]
+        while i < n:
+            c = src[i]
+            if c == "\\" and i + 1 < n:
+                buf.append(src[i + 1])
+                i += 2
+            elif c == "`":
+                out.append((start, "".join(buf)))
+                pos[0] = i + 1
+                return
+            elif src.startswith("${", i):
+                out.append((start, "".join(buf)))
+                buf = []
+                pos[0] = i + 2
+                code(until_brace=True)
+                i, start = pos[0], pos[1]
+            else:
+                if c == "\n":
+                    pos[1] += 1
+                buf.append(c)
                 i += 1
-        elif src.startswith("/*", i):
-            j = src.find("*/", i + 2)
-            j = n if j < 0 else j + 2
-            line += src.count("\n", i, j)
-            i = j
-        elif c in "\"'`":
-            q, j, buf, start = c, i + 1, [], line
-            while j < n and src[j] != q:
-                if src[j] == "\\" and j + 1 < n:
-                    buf.append(src[j + 1])
-                    j += 2
-                    continue
-                if src[j] == "\n":
-                    line += 1
-                    if q != "`":
-                        break
-                buf.append(src[j])
-                j += 1
-            out.append((start, "".join(buf)))
-            i = j + 1
-        elif c == "/" and i + 1 < n and src[i + 1] not in "/*":
-            k = i - 1
-            while k >= 0 and src[k] in " \t":
-                k -= 1
-            if k < 0 or src[k] in "(,=:[!&|?{};" or src[max(0, k - 5):k + 1] == "return":
+        pos[0] = i
+
+    def code(until_brace: bool = False) -> None:
+        depth = 0
+        while pos[0] < n:
+            i = pos[0]
+            c = src[i]
+            if c == "\n":
+                pos[1] += 1
+                pos[0] += 1
+            elif src.startswith("//", i) and (i == 0 or src[i - 1] != ":"):
+                while pos[0] < n and src[pos[0]] != "\n":
+                    pos[0] += 1
+            elif src.startswith("/*", i):
+                j = src.find("*/", i + 2)
+                j = n if j < 0 else j + 2
+                pos[1] += src.count("\n", i, j)
+                pos[0] = j
+            elif c in "\"'":
+                quoted(c)
+            elif c == "`":
+                template()
+            elif c == "/" and i + 1 < n and src[i + 1] not in "/*" and regex_may_start(i):
                 j = i + 1
                 while j < n and src[j] != "\n":
                     if src[j] == "\\":
@@ -81,12 +120,53 @@ def js_strings(src: str):
                     if src[j] == "/":
                         break
                     j += 1
-                i = j + 1
+                pos[0] = j + 1
+            elif c == "{":
+                depth += 1
+                pos[0] += 1
+            elif c == "}":
+                pos[0] += 1
+                if until_brace and depth == 0:
+                    return
+                depth = max(0, depth - 1)
             else:
-                i += 1
-        else:
-            i += 1
+                pos[0] += 1
+
+    code()
     return out
+
+
+class TheScannerReadsStrings(unittest.TestCase):
+    """The wording guard is only as good as its reading of the source: these are the shapes it must get right."""
+
+    def texts(self, src: str) -> list[str]:
+        return [text for _, text in js_strings(src)]
+
+    def test_a_template_inside_a_template_is_read(self):
+        found = self.texts("const label = `Before ${flag ? `an honest record` : \"\"} after`;")
+        self.assertIn("an honest record", found)
+        self.assertIn("Before ", found)
+        self.assertIn(" after", found)
+
+    def test_a_string_inside_an_interpolation_is_read(self):
+        self.assertIn("event", self.texts('x = `${n} ${plural(n, "event")}.`;'))
+
+    def test_comments_and_regular_expressions_are_not_strings(self):
+        found = self.texts("// an honest comment\nconst a = /`honest`/.test(s); /* trust */ const b = 'ok';")
+        self.assertEqual(found, ["ok"])
+
+    def test_an_escaped_quote_does_not_end_a_string(self):
+        self.assertEqual(self.texts("const s = 'it\\'s honest';"), ["it's honest"])
+
+    def test_braces_in_code_do_not_end_an_interpolation_early(self):
+        found = self.texts("x = `a ${ {k: `honest`}.k } b`;")
+        self.assertIn("honest", found)
+        self.assertIn(" b", found)
+
+    def test_the_front_end_is_read_in_full(self):
+        found = js_strings(JS)
+        self.assertGreater(len(found), 2000, "the strings of app.js")
+        self.assertTrue(any("Record check passed" in text for _, text in found))
 
 
 class NoAccentBars(unittest.TestCase):
