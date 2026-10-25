@@ -215,21 +215,21 @@ def map_cues(cues: list[dict], turn_texts: list[list[str]]) -> list[dict]:
     spans: list[dict] = []
     current: dict | None = None
     turn, cursor = 0, 0
-    for cue in cues:
+    for number, cue in enumerate(cues, 1):
         spoken = normalise(cue["text"])
         if not spoken:
             continue
         while turn < len(wanted) and not wanted[turn].startswith(spoken, cursor):
             if cursor < len(wanted[turn]):
                 log.warning("subtitle cue %d does not continue turn %d: %s",
-                            len(spans) + 1, turn + 1, _parting(spoken, wanted[turn][cursor:]))
+                            number, turn + 1, _parting(spoken, wanted[turn][cursor:]))
                 raise UserError("Dojo could not follow the narration in the finished video.")
             if current:
                 spans.append(current)
                 current = None
             turn, cursor = turn + 1, 0
         if turn >= len(wanted):
-            log.warning("subtitle cue after the last turn: the film says more than the narration")
+            log.warning("subtitle cue %d is after the last turn: the film says more than the narration", number)
             raise UserError("Dojo could not follow the narration in the finished video.")
         cursor += len(spoken)
         if current is None:

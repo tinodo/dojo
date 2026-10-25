@@ -355,6 +355,13 @@ class SubtitleTests(unittest.TestCase):
         self.assertIn("repositoryororganization", written, "what the film says")
         self.assertIn("repositoryorenterprise", written, "what the narration has")
 
+    def test_the_log_names_the_cue_that_differs_not_the_turn_it_is_in(self):
+        later = REAL_TURNS[:1] + [["Yes. If you need wider visibility, use the organization path."]] + REAL_TURNS[2:]
+        with self.assertLogs("dojo.avatar", level="WARNING") as logs:
+            with self.assertRaises(UserError):
+                map_cues(parse_srt(REAL_SRT), later)
+        self.assertIn("cue 3 does not continue turn 2", "\n".join(logs.output), "cue 3 is the second sentence of turn 2")
+
     def test_a_film_with_more_words_than_the_narration_is_logged_too(self):
         with self.assertLogs("dojo.avatar", level="WARNING") as logs:
             with self.assertRaises(UserError):
