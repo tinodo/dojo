@@ -529,7 +529,7 @@ form.ask .speak .lvl { width: 40px; }
 .rec { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 8px; border-top: 1px solid var(--line-2); width: 100%; text-align: left; }
 .rec:first-child { border-top: 0; }
 .rec:hover { background: var(--card-2); }
-.rec.on { background: var(--sage-t); box-shadow: inset 0 0 0 1px var(--sage); border-top-color: transparent; }
+.rec.on { background: var(--sage-t); box-shadow: inset 0 0 0 1px var(--sage-ink); border-top-color: transparent; }
 .rec.on + .rec { border-top-color: transparent; }
 .rec .rn { font-size: 13px; line-height: 1.3; color: var(--ink); }
 .rec.on .rn { font-weight: 600; }
@@ -1806,7 +1806,6 @@ svg.dkv text.dkv-ctext { fill: var(--card); }
 
 /* the tall card on a phone */
 .dk.tall .dk-scene { padding: 30px 24px 0 30px; }
-.dk.tall .dk-scene:not(.dark)::after { width: 7px; }
 .dk.tall .dk-scene.dark { padding: 0; }
 .dk.tall .dk-kick { margin-bottom: 10px; font-size: 12.5px; gap: 10px; }
 .dk.tall .dk-kbar { width: 26px; }
