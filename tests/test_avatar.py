@@ -13,6 +13,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
+from xml.sax.saxutils import escape
 
 os.environ.setdefault("DOJO_LOCAL", "1")
 os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-import-"))
@@ -77,6 +78,26 @@ REAL_TURNS = [
     ["Look for who last changed the content exclusion settings, and when."],
 ]
 
+# Measured on 23 Oct 2026, the last three turns of a lesson that was filmed twice and thrown away: the
+# narration says "Azure Arc > SQL Server" and the service wrote the ">" as "&gt;".
+ARC_SRT = """7
+00:00:38,887 --> 00:00:44,837
+On an already Arc-enabled server, the SQL Server Arc resource follows the server resource placement.
+
+8
+00:00:46,437 --> 00:00:50,575
+After deployment, validate from Azure Arc &gt; SQL Server.
+
+9
+00:00:52,175 --> 00:00:57,750
+The extension continues to detect SQL Server configuration changes after installation.
+"""
+ARC_TURNS = [
+    ["On an already Arc-enabled server, the SQL Server Arc resource follows the server resource placement."],
+    ["After deployment, validate from Azure Arc > SQL Server."],
+    ["The extension continues to detect SQL Server configuration changes after installation."],
+]
+
 
 class FastClock:
     """Real time, no waiting: the rate limit would make these tests take many minutes."""
@@ -102,8 +123,8 @@ class VirtualClock:
 
 
 def srt_for(ssml: str) -> str:
-    """The subtitles the service would return for this SSML: one cue per sentence-sized line, a
-    short gap inside a turn and a long one between turns."""
+    """The subtitles the service would return for this SSML: one cue per sentence-sized line, with <, >
+    and & written as entities, a short gap inside a turn and a long one between turns."""
     inner = re.search(r'<voice name="[^"]+">(.*)</voice>', ssml, re.S).group(1)
     cues, at = [], 0.05
     for turn in inner.split(f'<break time="{avatar_mod.TURN_BREAK_MS}ms"/>'):
@@ -115,7 +136,7 @@ def srt_for(ssml: str) -> str:
             cues.append((at, end, text))
             at = end + avatar_mod.LINE_BREAK_MS / 1000
         at += (avatar_mod.TURN_BREAK_MS - avatar_mod.LINE_BREAK_MS) / 1000
-    return "\n\n".join(f"{i}\n{avatar_mod._stamp(s)} --> {avatar_mod._stamp(e)}\n{t}"
+    return "\n\n".join(f"{i}\n{avatar_mod._stamp(s)} --> {avatar_mod._stamp(e)}\n{escape(t)}"
                        for i, (s, e, t) in enumerate(cues, 1)) + "\n"
 
 
@@ -123,7 +144,8 @@ class FakeService:
     """The batch avatar endpoint: PUT starts a job, GET walks it from NotStarted to Succeeded, and
     the signed URLs serve the video and its subtitles."""
 
-    def __init__(self, fail: str = "", busy: int = 0, conflict: bool = False, subtitle: bool = True):
+    def __init__(self, fail: str = "", busy: int = 0, conflict: bool = False, subtitle: bool = True,
+                 refusal: tuple[int, str] = (409, "synthesis already exists")):
         self.jobs: dict[str, int] = {}
         self.srt: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
@@ -132,6 +154,7 @@ class FakeService:
         self.busy = busy
         self.conflict = conflict
         self.subtitle = subtitle
+        self.refusal = refusal
 
     def count(self, method: str) -> int:
         return sum(1 for m, _ in self.calls if m == method)
@@ -161,9 +184,9 @@ class FakeService:
             body = json.loads(request.content)
             self.bodies.append(body)
             self.srt[sid] = srt_for(body["inputs"][0]["content"])
-            if self.conflict:  # a job with this id is already running from an earlier attempt
+            if self.conflict:  # a job with this id is there from an earlier attempt
                 self.jobs.setdefault(sid, 0)
-                return httpx.Response(409, text="synthesis already exists")
+                return httpx.Response(self.refusal[0], text=self.refusal[1])
             self.jobs[sid] = 0
             return httpx.Response(201, json={"id": sid, "status": "NotStarted"})
         if request.method == "GET":
@@ -311,6 +334,40 @@ class SubtitleTests(unittest.TestCase):
     def test_punctuation_and_case_do_not_matter(self):
         self.assertEqual(normalise("Yes -- 'the' ORG path!"), "yestheorgpath")
 
+    def test_a_symbol_the_service_wrote_as_an_entity_is_read_back_as_the_symbol(self):
+        cues = parse_srt(ARC_SRT)
+        self.assertEqual(cues[1]["text"], "After deployment, validate from Azure Arc > SQL Server.")
+        self.assertEqual(len(map_cues(cues, ARC_TURNS)), 3, "the film that was filmed twice and thrown away maps")
+
+    def test_every_symbol_the_service_escapes_is_read_back(self):
+        srt = ("1\n00:00:00,050 --> 00:00:03,000\nQ&amp;A comes after the &lt;demo&gt;.\n\n"
+               "2\n00:00:04,600 --> 00:00:07,000\nIf a &lt; b &amp;&amp; b &gt; c, say \"yes\" and don't wait.\n")
+        turns_ = [["Q&A comes after the <demo>."], ['If a < b && b > c, say "yes" and don\'t wait.']]
+        self.assertEqual(len(map_cues(parse_srt(srt), turns_)), 2)
+
+    def test_a_cue_that_really_differs_is_logged_where_it_parts_from_the_narration(self):
+        different = [["First, decide the scope: repository or enterprise."]] + REAL_TURNS[1:]
+        with self.assertLogs("dojo.avatar", level="WARNING") as logs:
+            with self.assertRaises(UserError):
+                map_cues(parse_srt(REAL_SRT), different)
+        written = "\n".join(logs.output)
+        self.assertIn("cue 1 does not continue turn 1", written)
+        self.assertIn("repositoryororganization", written, "what the film says")
+        self.assertIn("repositoryorenterprise", written, "what the narration has")
+
+    def test_the_log_names_the_cue_that_differs_not_the_turn_it_is_in(self):
+        later = REAL_TURNS[:1] + [["Yes. If you need wider visibility, use the organization path."]] + REAL_TURNS[2:]
+        with self.assertLogs("dojo.avatar", level="WARNING") as logs:
+            with self.assertRaises(UserError):
+                map_cues(parse_srt(REAL_SRT), later)
+        self.assertIn("cue 3 does not continue turn 2", "\n".join(logs.output), "cue 3 is the second sentence of turn 2")
+
+    def test_a_film_with_more_words_than_the_narration_is_logged_too(self):
+        with self.assertLogs("dojo.avatar", level="WARNING") as logs:
+            with self.assertRaises(UserError):
+                map_cues(parse_srt(REAL_SRT), REAL_TURNS[:-1])
+        self.assertIn("after the last turn", "\n".join(logs.output))
+
 
 class PacerTests(unittest.TestCase):
     """Two create calls a minute for the whole resource means one queue for the whole process."""
@@ -447,6 +504,33 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(avatar.exists(media_id))
         self.assertEqual(service.count("PUT"), 1, "409 means the film we want is already being made")
         self.assertEqual(service.count("DELETE"), 0)
+
+    def test_a_job_that_has_finished_is_used_when_the_service_says_it_cannot_be_updated(self):
+        service = FakeService(conflict=True, refusal=(400, "job with this id already exists and cannot be updated"))
+        avatar = avatar_for(service, self.tmp)
+        media_id = avatar.synthesize("guide", REAL_TURNS)
+        self.assertTrue(avatar.exists(media_id))
+        self.assertEqual(service.count("PUT"), 1, "the finished film is collected, not paid for again")
+        self.assertEqual(avatar.store.read_bytes("media", media_id + ".webm"), VIDEO, "its result is read from the job that is already there")
+
+    def test_another_refusal_of_a_create_is_not_taken_for_a_job_that_exists(self):
+        service = FakeService(conflict=True, refusal=(400, "the SSML is not valid"))
+        avatar = avatar_for(service, self.tmp)
+        with self.assertRaises(UserError) as ctx:
+            avatar.synthesize("guide", REAL_TURNS)
+        self.assertIn("could not start a video", str(ctx.exception))
+        self.assertIn("the SSML is not valid", str(ctx.exception))
+        self.assertEqual(service.count("PUT"), 1, "a refusal that will not change is not asked again")
+        self.assertEqual(avatar.videos(), [])
+
+    def test_symbols_in_the_narration_survive_the_trip_through_the_service(self):
+        narration = [["After deployment, validate from Azure Arc > SQL Server."],
+                     ["Q&A comes next, then <name> and a &amp; b."]]
+        service = FakeService()
+        avatar = avatar_for(service, self.tmp)
+        media_id = avatar.synthesize("guide", narration)
+        self.assertIn("&gt; SQL Server", next(iter(service.srt.values())), "the service writes the symbol as an entity")
+        self.assertEqual(len(avatar.timings(media_id)), 2)
 
     def test_the_synthesis_id_is_accepted_by_the_service_rules(self):
         service = FakeService()
