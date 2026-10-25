@@ -14,8 +14,10 @@ speaker has in the lesson, in speaking order, in one SSML input, separated by a 
 
 To find each turn again inside that one file we ask for ``subtitleType: "external_file"``. The
 service then also returns an SRT with sentence-level cue times, which are matched back to the turns
-by walking their text, and cross-checked against the long silence between turns. The front end plays
-one file from a turn's start to its end and swaps the presenter tile between turns.
+by walking their text, and cross-checked against the long silence between turns. The service writes
+<, > and & in a cue as entities ("Azure Arc > SQL Server" comes back as "Azure Arc &gt; SQL Server"),
+so the cues are turned back into the characters the narration has before they are matched. The front
+end plays one file from a turn's start to its end and swaps the presenter tile between turns.
 
 The video is a transparent WebM (VP9) cropped to an upper-body portrait, so the presenter appears to
 stand on the slide with no box around them.
@@ -32,6 +34,7 @@ one is deleted first, with its timing sidecar; audio and lessons are never touch
 """
 from __future__ import annotations
 
+import html
 import logging
 import re
 import threading
@@ -175,7 +178,8 @@ def _at(m: "re.Match[str]", first: int) -> float:
 
 
 def parse_srt(text: str) -> list[dict]:
-    """The cues of an SRT subtitle file, in order, as {"start", "end", "text"} in seconds."""
+    """The cues of an SRT subtitle file, in order, as {"start", "end", "text"} in seconds, with the
+    entities the service writes for <, > and & turned back into those characters."""
     cues: list[dict] = []
     for block in re.split(r"\r?\n[ \t]*\r?\n", text.replace("\ufeff", "").strip()):
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
@@ -183,10 +187,18 @@ def parse_srt(text: str) -> list[dict]:
         if timing is None:
             continue
         m = _CUE.search(lines[timing])
-        body = " ".join(lines[timing + 1:]).strip()
+        body = html.unescape(" ".join(lines[timing + 1:])).strip()
         if body:
             cues.append({"start": _at(m, 1), "end": _at(m, 5), "text": body})
     return cues
+
+
+def _parting(heard: str, wanted: str) -> str:
+    """Where a cue and the narration part ways, a few letters either side, so a film Dojo refuses can be
+    understood from the log alone: the finished job does not stay around to be looked at."""
+    at = next((i for i, (a, b) in enumerate(zip(heard, wanted)) if a != b), min(len(heard), len(wanted)))
+    lo = max(0, at - 20)
+    return f"the film says ...{heard[lo:at + 20]!r} where the narration has ...{wanted[lo:at + 20]!r}"
 
 
 def map_cues(cues: list[dict], turn_texts: list[list[str]]) -> list[dict]:
@@ -209,13 +221,15 @@ def map_cues(cues: list[dict], turn_texts: list[list[str]]) -> list[dict]:
             continue
         while turn < len(wanted) and not wanted[turn].startswith(spoken, cursor):
             if cursor < len(wanted[turn]):
-                log.warning("subtitle cue %d does not continue turn %d", len(spans) + 1, turn + 1)
+                log.warning("subtitle cue %d does not continue turn %d: %s",
+                            len(spans) + 1, turn + 1, _parting(spoken, wanted[turn][cursor:]))
                 raise UserError("Dojo could not follow the narration in the finished video.")
             if current:
                 spans.append(current)
                 current = None
             turn, cursor = turn + 1, 0
         if turn >= len(wanted):
+            log.warning("subtitle cue after the last turn: the film says more than the narration")
             raise UserError("Dojo could not follow the narration in the finished video.")
         cursor += len(spoken)
         if current is None:
@@ -467,7 +481,8 @@ class Avatar:
         """Start one job, waiting for this process's turn first and for the service's if it says so.
 
         The id is the content hash, so a job left over from an interrupted attempt is the job we
-        want: 409 means it is already running and there is nothing to pay for again."""
+        want, and there is nothing to pay for again. The service says so with 409 while it runs and with
+        400 "cannot be updated" once it has finished, for as long as it keeps the job."""
         body = {
             "inputKind": "SSML",
             "inputs": [{"content": ssml}],
@@ -488,8 +503,8 @@ class Avatar:
                 if r.status_code < 400:
                     self._reached = True
                     return
-                if r.status_code == 409:
-                    log.info("avatar job %s was already started; waiting for it", synthesis_id)
+                if r.status_code == 409 or (r.status_code == 400 and "already exists" in r.text.lower()):
+                    log.info("avatar job %s was already started; using it", synthesis_id)
                     self._reached = True
                     return
                 last = f"HTTP {r.status_code}: {r.text[:200]}"
@@ -557,8 +572,9 @@ class Avatar:
 class StubAvatar(Avatar):
     """Writes a placeholder instead of calling the avatar service (tests and local work offline).
 
-    The subtitles are made up the way the service makes them: one cue per line, a short gap inside a
-    turn and a long one between turns, so the mapping from cues to turns is exercised offline too."""
+    The subtitles are made up the way the service makes them: one cue per line, <, > and & written as
+    entities, a short gap inside a turn and a long one between turns, so the mapping from cues to turns
+    is exercised offline too."""
 
     def _render(self, synthesis_id: str, ssml: str, config: dict, turn_texts: list[list[str]],
                 progress: Progress) -> tuple[bytes, str]:
@@ -572,7 +588,7 @@ class StubAvatar(Avatar):
                 cues.append((at, end, line))
                 at = end + LINE_BREAK_MS / 1000
             at += (TURN_BREAK_MS - LINE_BREAK_MS) / 1000
-        srt = "\n\n".join(f"{i}\n{_stamp(s)} --> {_stamp(e)}\n{text}" for i, (s, e, text) in enumerate(cues, 1))
+        srt = "\n\n".join(f"{i}\n{_stamp(s)} --> {_stamp(e)}\n{escape(text)}" for i, (s, e, text) in enumerate(cues, 1))
         return b"\x1a\x45\xdf\xa3" + sha256(ssml)[:32].encode() + bytes(1024), srt + "\n"
 
     def probe(self) -> dict:
