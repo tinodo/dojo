@@ -2916,7 +2916,7 @@ Elements:
             "suggestions": suggestions(pkg, ev, now, profile["later_hours"]),
             "due": due_later(pkg, ev, now, profile["later_hours"]),
             "coverage": coverage(pkg, ev),
-            "plan": plan(pkg, ev, date.fromisoformat(exam) if exam else None, now.date()),
+            "plan": plan(pkg, ev, date.fromisoformat(exam) if exam else None, relearn.local_day(now)),
             "rehearsals": self.rehearsals_for(learner, pid)[:3],
             "lessons_ready": len(self.lesson_skills(pid)),
             "recalls": self.recalls(learner, pid, pkg, ev),
