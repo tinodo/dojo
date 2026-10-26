@@ -23,6 +23,7 @@ from app.evidence import derive  # noqa: E402
 from app.main import ExamAnswer, create_app  # noqa: E402
 from app.packages import Packages  # noqa: E402
 from app.plan import Planner, _matches  # noqa: E402
+from tests.clock import days_from_now  # noqa: E402
 from tests.test_api import POST, settings, web  # noqa: E402
 from tests.test_team import classes  # noqa: E402
 
@@ -509,7 +510,7 @@ class KnowApiTests(unittest.TestCase):
         return self.store.events((learner or self.me).key)
 
     def tomorrow(self):
-        later = utcnow() + timedelta(days=1)
+        later = days_from_now(1)
         return mock.patch("app.learning.utcnow", lambda: later), mock.patch("app.checks.utcnow", lambda: later)
 
     def test_01_confidence_is_kept_with_the_answer_but_never_judged(self):
@@ -517,7 +518,7 @@ class KnowApiTests(unittest.TestCase):
         # the ladder's second step, due in three days, which is tomorrow.
         first = self.item()
         start = len(self.prompts)
-        with mock.patch("app.core.utcnow", lambda: utcnow() - timedelta(days=3)):
+        with mock.patch("app.core.utcnow", lambda: days_from_now(-3)):
             view = self.answer(first, "Everything: r1 and r2 both apply here.", "certain")
         graded = [u.lower() for s, u in self.prompts[start:] if "TASK: grade" in s]
         self.assertTrue(graded, "the answer was never judged")
@@ -528,7 +529,7 @@ class KnowApiTests(unittest.TestCase):
         sent = [e for e in self.events() if e["type"] == "answer.submitted" and e["data"]["item"] == first]
         self.assertEqual(sent[0]["data"]["confidence"], "certain")
         second = self.item()
-        with mock.patch("app.core.utcnow", lambda: utcnow() - timedelta(days=2)):
+        with mock.patch("app.core.utcnow", lambda: days_from_now(-2)):
             same = self.answer(second, "Everything: r1 and r2 both apply here.")
         self.assertEqual((same["result"]["met"], same["result"]["total"]), (view["result"]["met"], view["result"]["total"]))
         self.assertNotIn("confidence", [e for e in self.events() if e["type"] == "answer.submitted"
@@ -706,7 +707,7 @@ class KnowApiTests(unittest.TestCase):
     def test_10_ending_a_recall_check_unanswered_does_not_free_its_place(self):
         # Review 1: each recall check started reserves its questions before any writer runs, so start,
         # end, start again stops at the daily cap, and Today then shows nothing more to start.
-        later = utcnow() + timedelta(days=2)
+        later = days_from_now(2)
         clocks = [mock.patch(f"app.{m}.utcnow", lambda: later) for m in ("core", "learning", "checks")]
         for c in clocks:
             c.start()

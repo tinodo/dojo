@@ -29,6 +29,7 @@ from app.core import APP_DIR, Abandoned, Learner, Store, learner_key, sha256, ut
 from app.five import FIVE_RECALLS, REPAIR_MINUTES, FiveMinutes  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.packages import Packages  # noqa: E402
+from tests.clock import days_from_now  # noqa: E402
 from tests.test_api import POST, settings, web  # noqa: E402
 from tests.test_team import OWNER, TeamCase, classes  # noqa: E402
 
@@ -778,7 +779,7 @@ class PhoneApiTests(unittest.TestCase):
         # A skill shown on its own three days ago and again two days ago: its recall is due tomorrow.
         for days in (3, 2):
             item = cls.wait(cls.post("/api/items", {"package": cls.pid, "skill": cls.sid, "mode": "check"}))["item"]
-            with mock.patch("app.core.utcnow", lambda d=days: utcnow() - timedelta(days=d)):
+            with mock.patch("app.core.utcnow", lambda d=days: days_from_now(-d)):
                 cls.wait(cls.post(f"/api/items/{item}/answer", {"text": "Everything: r1 and r2 both apply here.", "elapsed_s": 30}))
 
     @classmethod
@@ -798,7 +799,7 @@ class PhoneApiTests(unittest.TestCase):
         return job["result"]
 
     def tomorrow(self):
-        later = utcnow() + timedelta(days=1)
+        later = days_from_now(1)
         return later, [mock.patch(f"app.{m}.utcnow", lambda: later) for m in ("core", "learning", "checks", "five")]
 
     def test_01_the_routes_are_learner_routes(self):
