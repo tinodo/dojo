@@ -187,8 +187,8 @@ def rule_three(items: list[dict], later_hours: int) -> dict:
         "open": [],
     }
     if not found:
-        rule["note"] = ("No wrong idea has been named and stored in your record yet. Dojo will not invent a number, "
-                        "so this rule is not counted for or against you.")
+        rule["note"] = ("No wrong idea has been named and stored in your record yet, so this rule has no number and "
+                        "is not counted for or against you.")
         return rule
     return rule
 

@@ -1178,7 +1178,7 @@ class StudioScreenTests(unittest.TestCase):
 
     def test_the_old_studio_checks_are_all_still_there(self):
         health = part("async function studioHealth(opts) {")
-        for what in ("voicesPanel(v)", "driftRow(dr)", "deeperRow(dl)", "sourcingRow(sr)", "What was blocked, and why", "Why you can trust the gaps"):
+        for what in ("voicesPanel(v)", "driftRow(dr)", "deeperRow(dl)", "sourcingRow(sr)", "What was blocked, and why", "How checking works"):
             self.assertIn(what, health)
 
 
