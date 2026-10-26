@@ -381,5 +381,5 @@ def plan(package: dict, evidence: dict[str, dict], exam_date: date | None, today
         "skills_not_shown_unaided": not_unaided,
         "attempted_without_later": sum(1 for e in attempted if not e["checks"]["later"]),
         "later_checks_per_week": math.ceil(not_later / weeks) if weeks else None,
-        "note": "Plain arithmetic to help you pace yourself. It is not a prediction of your exam result.",
+        "note": "Counts to help you pace yourself.",
     }

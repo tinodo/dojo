@@ -1099,7 +1099,7 @@ class ExamRoom:
             "thinned_note": (f"That leaves fewer than {WEAK_MIN} questions to judge {' and '.join(thinned)}, so this exam "
                              f"does not count towards “Should you book it?” (rule 2).") if thinned else "",
             "diagnosis_note": ("Not a pass prediction. These are Dojo's own questions; the real exam uses different "
-                              "questions and a scaled score. Dojo never maps this to that scale."),
+                              "questions and a scaled score."),
         }
 
     def list_for(self, learner: Learner, pid: str) -> list[dict]:

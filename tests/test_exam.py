@@ -1226,7 +1226,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(rule["value"], "not measured yet")
         self.assertFalse(rule["met"])
         self.assertFalse(rule["measured"])
-        self.assertIn("will not invent a number", rule["note"])
+        self.assertIn("not counted for or against you", rule["note"])
 
     def test_rule_three_counts_the_skill_when_a_wrong_idea_was_stored(self):
         sid = next(iter(self.pkg["skills"]))

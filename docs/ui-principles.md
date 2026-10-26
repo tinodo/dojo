@@ -22,5 +22,14 @@ whether it is safe? These rules came from a page he could not use (ADR 0025). Fo
     tested in node (`tests/test_studio_v2.py`): the tests read the words off the tree, count the buttons and fail on the words of Dojo's
     insides.
 
+11. **No accent bars; boxes of one size.** A bar down the left side of a box (a coloured `border-left`, an inset shadow, a strip) says "made by a
+    template". A selected row is a tint with a full ring and a heavier name, and says so to a screen reader (`aria-current`). A notice is a tint with a
+    full border. The boxes inside a card (a list row, a status line, a notice, a quote) share one padding (9px 12px), one radius (8px) and one text size
+    (13px), and a card's heading is followed by the same 7px whatever comes next. `tests/test_ui_rules.py` fails on a left bar.
+12. **Do not vouch for Dojo.** A screen says what a thing does, once, where it matters. It does not say how honest, careful or trustworthy Dojo is
+    ("an honest record", "you can trust the gaps", "nothing is invented", "the whole chain checks out"), it does not list the rules it keeps, and it does
+    not repeat a disclaimer on every page: "not a pass prediction" is said where a score or advice is shown. A promise about what Dojo cannot see or does
+    not keep says what and for whom, and is true to the code. `tests/test_ui_rules.py` fails on the words.
+
 Before you build: write the sentences first, then ask two reviewers from different model families to read the spec (not the code), then
 build, then show screenshots.
