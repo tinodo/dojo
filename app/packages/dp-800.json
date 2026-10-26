@@ -1102,15 +1102,15 @@
               "text": "Implement hybrid search",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/ef/core/providers/sql-server/vector-search",
-                  "title": "Vector search in the SQL Server EF Core Provider",
+                  "url": "https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking",
+                  "title": "Relevance scoring in hybrid search using Reciprocal Rank Fusion (RRF)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
                 },
                 {
-                  "url": "https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking",
-                  "title": "Relevance scoring in hybrid search using Reciprocal Rank Fusion (RRF)",
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/search/query-with-full-text-search?view=sql-server-ver17",
+                  "title": "Query with Full-Text Search",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
