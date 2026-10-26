@@ -157,9 +157,16 @@ class FakeService:
         self.subtitle = subtitle
         self.refusal = refusal
         self.srt_text: str | None = None  # subtitles to serve whatever was asked for
+        self.created: dict[str, str] = {}  # when each job was made, as the service says in createdDateTime
+        self.made = 0
+        self.stamp = True  # False: the service does not say when a job was created
 
     def count(self, method: str) -> int:
         return sum(1 for m, _ in self.calls if m == method)
+
+    def new_stamp(self) -> str:
+        self.made += 1
+        return f"2026-10-26T08:00:{self.made:02d}.000Z"
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.calls.append((request.method, str(request.url)))
@@ -189,8 +196,11 @@ class FakeService:
             self.srt[sid] = srt_for(body["inputs"][0]["content"])
             if self.conflict:  # a job with this id is there from an earlier attempt
                 self.jobs.setdefault(sid, 0)
+                if sid not in self.created:
+                    self.created[sid] = self.new_stamp()
                 return httpx.Response(self.refusal[0], text=self.refusal[1])
             self.jobs[sid] = 0
+            self.created[sid] = self.new_stamp()
             return httpx.Response(201, json={"id": sid, "status": "NotStarted"})
         if request.method == "GET":
             seen = self.jobs.get(sid)
@@ -201,6 +211,8 @@ class FakeService:
                 return httpx.Response(200, json={"id": sid, "status": "Failed", "properties": {"error": self.fail}})
             status = ("NotStarted", "Running", "Succeeded")[min(seen, 2)]
             body: dict = {"id": sid, "status": status}
+            if self.stamp:
+                body["createdDateTime"] = self.created.get(sid, "")
             if status == "Succeeded":
                 outputs = {"result": f"https://files.example/out/{sid}.webm{SIGNATURE}",
                            "summary": f"https://files.example/out/{sid}.json{SIGNATURE}"}
@@ -637,12 +649,16 @@ class FakeMeter:
     def __init__(self, rate: float = 1 / 60):
         self.rate = rate
         self.booked: list[float] = []
+        self.fail = 0   # settle fails this many times, as a ledger that cannot be written would
 
     def open_call(self, kind: str, bound: float, bounded: bool = True) -> object:
         assert kind == "speech/avatar"
         return object()
 
     def settle(self, ticket: object, actual: float) -> None:
+        if self.fail:
+            self.fail -= 1
+            raise OSError("the meter file cannot be written")
         self.booked.append(round(actual, 6))
 
     def meter_rate(self, key: str) -> float:
@@ -680,6 +696,9 @@ class FilmCostTests(unittest.TestCase):
     def forget_the_film(self) -> None:
         self.avatar.store.delete_file("media", self.media_id + ".webm")
         self.avatar.store.delete_file("media", self.media_id + ".json")
+
+    def at(self, when: datetime):
+        return mock.patch.object(avatar_mod, "utcnow", lambda: when)
 
     def test_a_film_is_booked_by_its_seconds(self):
         self.avatar.synthesize("guide", REAL_TURNS)
@@ -720,28 +739,64 @@ class FilmCostTests(unittest.TestCase):
         self.avatar.synthesize("guide", REAL_TURNS)
         self.assertEqual(self.booked, [0.0, self.worth()])
 
-    def test_a_film_made_again_is_booked_again_once_the_service_dropped_the_old_job(self):
+    def test_a_new_job_for_the_same_film_is_a_new_charge(self):
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.forget_the_film()
+        self.service.conflict = True   # the service still has the job: asking again is free
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.forget_the_film()
+        self.service.conflict = False  # it has deleted the job: this is a new job, made at another time
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth(), 0.0, self.worth()])
+        self.assertEqual(self.service.made, 2, "two jobs were made")
+
+    def test_collecting_a_job_late_does_not_hide_the_next_one(self):
         start = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
-        kept = timedelta(hours=avatar_mod.TIME_TO_LIVE_HOURS)
-        with mock.patch.object(avatar_mod, "utcnow", lambda: start):
+        hours = timedelta(hours=avatar_mod.TIME_TO_LIVE_HOURS)
+        self.service.conflict = True   # a job from an attempt that was cut short, finished at 08:00
+        with self.at(start + timedelta(hours=5)):
+            self.avatar.synthesize("guide", REAL_TURNS)    # collected and booked five hours later
+        self.forget_the_film()
+        self.service.conflict = False  # at 14:00 the service has deleted it, and this is a new job
+        with self.at(start + hours + timedelta(minutes=1)):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth(), self.worth()])
+
+    def test_without_a_creation_time_the_hours_the_service_keeps_a_job_decide(self):
+        self.service.stamp = False
+        start = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
+        hours = timedelta(hours=avatar_mod.TIME_TO_LIVE_HOURS)
+        with self.at(start):
             self.avatar.synthesize("guide", REAL_TURNS)
         self.forget_the_film()
-        self.service.conflict = True   # within the hours the service keeps the job, asking for it again is free
-        with mock.patch.object(avatar_mod, "utcnow", lambda: start + kept - timedelta(minutes=1)):
-            self.avatar.synthesize("guide", REAL_TURNS)
+        self.service.conflict = True
+        with self.at(start + hours - timedelta(minutes=1)):
+            self.avatar.synthesize("guide", REAL_TURNS)    # the same job, still kept
         self.forget_the_film()
-        self.service.conflict = False  # after them it is a new job, and a new charge
-        with mock.patch.object(avatar_mod, "utcnow", lambda: start + kept + timedelta(minutes=1)):
-            self.avatar.synthesize("guide", REAL_TURNS)
+        self.service.conflict = False
+        with self.at(start + hours + timedelta(minutes=1)):
+            self.avatar.synthesize("guide", REAL_TURNS)    # a new one
         self.assertEqual(self.booked, [self.worth(), 0.0, self.worth()])
 
-    def test_only_the_jobs_the_service_still_keeps_are_remembered(self):
-        now = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
-        self.avatar.store.write("content", avatar_mod.BILLED, value={
-            "v" + "0" * 39: "2026-10-20T08:00:00+00:00", "v" + "1" * 39: "not a time", "v" + "2" * 39: "2026-10-26T07:00:00+00:00"})
-        with mock.patch.object(avatar_mod, "utcnow", lambda: now):
+    def test_a_ledger_that_cannot_take_the_cost_leaves_the_job_to_be_booked_next_time(self):
+        self.avatar.meter.fail = 2     # the settle in the booking fails, and so does the one that follows it
+        with self.assertRaises(OSError):
             self.avatar.synthesize("guide", REAL_TURNS)
-        self.assertEqual(set(self.avatar.store.read("content", avatar_mod.BILLED)), {"v" + "2" * 39, self.media_id})
+        self.assertFalse(self.avatar.exists(self.media_id))
+        self.assertIsNone(self.avatar.store.read("content", avatar_mod.BILLED), "nothing is remembered that the ledger lacks")
+        self.service.conflict = True   # the finished job is collected again, and now the ledger works
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth()])
+
+    def test_only_recent_jobs_are_remembered(self):
+        now = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
+        recent = {"job": "2026-10-26T07:00:01.000Z", "at": "2026-10-26T07:00:00+00:00"}
+        self.avatar.store.write("content", avatar_mod.BILLED, value={
+            "v" + "0" * 39: {"job": "x", "at": "2026-10-24T08:00:00+00:00"}, "v" + "1" * 39: "not a record",
+            "v" + "2" * 39: {"job": "y", "at": "not a time"}, "v" + "3" * 39: recent})
+        with self.at(now):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(set(self.avatar.store.read("content", avatar_mod.BILLED)), {"v" + "3" * 39, self.media_id})
 
     def test_without_a_meter_nothing_is_booked_or_written(self):
         self.avatar.meter = None

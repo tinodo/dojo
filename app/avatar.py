@@ -77,7 +77,8 @@ VIDEO_CONFIG: dict[str, Any] = {
     "videoCrop": {"topLeft": {"x": 640, "y": 0}, "bottomRight": {"x": 1280, "y": 1080}},
 }
 TIME_TO_LIVE_HOURS = 6  # the file is stored here; the service only has to keep it long enough to download
-BILLED = "film-billed"  # content/film-billed.json: when each job's cost was booked, kept as long as the service keeps the job
+BILLED = "film-billed"  # content/film-billed.json: the jobs whose cost is booked, and when
+BILLED_KEEP_H = 24     # a job is forgotten after this long: the service deleted it hours ago
 
 TURN_BREAK_MS = 1500  # silence between two turns: long enough to find the seam in the subtitles
 LINE_BREAK_MS = 300   # silence between two lines of the same turn
@@ -248,10 +249,10 @@ def map_cues(cues: list[dict], turn_texts: list[list[str]]) -> list[dict]:
     return spans
 
 
-def _kept(at: Any, now: datetime) -> bool:
-    """Whether a job booked at this time is still on the service, so that asking for it again is free."""
+def _within(at: Any, now: datetime, hours: float) -> bool:
+    """Whether this stored time is less than so many hours before now."""
     try:
-        return now - parse_iso(str(at)) < timedelta(hours=TIME_TO_LIVE_HOURS)
+        return now - parse_iso(str(at)) < timedelta(hours=hours)
     except (TypeError, ValueError):
         return False
 
@@ -321,6 +322,7 @@ class Avatar:
         self.pacer = pacer or PACER
         self._reached = False
         self._space = threading.Lock()  # both speakers render side by side; the budget is counted once at a time
+        self._books = threading.Lock()  # a film's cost is decided, booked and written down as one step
 
     # ------------------------------------------------------------ stored files
 
@@ -383,44 +385,47 @@ class Avatar:
         step = progress or (lambda note: None)
         meter = getattr(self, "meter", None)   # team mode: metered (admin only, so not limited)
         ticket = meter.open_call("speech/avatar", 0.0, bounded=False) if meter is not None else None
-        cost = 0.0
+        settled = False
         try:
-            data, subtitles = self._render(media_id, ssml, avatar_config(speaker), turn_texts, step)
+            data, subtitles, job = self._render(media_id, ssml, avatar_config(speaker), turn_texts, step)
             cues = parse_srt(subtitles)
-            if meter is not None:
-                cost = self._cost_once(meter, media_id, cues)   # before the mapping: a film Dojo refuses was paid for too
+            if ticket is not None:
+                self._book(meter, ticket, media_id, job, cues)   # before the mapping: a film Dojo refuses was paid for too
+                settled = True
             spans = map_cues(cues, turn_texts)
         finally:
-            if ticket is not None:
-                meter.settle(ticket, cost)
+            if ticket is not None and not settled:
+                meter.settle(ticket, 0.0)
         with self._space:
             self.evict(len(data))
             self.store.write_bytes("media", media_id + SUFFIX, data=data)
             self.store.write("media", media_id, value=spans)
         return media_id
 
-    def _cost_once(self, meter: Any, media_id: str, cues: list[dict]) -> float:
-        """What a finished film costs the ledger: its seconds at the video rate, booked once for the job.
+    def _book(self, meter: Any, ticket: Any, media_id: str, job: str, cues: list[dict]) -> None:
+        """Settles a film's ticket with what the film cost: its seconds at the video rate, once for the job.
 
-        The service bills a job when it runs, whether or not Dojo can use the film, and keeps it for
-        TIME_TO_LIVE_HOURS; asking for it again in that time costs nothing (`_create`). So the cost is booked
-        the first time the film is seen, a film that is then refused included, and not again when the same
-        job is collected another time. A job nobody booked, left by an attempt that was cut short, is booked
-        by whoever collects it."""
+        The service bills a job when it runs, whether or not Dojo can use the film, and deletes it
+        TIME_TO_LIVE_HOURS after it finished; asking for it again before then costs nothing (`_create`). So the
+        cost is booked the first time a job is seen, a film that is then refused included, and not again when
+        the same job is collected another time. A job is told from another by the time the service created
+        it (`job`), so a new job for the same film, made after the old one was deleted, is booked as well; when
+        the service gives no time, the hours it keeps a job decide. A job nobody booked, left by an attempt that
+        was cut short, is booked by whoever collects it. The job is written down only after the ledger has the
+        cost, so a ledger that could not take it leaves the job to be booked next time."""
         seconds = max((float(c.get("end") or 0.0) for c in cues), default=0.0)
-        if seconds <= 0:
-            return 0.0
         now = utcnow()
-        with self.store.lock:
+        with self._books:
             doc = self.store.read("content", BILLED, default=None)
             doc = doc if isinstance(doc, dict) else {}
-            booked = {job: at for job, at in doc.items() if _kept(at, now)}
-            first = media_id not in booked
-            if first:
-                booked[media_id] = iso(now)
-            if first or booked != doc:
+            booked = {k: v for k, v in doc.items() if isinstance(v, dict) and _within(v.get("at"), now, BILLED_KEEP_H)}
+            seen = booked.get(media_id)
+            again = seen is not None and (seen.get("job") == job if job else _within(seen.get("at"), now, TIME_TO_LIVE_HOURS))
+            meter.settle(ticket, 0.0 if again or seconds <= 0 else seconds * meter.meter_rate("video"))
+            if seconds > 0 and not again:
+                booked[media_id] = {"job": job, "at": iso(now)}
+            if booked != doc:
                 self.store.write("content", BILLED, value=booked)
-        return seconds * meter.meter_rate("video") if first else 0.0
 
     def lesson_clips(self, slides_lines: list[list[dict]]) -> list[list[dict]]:
         """What the lesson view shows: one list of turns per slide, in speaking order, with the
@@ -465,14 +470,16 @@ class Avatar:
                 "route": self.route()}
 
     def _render(self, synthesis_id: str, ssml: str, config: dict, turn_texts: list[list[str]],
-                progress: Progress) -> tuple[bytes, str]:
-        """The video bytes and the subtitle text of one finished job."""
+                progress: Progress) -> tuple[bytes, str, str]:
+        """The video bytes and the subtitle text of one finished job, and the time the service created the job
+        (empty if it did not say)."""
         self._create(synthesis_id, ssml, config, progress)
-        video_url, subtitle_url = self._wait(synthesis_id, progress)
+        video_url, subtitle_url, created = self._wait(synthesis_id, progress)
         if not subtitle_url:
             raise UserError("The video service did not say when each turn is spoken.")
         progress("Collecting the film")
-        return self._download(video_url, "video"), self._download(subtitle_url, "subtitles").decode("utf-8", "replace")
+        return (self._download(video_url, "video"), self._download(subtitle_url, "subtitles").decode("utf-8", "replace"),
+                created)
 
     def _base(self) -> str:
         endpoint = (self.settings.speech_endpoint or "").rstrip("/")
@@ -560,8 +567,8 @@ class Avatar:
             raise UserError("The video service sent an answer Dojo could not read.")
         return payload if isinstance(payload, dict) else {}
 
-    def _wait(self, synthesis_id: str, progress: Progress) -> tuple[str, str]:
-        """Poll until the job is done and return the video and subtitle URLs."""
+    def _wait(self, synthesis_id: str, progress: Progress) -> tuple[str, str, str]:
+        """Poll until the job is done and return the video and subtitle URLs and the time it was created."""
         started = time.monotonic()
         while True:
             job = self._get(synthesis_id)
@@ -573,7 +580,7 @@ class Avatar:
                     raise UserError("The video service finished without giving Dojo a video.")
                 seconds = round((job.get("properties") or {}).get("durationInMilliseconds", 0) / 1000)
                 log.info("avatar video ready: %s (%s s)", safe_url(url).rsplit("/", 1)[-1], seconds)
-                return url, str(outputs.get("subtitle") or "")
+                return url, str(outputs.get("subtitle") or ""), str(job.get("createdDateTime") or "")
             if status == "Failed":
                 reason = str((job.get("properties") or {}).get("error") or "")[:200]
                 raise UserError(f"The video could not be made. {reason}".strip())
@@ -610,7 +617,7 @@ class StubAvatar(Avatar):
     is exercised offline too."""
 
     def _render(self, synthesis_id: str, ssml: str, config: dict, turn_texts: list[list[str]],
-                progress: Progress) -> tuple[bytes, str]:
+                progress: Progress) -> tuple[bytes, str, str]:
         progress("Filming the presenter (stub)")
         cues, at = [], 0.05
         for texts in turn_texts:
@@ -622,7 +629,7 @@ class StubAvatar(Avatar):
                 at = end + LINE_BREAK_MS / 1000
             at += (TURN_BREAK_MS - LINE_BREAK_MS) / 1000
         srt = "\n\n".join(f"{i}\n{_stamp(s)} --> {_stamp(e)}\n{escape(text)}" for i, (s, e, text) in enumerate(cues, 1))
-        return b"\x1a\x45\xdf\xa3" + sha256(ssml)[:32].encode() + bytes(1024), srt + "\n"
+        return b"\x1a\x45\xdf\xa3" + sha256(ssml)[:32].encode() + bytes(1024), srt + "\n", ""
 
     def probe(self) -> dict:
         return {"ok": True, "status": "Succeeded", "seconds": 0.0, "route": "stub"}
