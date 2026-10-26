@@ -253,8 +253,8 @@
               "text": "Write queries that include regular expressions, such as REGEXP_LIKE, REGEXP_REPLACE, REGEXP_SUBSTR, REGEXP_INSTR, REGEXP_COUNT, REGEXP_MATCHES, and REGEXP_SPLIT_TO_TABLE",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/regular-expressions-functions-transact-sql?view=sql-server-ver17",
-                  "title": "Regular expressions functions",
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/regexp-like-transact-sql?view=sql-server-ver17",
+                  "title": "REGEXP_LIKE (Transact-SQL)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -384,8 +384,15 @@
               "text": "Connect to MCP server endpoints, including Microsoft SQL Server and Fabric lakehouse",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/mcp/?view=sql-server-ver17",
-                  "title": "SQL MCP Server Documentation",
+                  "url": "https://learn.microsoft.com/en-us/azure/data-api-builder/mcp/quickstart-visual-studio-code",
+                  "title": "Quickstart: Use SQL MCP Server with Visual Studio Code locally",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-hosted-mcp",
+                  "title": "Connect AI agents to the hosted OneLake MCP server (preview)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -589,8 +596,22 @@
               "text": "Design and implement a testing strategy, including unit tests and integration tests",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
-                  "title": "SQL database projects",
+                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/walkthrough-creating-and-running-a-sql-server-unit-test?view=sql-server-ver17",
+                  "title": "Walkthrough: Create and run a SQL Server unit test",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/verifying-database-code-by-using-sql-server-unit-tests?view=sql-server-ver17",
+                  "title": "Verify database code by using SQL Server unit tests",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/how-to-run-sql-server-unit-tests-from-team-foundation-build?view=sql-server-ver17",
+                  "title": "How to: Run SQL Server unit tests from Team Foundation Build",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -603,8 +624,22 @@
               "text": "Create and manage reference/static data in source control",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
-                  "title": "SQL database projects",
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/concepts/pre-post-deployment-scripts?view=sql-server-ver17",
+                  "title": "Pre-deployment and post-deployment scripts overview",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/merge-transact-sql?view=sql-server-ver17",
+                  "title": "MERGE (Transact-SQL)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/how-to-compare-and-synchronize-the-data-of-two-databases?view=sql-server-ver17",
+                  "title": "How to: Compare and synchronize the data of two databases with SQL Server Data Tools",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -631,8 +666,8 @@
               "text": "Configure source control for SQL Database Projects",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects?view=sql-server-ver17",
-                  "title": "SQL database projects",
+                  "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/tutorials/store-database-schema-git?view=sql-server-ver17",
+                  "title": "Tutorial: Store the database schema in Git",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -645,8 +680,22 @@
               "text": "Manage branching, pull requests, and conflict resolution",
               "sources": [
                 {
-                  "url": "https://docs.github.com/en/pull-requests",
-                  "title": "Collaborating with pull requests",
+                  "url": "https://docs.github.com/en/pull-requests/how-tos/commit-changes/managing-branches-within-your-repository",
+                  "title": "Managing branches within your repository",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://docs.github.com/en/pull-requests/how-tos/create-pull-requests/creating-a-pull-request",
+                  "title": "Creating a pull request",
+                  "publisher": "GitHub Docs",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/resolving-a-merge-conflict-on-github",
+                  "title": "Resolving a merge conflict on GitHub",
                   "publisher": "GitHub Docs",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -845,8 +894,22 @@
               "text": "Create and manage external models",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/azure/foundry/concepts/foundry-models-overview",
-                  "title": "Microsoft Foundry Models overview",
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/create-external-model-transact-sql?view=sql-server-ver17",
+                  "title": "CREATE EXTERNAL MODEL (Transact-SQL)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/alter-external-model-transact-sql?view=sql-server-ver17",
+                  "title": "ALTER EXTERNAL MODEL (Transact-SQL)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/drop-external-model-transact-sql?view=sql-server-ver17",
+                  "title": "DROP EXTERNAL MODEL (Transact-SQL)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -859,8 +922,22 @@
               "text": "Choose an embedding maintenance method, including table triggers, Change Tracking, Azure Functions with SQL trigger binding, Azure Logic Apps, CDC, and Microsoft Foundry",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
-                  "title": "Generate embeddings with Azure OpenAI",
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/track-changes/track-data-changes-sql-server?view=sql-server-ver17",
+                  "title": "Track data changes (SQL Server)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-azure-sql-trigger",
+                  "title": "Azure SQL trigger for Functions",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors-frequently-asked-questions?view=sql-server-ver17",
+                  "title": "Vector and embeddings frequently asked questions (FAQ)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -873,8 +950,15 @@
               "text": "Identify which columns to include in embeddings",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
-                  "title": "Vector Search & Vector Index",
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors-frequently-asked-questions?view=sql-server-ver17",
+                  "title": "Vector and embeddings frequently asked questions (FAQ)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase",
+                  "title": "RAG chunk enrichment phase",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -1018,8 +1102,22 @@
               "text": "Implement hybrid search",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
-                  "title": "Vector Search & Vector Index",
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors-frequently-asked-questions?view=sql-server-ver17",
+                  "title": "Vector and embeddings frequently asked questions (FAQ)",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/relational-databases/search/query-with-full-text-search?view=sql-server-ver17",
+                  "title": "Query with Full-Text Search",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/sql/t-sql/functions/vector-search-transact-sql?view=sql-server-ver17",
+                  "title": "VECTOR_SEARCH (Transact-SQL)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
