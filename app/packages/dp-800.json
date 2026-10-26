@@ -1102,8 +1102,8 @@
               "text": "Implement hybrid search",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking",
-                  "title": "Relevance scoring in hybrid search using Reciprocal Rank Fusion (RRF)",
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors-frequently-asked-questions?view=sql-server-ver17",
+                  "title": "Vector and embeddings frequently asked questions (FAQ)",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -1130,15 +1130,8 @@
               "text": "Implement reciprocal rank fusion (RRF)",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking",
-                  "title": "Relevance scoring in hybrid search using Reciprocal Rank Fusion (RRF)",
-                  "publisher": "Microsoft Learn",
-                  "license": "CC-BY-4.0",
-                  "use": "ground"
-                },
-                {
-                  "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-information-retrieval",
-                  "title": "Information retrieval",
+                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors?view=sql-server-ver17",
+                  "title": "Vector Search & Vector Index",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
