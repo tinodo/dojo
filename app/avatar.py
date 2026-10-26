@@ -410,9 +410,11 @@ class Avatar:
         cost is booked the first time a job is seen, a film that is then refused included, and not again when
         the same job is collected another time. A job is told from another by the time the service created
         it (`job`), so a new job for the same film, made after the old one was deleted, is booked as well; when
-        the service gives no time, the hours it keeps a job decide. A job nobody booked, left by an attempt that
-        was cut short, is booked by whoever collects it. The job is written down only after the ledger has the
-        cost, so a ledger that could not take it leaves the job to be booked next time."""
+        the service gives no time (either now or when the job was written down), the hours it keeps a job decide.
+        A job nobody booked, left by an attempt that was cut short, is booked by whoever collects it. The job is
+        written down only after the ledger has the cost, so a ledger that could not take it leaves the job to be
+        booked next time. Two files cannot be changed as one: a stop between the settle and the write that
+        follows it counts that one film twice, which is the safe side for a cost counter."""
         seconds = max((float(c.get("end") or 0.0) for c in cues), default=0.0)
         now = utcnow()
         with self._books:
@@ -420,10 +422,17 @@ class Avatar:
             doc = doc if isinstance(doc, dict) else {}
             booked = {k: v for k, v in doc.items() if isinstance(v, dict) and _within(v.get("at"), now, BILLED_KEEP_H)}
             seen = booked.get(media_id)
-            again = seen is not None and (seen.get("job") == job if job else _within(seen.get("at"), now, TIME_TO_LIVE_HOURS))
+            if seen is None:
+                again = False
+            elif job and seen.get("job"):
+                again = seen["job"] == job
+            else:
+                again = _within(seen.get("at"), now, TIME_TO_LIVE_HOURS)
             meter.settle(ticket, 0.0 if again or seconds <= 0 else seconds * meter.meter_rate("video"))
             if seconds > 0 and not again:
                 booked[media_id] = {"job": job, "at": iso(now)}
+            elif again and job and not seen.get("job"):
+                booked[media_id] = {**seen, "job": job}   # the service says when it made the job now: remember it
             if booked != doc:
                 self.store.write("content", BILLED, value=booked)
 

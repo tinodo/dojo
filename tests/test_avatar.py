@@ -778,6 +778,20 @@ class FilmCostTests(unittest.TestCase):
             self.avatar.synthesize("guide", REAL_TURNS)    # a new one
         self.assertEqual(self.booked, [self.worth(), 0.0, self.worth()])
 
+    def test_a_job_first_seen_without_a_creation_time_is_not_booked_again_when_it_has_one(self):
+        self.service.stamp = False
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.forget_the_film()
+        self.service.stamp, self.service.conflict = True, True   # the same job, and now the service says when it was made
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth(), 0.0])
+        remembered = self.avatar.store.read("content", avatar_mod.BILLED)[self.media_id]
+        self.assertEqual(remembered["job"], self.service.created[self.media_id], "its creation time is kept from now on")
+        self.forget_the_film()
+        self.service.conflict = False   # a new job: another creation time
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth(), 0.0, self.worth()])
+
     def test_a_ledger_that_cannot_take_the_cost_leaves_the_job_to_be_booked_next_time(self):
         self.avatar.meter.fail = 2     # the settle in the booking fails, and so does the one that follows it
         with self.assertRaises(OSError):
