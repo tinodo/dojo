@@ -54,7 +54,7 @@ const h = (tag, attrs, ...kids) => {
 const put = (el, ...kids) => { el.kids = kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false); };
 const withClass = (root, name) => root.all().filter((e) => (e.attrs.class || "").split(" ").includes(name));
 const context = vm.createContext({
-  state: null, h, put, icon: () => null, weeksTo: () => null, fmtDay: (d) => d,
+  state: null, h, put, icon: () => null, daysTo: () => null, fmtDay: (d) => d,
   $: (id) => reg[id],
   api: (path, opts) => { calls.push(["api", opts && opts.method || "GET", path, opts && opts.body]); return apiImpl(path, opts); },
   route: () => { context.state.nav += 1; if (!quiet) calls.push(["route"]); },
