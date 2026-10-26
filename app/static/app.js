@@ -66,11 +66,20 @@ function parseDay(s) {
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
 }
 const fmtDay = (s) => { const d = parseDay(s); return d ? d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""; };
-function weeksTo(s) {
-  const d = parseDay(s);
-  if (!d) return null;
-  const today = new Date();
-  return Math.round((d - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 604800000);
+// Whole days from today to an exam day, counted in Berlin like the server counts them (Today, the Plan, the schedule): in the
+// first hours after Berlin midnight a browser in another zone, or a UTC one, still has yesterday.
+function daysTo(s, now = new Date()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ""));
+  if (!m) return null;
+  let today;
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(now).filter((x) => x.type !== "literal").map((x) => [x.type, Number(x.value)]));
+    today = Date.UTC(p.year, p.month - 1, p.day);
+  } catch (e) {
+    today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+  return Math.round((Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - today) / 86400000);
 }
 
 const chip = (text, kind) => h("span", { class: kind ? `chip ${kind}` : "chip" }, text);
@@ -415,11 +424,12 @@ async function ensurePkg() {
 
 // ---------------------------------------------------------------- the shell
 
-function examWhen(pid) {
+function examWhen(pid, now) {
   const d = (state.me.profile.exam_dates || {})[pid];
   if (!d) return null;
-  const w = weeksTo(d);
-  return { date: d, text: w === null ? fmtDay(d) : w >= 0 ? `exam ${fmtDay(d)} · ${w} week${w === 1 ? "" : "s"}` : `exam was ${fmtDay(d)}`, short: fmtDay(d) };
+  const days = daysTo(d, now);
+  const w = days === null ? null : Math.round(days / 7);
+  return { date: d, text: days === null ? fmtDay(d) : days >= 0 ? `exam ${fmtDay(d)} · ${w} week${w === 1 ? "" : "s"}` : `exam was ${fmtDay(d)}`, short: fmtDay(d) };
 }
 
 // Studio, Plan and Play show every exam together: what they show does not depend on the exam picked (Play only starts its
