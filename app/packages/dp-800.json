@@ -596,13 +596,6 @@
               "text": "Design and implement a testing strategy, including unit tests and integration tests",
               "sources": [
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/walkthrough-creating-and-running-a-sql-server-unit-test?view=sql-server-ver17",
-                  "title": "Walkthrough: Create and run a SQL Server unit test",
-                  "publisher": "Microsoft Learn",
-                  "license": "CC-BY-4.0",
-                  "use": "ground"
-                },
-                {
                   "url": "https://learn.microsoft.com/en-us/sql/ssdt/verifying-database-code-by-using-sql-server-unit-tests?view=sql-server-ver17",
                   "title": "Verify database code by using SQL Server unit tests",
                   "publisher": "Microsoft Learn",
@@ -610,8 +603,15 @@
                   "use": "ground"
                 },
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/how-to-run-sql-server-unit-tests-from-team-foundation-build?view=sql-server-ver17",
-                  "title": "How to: Run SQL Server unit tests from Team Foundation Build",
+                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/scripts-in-sql-server-unit-tests?view=sql-server-ver17",
+                  "title": "Scripts in SQL Server unit tests",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
+                  "url": "https://learn.microsoft.com/en-us/ef/core/testing/choosing-a-testing-strategy",
+                  "title": "Choosing a testing strategy",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -624,6 +624,13 @@
               "text": "Create and manage reference/static data in source control",
               "sources": [
                 {
+                  "url": "https://learn.microsoft.com/en-us/fabric/database/sql/source-control",
+                  "title": "SQL database source control integration in Microsoft Fabric",
+                  "publisher": "Microsoft Learn",
+                  "license": "CC-BY-4.0",
+                  "use": "ground"
+                },
+                {
                   "url": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/concepts/pre-post-deployment-scripts?view=sql-server-ver17",
                   "title": "Pre-deployment and post-deployment scripts overview",
                   "publisher": "Microsoft Learn",
@@ -633,13 +640,6 @@
                 {
                   "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/merge-transact-sql?view=sql-server-ver17",
                   "title": "MERGE (Transact-SQL)",
-                  "publisher": "Microsoft Learn",
-                  "license": "CC-BY-4.0",
-                  "use": "ground"
-                },
-                {
-                  "url": "https://learn.microsoft.com/en-us/sql/ssdt/how-to-compare-and-synchronize-the-data-of-two-databases?view=sql-server-ver17",
-                  "title": "How to: Compare and synchronize the data of two databases with SQL Server Data Tools",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
@@ -936,8 +936,8 @@
                   "use": "ground"
                 },
                 {
-                  "url": "https://learn.microsoft.com/en-us/sql/sql-server/ai/vectors-frequently-asked-questions?view=sql-server-ver17",
-                  "title": "Vector and embeddings frequently asked questions (FAQ)",
+                  "url": "https://learn.microsoft.com/en-us/azure/connectors/connectors-create-api-sqlazure",
+                  "title": "Connect to SQL databases from workflows in Azure Logic Apps",
                   "publisher": "Microsoft Learn",
                   "license": "CC-BY-4.0",
                   "use": "ground"
