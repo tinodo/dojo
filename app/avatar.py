@@ -39,12 +39,13 @@ import logging
 import re
 import threading
 import time
+from datetime import datetime, timedelta
 from typing import Any, Callable
 from xml.sax.saxutils import escape
 
 import httpx
 
-from .core import Store, Tokens, UserError, canonical, sha256
+from .core import Store, Tokens, UserError, canonical, iso, parse_iso, sha256, utcnow
 
 log = logging.getLogger("dojo.avatar")
 
@@ -76,6 +77,7 @@ VIDEO_CONFIG: dict[str, Any] = {
     "videoCrop": {"topLeft": {"x": 640, "y": 0}, "bottomRight": {"x": 1280, "y": 1080}},
 }
 TIME_TO_LIVE_HOURS = 6  # the file is stored here; the service only has to keep it long enough to download
+BILLED = "film-billed"  # content/film-billed.json: when each job's cost was booked, kept as long as the service keeps the job
 
 TURN_BREAK_MS = 1500  # silence between two turns: long enough to find the seam in the subtitles
 LINE_BREAK_MS = 300   # silence between two lines of the same turn
@@ -246,6 +248,14 @@ def map_cues(cues: list[dict], turn_texts: list[list[str]]) -> list[dict]:
     return spans
 
 
+def _kept(at: Any, now: datetime) -> bool:
+    """Whether a job booked at this time is still on the service, so that asking for it again is free."""
+    try:
+        return now - parse_iso(str(at)) < timedelta(hours=TIME_TO_LIVE_HOURS)
+    except (TypeError, ValueError):
+        return False
+
+
 def safe_url(url: str) -> str:
     """A result URL carries a shared access signature; only the path may be written down."""
     return url.split("?", 1)[0]
@@ -376,10 +386,10 @@ class Avatar:
         cost = 0.0
         try:
             data, subtitles = self._render(media_id, ssml, avatar_config(speaker), turn_texts, step)
-            spans = map_cues(parse_srt(subtitles), turn_texts)
+            cues = parse_srt(subtitles)
             if meter is not None:
-                seconds = max((float(s.get("end") or 0.0) for s in spans if isinstance(s, dict)), default=0.0)
-                cost = seconds * meter.meter_rate("video")
+                cost = self._cost_once(meter, media_id, cues)   # before the mapping: a film Dojo refuses was paid for too
+            spans = map_cues(cues, turn_texts)
         finally:
             if ticket is not None:
                 meter.settle(ticket, cost)
@@ -388,6 +398,29 @@ class Avatar:
             self.store.write_bytes("media", media_id + SUFFIX, data=data)
             self.store.write("media", media_id, value=spans)
         return media_id
+
+    def _cost_once(self, meter: Any, media_id: str, cues: list[dict]) -> float:
+        """What a finished film costs the ledger: its seconds at the video rate, booked once for the job.
+
+        The service bills a job when it runs, whether or not Dojo can use the film, and keeps it for
+        TIME_TO_LIVE_HOURS; asking for it again in that time costs nothing (`_create`). So the cost is booked
+        the first time the film is seen, a film that is then refused included, and not again when the same
+        job is collected another time. A job nobody booked, left by an attempt that was cut short, is booked
+        by whoever collects it."""
+        seconds = max((float(c.get("end") or 0.0) for c in cues), default=0.0)
+        if seconds <= 0:
+            return 0.0
+        now = utcnow()
+        with self.store.lock:
+            doc = self.store.read("content", BILLED, default=None)
+            doc = doc if isinstance(doc, dict) else {}
+            booked = {job: at for job, at in doc.items() if _kept(at, now)}
+            first = media_id not in booked
+            if first:
+                booked[media_id] = iso(now)
+            if first or booked != doc:
+                self.store.write("content", BILLED, value=booked)
+        return seconds * meter.meter_rate("video") if first else 0.0
 
     def lesson_clips(self, slides_lines: list[list[dict]]) -> list[list[dict]]:
         """What the lesson view shows: one list of turns per slide, in speaking order, with the

@@ -12,6 +12,7 @@ import re
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 from xml.sax.saxutils import escape
 
@@ -155,6 +156,7 @@ class FakeService:
         self.conflict = conflict
         self.subtitle = subtitle
         self.refusal = refusal
+        self.srt_text: str | None = None  # subtitles to serve whatever was asked for
 
     def count(self, method: str) -> int:
         return sum(1 for m, _ in self.calls if m == method)
@@ -167,7 +169,8 @@ class FakeService:
             name = request.url.path.rsplit("/", 1)[-1]
             sid, kind = name.rsplit(".", 1)
             if kind == "srt":
-                return httpx.Response(200, text=self.srt.get(sid, ""), headers={"content-type": "text/plain"})
+                text = self.srt_text if self.srt_text is not None else self.srt.get(sid, "")
+                return httpx.Response(200, text=text, headers={"content-type": "text/plain"})
             return httpx.Response(200, content=VIDEO, headers={"content-type": "video/webm"})
         if not request.url.path.startswith("/avatar/batchsyntheses/"):
             return httpx.Response(404, text="wrong path")
@@ -626,6 +629,138 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(service.count("PUT"), 2)
         for speaker, turn_texts in work:
             self.assertTrue(avatar.exists(media_id_for(speaker, turn_texts)))
+
+
+class FakeMeter:
+    """What the team-mode budget gives the avatar: a ticket before the call, and the cost booked when it is settled."""
+
+    def __init__(self, rate: float = 1 / 60):
+        self.rate = rate
+        self.booked: list[float] = []
+
+    def open_call(self, kind: str, bound: float, bounded: bool = True) -> object:
+        assert kind == "speech/avatar"
+        return object()
+
+    def settle(self, ticket: object, actual: float) -> None:
+        self.booked.append(round(actual, 6))
+
+    def meter_rate(self, key: str) -> float:
+        assert key == "video"
+        return self.rate
+
+
+class FilmCostTests(unittest.TestCase):
+    """The ledger books what the service charged for a film, its seconds, once for each job, whether or not
+    Dojo could use the film (a film refused for its subtitles was paid for)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="dojo-avatar-cost-")
+        patcher = mock.patch.object(avatar_mod, "time", FastClock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.service = FakeService()
+        self.avatar = avatar_for(self.service, self.tmp)
+        self.avatar.meter = FakeMeter()
+        self.booked = self.avatar.meter.booked
+        self.media_id = media_id_for("guide", REAL_TURNS)
+
+    def worth(self) -> float:
+        """The film's seconds (the last cue of its subtitles) at the meter's rate."""
+        cues = parse_srt(self.service.srt[self.media_id])
+        return round(max(c["end"] for c in cues) * self.avatar.meter.rate, 6)
+
+    def refused(self) -> None:
+        self.service.srt_text = ARC_SRT   # the words of another lesson: the narration cannot be followed
+        with self.assertRaises(UserError) as ctx:
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertIn("could not follow the narration", str(ctx.exception))
+        self.service.srt_text = None
+
+    def forget_the_film(self) -> None:
+        self.avatar.store.delete_file("media", self.media_id + ".webm")
+        self.avatar.store.delete_file("media", self.media_id + ".json")
+
+    def test_a_film_is_booked_by_its_seconds(self):
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth()])
+        self.assertGreater(self.booked[0], 0)
+
+    def test_a_film_dojo_cannot_use_is_booked_all_the_same(self):
+        self.refused()
+        self.assertEqual(self.booked, [round(57.75 * self.avatar.meter.rate, 6)], "the service billed its 57.75 seconds")
+        self.assertFalse(self.avatar.exists(self.media_id))
+
+    def test_the_same_job_collected_again_is_not_booked_again(self):
+        self.refused()
+        self.service.conflict = True   # the finished job is still there, and now it can be followed
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertTrue(self.avatar.exists(self.media_id))
+        self.assertEqual(self.service.count("PUT"), 2, "the second press asked for the same job")
+        self.assertEqual(self.booked, [round(57.75 * self.avatar.meter.rate, 6), 0.0])
+
+    def test_a_job_left_by_a_cut_short_attempt_is_booked_by_whoever_collects_it(self):
+        self.service.conflict = True   # it is there, and nobody booked it
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth()])
+
+    def test_a_job_that_failed_books_nothing(self):
+        self.service.fail = "avatar character not available"
+        with self.assertRaises(UserError):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [0.0])
+        self.assertIsNone(self.avatar.store.read("content", avatar_mod.BILLED))
+
+    def test_a_job_without_subtitles_is_booked_when_they_are_found(self):
+        self.service.subtitle = False
+        with self.assertRaises(UserError):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [0.0], "with no subtitles there is no way to tell how long it ran")
+        self.service.subtitle, self.service.conflict = True, True
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [0.0, self.worth()])
+
+    def test_a_film_made_again_is_booked_again_once_the_service_dropped_the_old_job(self):
+        start = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
+        kept = timedelta(hours=avatar_mod.TIME_TO_LIVE_HOURS)
+        with mock.patch.object(avatar_mod, "utcnow", lambda: start):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.forget_the_film()
+        self.service.conflict = True   # within the hours the service keeps the job, asking for it again is free
+        with mock.patch.object(avatar_mod, "utcnow", lambda: start + kept - timedelta(minutes=1)):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.forget_the_film()
+        self.service.conflict = False  # after them it is a new job, and a new charge
+        with mock.patch.object(avatar_mod, "utcnow", lambda: start + kept + timedelta(minutes=1)):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [self.worth(), 0.0, self.worth()])
+
+    def test_only_the_jobs_the_service_still_keeps_are_remembered(self):
+        now = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
+        self.avatar.store.write("content", avatar_mod.BILLED, value={
+            "v" + "0" * 39: "2026-10-20T08:00:00+00:00", "v" + "1" * 39: "not a time", "v" + "2" * 39: "2026-10-26T07:00:00+00:00"})
+        with mock.patch.object(avatar_mod, "utcnow", lambda: now):
+            self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(set(self.avatar.store.read("content", avatar_mod.BILLED)), {"v" + "2" * 39, self.media_id})
+
+    def test_without_a_meter_nothing_is_booked_or_written(self):
+        self.avatar.meter = None
+        self.avatar.synthesize("guide", REAL_TURNS)
+        self.assertEqual(self.booked, [])
+        self.assertIsNone(self.avatar.store.read("content", avatar_mod.BILLED))
+
+    def test_the_two_presenters_are_each_booked_once(self):
+        import threading
+        work = [("guide", REAL_TURNS), ("coach", [["And then what?"]])]
+        threads = [threading.Thread(target=self.avatar.synthesize, args=job) for job in work]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        self.assertEqual(len(self.booked), 2)
+        self.assertTrue(all(b > 0 for b in self.booked), self.booked)
+        self.assertEqual(set(self.avatar.store.read("content", avatar_mod.BILLED)),
+                         {media_id_for(speaker, turn_texts) for speaker, turn_texts in work})
 
 
 class BudgetTests(unittest.TestCase):
