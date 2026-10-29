@@ -156,7 +156,11 @@ def new_surrogate() -> str:
     return secrets.token_hex(6)
 
 
-def is_waking(exc: Exception) -> bool:
+NO_ANSWER = "The lab database did not answer."   # the sentence the lab page recognises (app.js, viewLab) to try again by itself
+
+
+def is_unavailable(exc: Exception) -> bool:
+    """SQL says the database is not available for a moment (a tier change, maintenance, a failover): worth trying again."""
     return bool(re.search(r"is not currently available|retry the connection later", str(exc), re.I))
 
 
@@ -165,8 +169,8 @@ def is_query_timeout(exc: Exception) -> bool:
 
 
 def sql_error_reason(exc: Exception) -> str:
-    if is_waking(exc):
-        return "database waking"
+    if is_unavailable(exc):
+        return "database unavailable"
     if is_query_timeout(exc):
         return "query timeout"
     state = getattr(exc, "sqlstate", None)
@@ -214,7 +218,7 @@ class SqlRunner:
             try:
                 return self.driver.connect(self.connection_string, token_provider=self.credential, timeout=90)
             except Exception as exc:
-                if not is_waking(exc) or attempt == 2:
+                if not is_unavailable(exc) or attempt == 2:
                     raise
                 time.sleep(attempt + 1)
 
@@ -591,7 +595,7 @@ class LabRoom:
         """Drop member schemas, and their users, whose surrogate is tombstoned (sha256 in `tombstoned`).
         A member-style schema nobody accounts for is reported, never dropped. The owner's legacy names
         never match the pattern, so they are never touched. Runs only when the mirror syncs, so it never
-        wakes the database on its own."""
+        opens a connection on its own."""
         if self.local:
             return {"dropped": 0, "unknown": []}
         if not self.lock.acquire(timeout=60):
@@ -671,7 +675,7 @@ class LabRoom:
         return state
 
     def monitoring(self) -> dict:
-        """What Dojo last confirmed about performance monitoring, from its own file: no connection, so nothing is woken.
+        """What Dojo last confirmed about performance monitoring, from its own file: no connection is opened.
         `observed` is "on", "off", "unset" (the database has no such property) or None (never looked); `error` is the
         reason the last try did not work, if it did not."""
         saved = (self.store.read("labs", "monitoring", default=None) if self.store is not None else self._monitoring) or {}
@@ -686,9 +690,8 @@ class LabRoom:
         return doc
 
     def set_monitoring(self, on: bool) -> dict:
-        """The owner's button: set the property Azure watches and read it back. One deliberate connection, which wakes a
-        paused database (the free offer pays for that, about 2% of a month). Nothing else sets it, and nothing sets it by
-        itself, so Dojo never connects to the database for this on its own."""
+        """The owner's button: set the property Azure watches and read it back. One deliberate connection. Nothing else sets
+        it, and nothing sets it by itself, so Dojo never connects to the database for this on its own."""
         if self.local:
             raise UserError("This is the local demo: there is no lab database to monitor.")
         if not self.lock.acquire(timeout=30):

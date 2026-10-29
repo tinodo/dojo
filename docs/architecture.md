@@ -23,7 +23,7 @@ your own copy, see [operations.md](operations.md). For what is stored about a pe
         v                                      v                         v
  Azure AI Foundry resource              Azure SQL (labs only,      learn.microsoft.com
   - author, gate, grader models          private endpoint,         docs.github.com
-  - Speech: TTS, STT, batch avatar        free offer)              (official sources)
+  - Speech: TTS, STT, batch avatar        Basic tier)              (official sources)
 ```
 
 - One web app serves the page, the API and the two token feeds.
@@ -213,7 +213,7 @@ batch at a time, only while two slots stay free for learners.
 
 ## Labs (DP-800)
 
-- One free-offer serverless Azure SQL database (auto-pause after 60 minutes) with public access off,
+- One Basic-tier Azure SQL database (5 DTUs, 2 GB, a fixed daily price, no auto-pause) with public access off,
   reached only through VNet integration and a private endpoint. Entra-only authentication; the app's
   managed identity is the server's Entra administrator.
 - Each learner has their own schema per lab and their own runner user without a login. Their SQL runs on

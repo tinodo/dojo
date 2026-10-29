@@ -9,7 +9,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from tests.test_api import POST, settings
-from app.labs import LABS, MAX_ROWS, SqlRunner, LabRoom, LabUser, FakeRunner, UserError, is_waking, sql_error_reason, validate
+from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRunner, LabRoom, LabUser, FakeRunner, UserError, is_unavailable, sql_error_reason, validate
 from app.core import Store, sha256
 from app.mirror import Mirror
 from app.evidence import derive
@@ -119,8 +119,8 @@ class SqlBoundaryTests(unittest.TestCase):
             runner.connect()
         self.assertIsInstance(caught.exception.__cause__, Marker)
 
-    def test_login_retries_only_paused_database_and_preserves_timeout(self):
-        self.assertTrue(is_waking(paused_error()))
+    def test_login_retries_only_unavailable_database_and_preserves_timeout(self):
+        self.assertTrue(is_unavailable(paused_error()))
         self.assertNotIn("(40613)", str(paused_error()))
 
         runner = SqlRunner("dojo-sql.database.windows.net", "sqldb-lab-dojo", self.credential)
@@ -136,7 +136,7 @@ class SqlBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "2627"):
                 runner.connect()
             connect.assert_called_once()
-        self.assertFalse(is_waking(RuntimeError("another SQL error (2627)")))
+        self.assertFalse(is_unavailable(RuntimeError("another SQL error (2627)")))
 
     def test_timeout_is_a_normal_response_and_errors_log_category_not_sql(self):
         from mssql_python.exceptions import sqlstate_to_exception
@@ -510,17 +510,20 @@ class LabRoutesTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/labs/vector/run", json={"sql": "DROP TABLE lab_vector.Products"},
                                           headers=POST).status_code, 409)
 
-    def test_paused_database_is_not_a_failed_check_or_a_generic_query_error(self):
+    def test_unavailable_database_is_not_a_failed_check_or_a_generic_query_error(self):
         with mock.patch.object(self.app.state.labs, "operation", side_effect=paused_error()):
             with self.assertLogs("dojo", "WARNING") as captured:
                 check = self.client.post("/api/labs/vector/check", headers=POST)
                 run = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
-        self.assertEqual(check.status_code, 503)
-        self.assertIn("Waking the database, about a minute", check.json()["detail"])
-        self.assertEqual(run.status_code, 503)
-        self.assertIn("Waking the database, about a minute", run.json()["detail"])
-        self.assertIn("database waking", "\n".join(captured.output))
+                reset = self.client.post("/api/labs/vector/reset", headers=POST)
+        for answer in (check, run):
+            self.assertEqual(answer.status_code, 503)
+            self.assertEqual(answer.json()["detail"], "The lab database did not answer. Try again in a minute.")
+        self.assertEqual((reset.status_code, reset.json()["detail"]), (503, "The lab database did not answer. No reset was recorded."))
+        self.assertIn("database unavailable", "\n".join(captured.output))
         self.assertNotIn("SELECT 1", "\n".join(captured.output))
+        for answer in (check, run, reset):
+            self.assertNotIn("Waking", answer.json()["detail"], "the database never pauses: nothing is waking")
         with mock.patch.object(self.app.state.labs, "operation", return_value={
             "columns": [], "rows": [], "truncated": False, "timed_out": True,
             "message": "Your query ran longer than 20 seconds.",
@@ -616,16 +619,16 @@ class InfrastructureTests(unittest.TestCase):
             self.assertIn(choice, b)
         self.assertNotIn("Microsoft.Authorization/roleAssignments", b)
 
-    def test_lab_database_has_left_the_free_offer(self):
-        """ADR 0028, step 1. Leaving the free offer is permanent and must be an update of its own, so this step changes nothing
-        else about the database: still General Purpose serverless. A setting that brought the offer back would be refused by Azure
-        and would fail the deployment."""
+    def test_lab_database_is_on_the_basic_tier(self):
+        """ADR 0028, step 2. The lab database is Basic (5 DTUs, 2 GB): a fixed daily price and no auto-pause. Step 1 removed the free
+        offer, which cannot come back, so nothing here may ask for it, and no serverless setting may stay behind."""
         b = (ROOT / "infra" / "main.bicep").read_text("utf-8")
         database = b.split("resource labDatabase ", 1)[1].split("resource sqlDns ", 1)[0]
-        self.assertIn("useFreeLimit: false", database)
-        self.assertNotIn("useFreeLimit: true", b)
-        self.assertNotIn("freeLimitExhaustionBehavior", database)
-        self.assertIn("name: 'GP_S_Gen5_2'", database, "the tier is changed in step 2, in a separate update")
+        self.assertRegex(database, r"sku:\s*\{\s*name: 'Basic'\s*tier: 'Basic'\s*capacity: 5\s*\}")
+        self.assertIn("maxSizeBytes: 2147483648", database, "Basic holds 2 GB at most")
+        for gone in ("GP_S_Gen5", "GeneralPurpose", "autoPauseDelay", "minCapacity", "useFreeLimit", "freeLimitExhaustionBehavior"):
+            self.assertNotIn(gone, database)
+        self.assertNotIn("useFreeLimit", b)
 
     def test_lab_ui_never_aborts_an_inflight_sql_write(self):
         script = (ROOT / "app" / "static" / "app.js").read_text("utf-8")
@@ -633,8 +636,11 @@ class InfrastructureTests(unittest.TestCase):
         self.assertNotIn("AbortController", lab)
         self.assertNotIn("signal: controller.signal", lab)
         self.assertIn("const deadline = Date.now() + 120000", lab)
-        self.assertIn("if (lab.local || e.status !== 503 || !e.message.startsWith(\"Waking the database\")) throw e;", lab)
+        self.assertIn("if (lab.local || e.status !== 503 || !e.message.startsWith(\"The lab database did not answer\")) throw e;", lab)
         self.assertIn("await sleep(10000)", lab)
+        self.assertNotIn("Waking the database", lab, "the Basic tier never pauses: no status of a lab call says it is waking")
+        for kind, said in (("check", "Checking your work…"), ("reset", "Resetting this lab…"), ("run", "Running your SQL…")):
+            self.assertIn(said, lab, kind)
 
 
 class LabTeachingTests(unittest.TestCase):

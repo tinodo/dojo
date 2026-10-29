@@ -38,7 +38,7 @@ AUDIT_DAYS = 365
 END_NOTICE_DAYS = 14
 MAX_MEMBERS = 30           # the supported scale on one B1 instance (ADR 0009, "Capacity")
 SWEEP_SECONDS = 3600
-STARTUP_WAIT = 90          # a serverless database wakes from auto-pause in about a minute
+STARTUP_WAIT = 90          # a lab database that is briefly unavailable (a tier change, a failover) is back in about a minute
 RETRY_SECONDS = 300        # while the lab database does not answer, the mirror tries again this often
 NO_RESTORE = "No /home restore has happened since the Pause."
 
@@ -974,7 +974,7 @@ class Team:
                 if self._admit.is_set():
                     self.sync = {**self.sync, "state": "unsynced"}
                 wait = 10 if not self._admit.is_set() else RETRY_SECONDS
-            # Synced: nothing until something changes, so the mirror never wakes the database on its own.
+            # Synced: nothing until something changes, so the mirror opens no connection on its own.
             self._kick.wait(timeout=wait)
 
     def sync_view(self, st: dict | None = None) -> dict:

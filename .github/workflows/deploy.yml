@@ -6,11 +6,15 @@ name: deploy
 on:
   push:
     branches: [main]
-    # A change that touches only the project site is published by pages.yml and does not restart the app.
+    # A change that touches only the project site is published by pages.yml and does not restart the app. The same for a change that
+    # touches only the daily lab check (lab-watch.yml, its script and its tests): it reads Azure and is no part of the app.
     paths-ignore:
       - "website/**"
       - ".github/workflows/pages.yml"
       - ".github/workflows/site-links.yml"
+      - ".github/workflows/lab-watch.yml"
+      - "tools/lab_watch.py"
+      - "tests/test_lab_watch.py"
   workflow_dispatch:
 
 permissions:

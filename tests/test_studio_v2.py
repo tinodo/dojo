@@ -101,9 +101,9 @@ const data = (courses, extra) => ({ at: "2026-10-19T16:05:00+00:00", courses, to
 const bill = (extra) => ({ state: "ok", reason: null, read_at: "2026-10-19T15:50:00+00:00", stale: false, currency: "USD",
   month: { id: "2026-10", from: "2026-10-01", to: "2026-10-19", days: 19, total: 337.86 },
   groups: [{ key: "ai", label: "AI models", note: "n", total: 141.8, kind: "use", parts: [{ label: "gpt-5.5", total: 134.93, kind: "use" }, { label: "Other models", total: 6.87, kind: "use" }] },
-    { key: "defender", label: "Security scanning", note: "n", total: 40.37, kind: "mixed", parts: [{ label: "Billed by how much text goes to the AI", total: 28.12, kind: "use" }, { label: "Billed per server", total: 12.25, kind: "always" }] },
-    { key: "web", label: "The web app", note: "n", total: 7.9, kind: "always", parts: [] }, { key: "database", label: "Database", note: "n", total: 0, kind: "free", parts: [] }],
-  fixed: { total: 24.56, per_day: 1.29, per_month: 40 }, quiet_day: { day: "2026-10-08", total: 2, per_month: 62 }, busiest: [{ day: "2026-10-15", total: 87 }],
+    { key: "defender", label: "Security scanning", note: "n", total: 40.37, kind: "mixed", parts: [{ label: "Billed by how much text goes to the AI", total: 28.12, kind: "use" }, { label: "Billed per server", total: 12.25, kind: "always", per_month: 20 }] },
+    { key: "web", label: "The web app", note: "n", total: 7.9, kind: "always", per_month: 13, parts: [] }, { key: "database", label: "Database", note: "n", total: 0, kind: "free", parts: [] }],
+  fixed: { total: 24.56, per_day: 1.29, per_month: 40 }, use_total: 313.3, unknown_total: 0, quiet_day: { day: "2026-10-08", total: 2, per_month: 62 }, busiest: [{ day: "2026-10-15", total: 87 }],
   previous: { month: "2026-09", total: 212.4, currency: "USD" }, link: "https://portal.azure.com/#view/x", budget_link: "https://portal.azure.com/#view/b", month_floor: 353.5, current_month: "2026-10",
   days: Array.from({ length: 19 }, (_, i) => ({ day: `2026-10-${String(i + 1).padStart(2, "0")}`, total: 5 + i, partial: i === 18 })), ...extra });
 """
@@ -657,6 +657,56 @@ console.log(JSON.stringify([visible(top), visible(groups), outside(groups, isCls
         self.assertIn("Billed per server Always on about $20 a month", groups)
         self.assertEqual(groups.count("a month."), 1, "only the always-on lines are projected: what follows use has no month figure")
         self.assertEqual([l[1] for l in links[-2:]], ["https://portal.azure.com/#view/x", "https://portal.azure.com/#view/b"])
+
+    def test_a_figure_that_is_not_known_yet_is_left_out_not_said_as_zero(self):
+        out = run_node("""
+const b = bill({ fixed: { total: 0.9, per_day: null, per_month: null }, month_floor: null,
+  groups: [{ key: "web", label: "The web app", note: "n", total: 0.9, kind: "always", per_month: null, parts: [] }] });
+const [top, groups] = P.billPanels(b);
+console.log(JSON.stringify([visible(top), visible(groups)]));""")
+        top, groups = (re.sub(r"\s+", " ", s) for s in out)
+        self.assertIn("$0.90 is always on: charged even if nobody uses Dojo.", top)
+        self.assertNotIn("about $0 a month", top + groups)
+        self.assertNotIn("At least", top, "the floor needs the always-on figure")
+        self.assertNotIn("Costs about", groups)
+
+    def test_the_lab_database_after_the_move_is_always_on_with_its_monthly_price(self):
+        out = run_node("""
+const note = "The lab database. It has a fixed daily price (the Basic tier), charged whether or not anyone uses labs.";
+const basic = { label: "Basic tier", total: 4.83, kind: "always", per_month: 4.83 };
+const move = { label: "Before the move to Basic", total: 5.5, kind: "use", per_month: null };
+const rows = (groups) => outside(P.billPanels(bill({ groups }))[1], isCls("bg-row")).map((r) => [text(r).replace(/\\s+/g, " "), all(r, (e) => e.attrs && e.attrs.chip !== undefined).map(text)]);
+console.log(JSON.stringify([
+  rows([{ key: "database", label: "Database", note, total: 4.83, kind: "always", per_month: 4.83, parts: [basic] }]),
+  rows([{ key: "database", label: "Database", note, total: 10.33, kind: "mixed", per_month: null, parts: [move, { ...basic, total: 0.24, per_month: null }] }]),
+  rows([{ key: "database", label: "Database", note, total: 0, kind: "free", per_month: null, parts: [] }]),
+]));""")
+        full, month_of_the_move, free = out
+        self.assertEqual(full[0][1], ["Always on"], "one part of one kind: the kind is said once")
+        self.assertIn("Costs about $5 a month.", full[0][0])
+        self.assertIn("Basic tier $4.83", full[0][0])
+        self.assertEqual(month_of_the_move[0][1], ["Partly always on", "Pay per use", "Always on"])
+        self.assertIn("Before the move to Basic", month_of_the_move[0][0])
+        self.assertNotIn("a month", month_of_the_move[0][0], "no complete Basic day yet: no monthly figure")
+        self.assertEqual(free[0][1], ["No charge so far"])
+        for row in (full, month_of_the_move, free):
+            self.assertNotIn("free offer", row[0][0])
+
+    def test_a_charge_that_no_rule_names_is_said_apart_and_never_called_always_on_or_pay_per_use(self):
+        out = run_node("""
+const note = "n";
+const parts = [{ label: "Basic tier", total: 0.64, kind: "always", per_month: 5 }, { label: "Other database charges", total: 0.3, kind: "unknown", per_month: null }];
+const b = bill({ unknown_total: 0.3, use_total: 313, fixed: { total: 24.56, per_day: 1.29, per_month: 40 },
+  groups: [{ key: "database", label: "Database", note, total: 0.94, kind: "always", per_month: null, parts }] });
+const [top, groups] = P.billPanels(b);
+const row = outside(groups, isCls("bg-row"))[0];
+console.log(JSON.stringify([visible(top).replace(/\\s+/g, " "), text(row).replace(/\\s+/g, " "), all(row, (e) => e.attrs && e.attrs.chip !== undefined).map(text)]));""")
+        top, row, chips = out
+        self.assertIn("$313.00 follows what Dojo writes, films and checks.", top, "only the lines that follow use: not 'everything that is not always on'")
+        self.assertIn("$0.30 is not identified yet: Dojo does not know whether Azure charges it every day or by use.", top)
+        self.assertEqual(chips, ["Always on", "Always on", "Not identified yet"], "each part names its own kind while a part is not identified")
+        self.assertIn("Basic tier Always on about $5 a month", row, "the identified part keeps its own figure")
+        self.assertNotIn("Costs about", row, "no price for the whole group while a charge in it is not identified")
 
     def test_a_reading_of_last_month_says_so_until_the_new_month_is_read(self):
         out = run_node("""

@@ -6129,7 +6129,6 @@ const money0 = (x, currency) => {
   try { return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD", maximumFractionDigits: 0 }).format(x); }
   catch (e) { return `${Math.round(Number(x))} ${currency || ""}`.trim(); }
 };
-const monthLength = (from) => { const d = parseDay(String(from || "").slice(0, 10)); return d ? new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() : 30; };
 const dayWord = (s) => { const d = parseDay(String(s || "").slice(0, 10)); return d ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : ""; };
 const dayOf = (s) => { const d = new Date(s); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); };
 const whenWord = (s) => { const d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
@@ -6647,7 +6646,7 @@ async function studioCourses() {
 }
 
 // ---------------------------------------------------------------- Money
-const BILL_KIND = { use: ["Pay per use", "line"], always: ["Always on", "amber"], mixed: ["Partly always on", "line"], free: ["No charge so far", "sage"] };
+const BILL_KIND = { use: ["Pay per use", "line"], always: ["Always on", "amber"], mixed: ["Partly always on", "line"], free: ["No charge so far", "sage"], unknown: ["Not identified yet", "line"] };
 
 function dayBars(days, currency) {
   const top = Math.max(...days.map((d) => d.total), 1);
@@ -6659,18 +6658,20 @@ function dayBars(days, currency) {
     }));
 }
 
-function groupRow(g, total, currency, month) {
+function groupRow(g, total, currency) {
   const [label, kind] = BILL_KIND[g.kind] || ["", "line"];
   const share = total > 0 && g.total > 0 ? g.total / total : 0;
-  // what an always-on line costs a month, from what it has cost so far: said only once a few days are in
-  const perMonth = (x) => (month && month.days >= 3 && x > 0 ? `about ${money0((x / month.days) * month.length, currency)} a month` : null);
+  // what an always-on line costs a month: the server's figure, from the complete days it was charged; said only when it has one
+  const perMonth = (x) => (x > 0 ? `about ${money0(x, currency)} a month` : null);
+  // each part names its own kind when the group is partly always on, or when a part is one that no rule could place
+  const own = g.kind === "mixed" || g.parts.some((p) => p.kind === "unknown");
   return h("div", { class: "bg-row" },
     h("div", { class: "bg-t" }, h("b", null, g.label), chip(label, kind)),
     h("div", { class: "bg-a" }, h("b", null, money(g.total, currency)), share ? h("span", { class: "small muted" }, `${Math.round(share * 100)}%`) : g.total < 0 ? h("span", { class: "small muted" }, "credit") : null),
     share ? h("div", { class: "bar bg-bar", role: "img", "aria-label": `${g.label}: ${Math.round(share * 100)}% of the month` }, wide(h("i", null), `${Math.max(1, Math.round(share * 100))}%`)) : null,
-    h("p", { class: "small muted bg-n" }, g.note, g.kind === "always" && perMonth(g.total) ? ` Costs ${perMonth(g.total)}.` : null),
+    h("p", { class: "small muted bg-n" }, g.note, g.kind === "always" && perMonth(g.per_month) ? ` Costs ${perMonth(g.per_month)}.` : null),
     g.parts.length ? h("ul", { class: "bg-parts" }, g.parts.map((p) => h("li", null,
-      h("span", null, p.label, g.kind === "mixed" ? [" ", chip(BILL_KIND[p.kind][0], BILL_KIND[p.kind][1])] : null, g.kind === "mixed" && p.kind === "always" && perMonth(p.total) ? h("span", { class: "small muted" }, ` ${perMonth(p.total)}`) : null),
+      h("span", null, p.label, own ? [" ", chip(BILL_KIND[p.kind][0], BILL_KIND[p.kind][1])] : null, own && p.kind === "always" && perMonth(p.per_month) ? h("span", { class: "small muted" }, ` ${perMonth(p.per_month)}`) : null),
       h("span", null, money(p.total, currency))))) : null);
 }
 
@@ -6700,8 +6701,9 @@ function billPanels(b) {
       h("p", { class: "bill-big" }, h("b", null, money(m.total, cur)), h("span", { class: "small muted" }, ` in ${monthName}, up to ${through}${partial ? " (that day is still arriving)" : ""}`)),
       b.stale ? h("p", { class: "small bad", role: "status" }, `${b.stale_reason || "This is the last reading Dojo has."} `) : null,
       h("ul", { class: "bill-facts" },
-        h("li", null, h("b", null, money(f.total, cur)), ` is always on: charged even if nobody uses Dojo, about ${money0(f.per_month, cur)} a month.`),
-        h("li", null, h("b", null, money(m.total - f.total, cur)), " follows what Dojo writes, films and checks."),
+        h("li", null, h("b", null, money(f.total, cur)), ` is always on: charged even if nobody uses Dojo${f.per_month > 0 ? `, about ${money0(f.per_month, cur)} a month` : ""}.`),
+        h("li", null, h("b", null, money(typeof b.use_total === "number" ? b.use_total : m.total - f.total, cur)), " follows what Dojo writes, films and checks."),
+        b.unknown_total ? h("li", null, h("b", null, money(b.unknown_total, cur)), " is not identified yet: Dojo does not know whether Azure charges it every day or by use.") : null,
         q ? h("li", null, `The lowest full day so far was ${money(q.total, cur)} (${dayWord(q.day)}): about ${money0(q.per_month, cur)} a month at that rate.`) : null,
         b.month_floor ? h("li", null, `At least ${money0(Math.floor(b.month_floor), cur)} by the end of ${monthName}, because the always-on lines keep running.`) : null,
         b.previous ? h("li", null, `${over ? "The month before" : "Last month"}: ${money(b.previous.total, b.previous.currency || cur)}.`) : null),
@@ -6713,7 +6715,7 @@ function billPanels(b) {
       h("div", { class: "panel-h" }, eyebrow("scale", "Where it goes")),
       h("p", { class: "sub" }, "Always on: charged for as long as it exists, even if nobody uses Dojo. Pay per use: grows with what Dojo writes, films or checks. "
         + "Azure bills the whole resource group, so this cannot be split per course or per person."),
-      b.groups.map((g) => groupRow(g, m.total, cur, { days: m.days, length: monthLength(m.from) })),
+      b.groups.map((g) => groupRow(g, m.total, cur)),
       h("p", { class: "small muted top" }, "Dojo grouped the lines by the names Azure gives them; a line it does not recognise is under Everything else."),
       h("p", { class: "small" }, portal(b.link) ? h("a", { class: "link", href: portal(b.link), target: "_blank", rel: "noopener noreferrer" }, "Open this in Azure Cost analysis ↗") : null,
         portal(b.link) && portal(b.budget_link) ? " · " : null,
@@ -7286,16 +7288,15 @@ function sourcingSkill(d) {
 
 // ---------------------------------------------------------------- Studio: the lab database (ADR 0023, ADR 0025)
 // Performance monitoring of the lab database, in one line: its state and its button. The line shows what Dojo last confirmed, never the live
-// state, and its button is the only way Dojo sets it: the one time it connects to the database for this. What the switch costs is said where
-// it is pressed (the question) and behind "What is this?", not under the button for good.
+// state, and its button is the only way Dojo sets it: the one time it connects to the database for this. What the switch does is said where
+// it is pressed (the question) and behind "What is this?".
 const LAB_HUB = "https://powerbi.com/workloads/fdh/databaseHub";
-const LAB_MON_ON = "Turn on performance monitoring for the lab database?\n\nThis wakes the database if it is paused, which uses about 2% of the month's free allowance. "
-  + "Learn does not say whether monitoring keeps a free serverless database from pausing, so watch Free amount remaining in the Azure portal afterwards and turn it off if it falls while nobody uses labs.";
-const LAB_MON_OFF = "Turn off performance monitoring for the lab database?\n\nWhat it already collected is kept. This wakes the database if it is paused.";
-const LAB_MON_ABOUT = ["Microsoft collects the database's CPU, memory, waits and session counts: no queries and no table contents. You read it in the Fabric Database Hub, on its Performance page.",
-  "Turning it on wakes the database. It is on the free offer and pauses when idle, and Learn does not say whether monitoring keeps it awake. "
-  + "If Free amount remaining in the Azure portal falls while nobody uses labs, turn it off: when the free allowance runs out, the database is closed until next month."];
-const LAB_MON_WHY = { "database waking": "the database was waking up; try again in a minute" };
+const LAB_MON_ON = "Turn on performance monitoring for the lab database?\n\nMicrosoft will start collecting performance information about it. You can turn it off again here.";
+const LAB_MON_OFF = "Turn off performance monitoring for the lab database?\n\nWhat it already collected is kept.";
+const LAB_MON_ABOUT = ["Microsoft collects performance information about the database: CPU, memory, storage, waits and counters, and which sessions are open and what state they are in. "
+  + "It describes the database as a whole, not individual queries or table contents. You read it in the Fabric Database Hub, on its Performance page."];
+// The reason of a failed try is kept in a file: "database waking" is what tries before the Basic tier wrote.
+const LAB_MON_WHY = { "database unavailable": "the database did not answer; try again in a minute", "database waking": "the database did not answer; try again in a minute" };
 // The time of day for today, the date for any other day.
 function clockOrDay(s) {
   const d = new Date(s);
@@ -7446,10 +7447,10 @@ function deeperCost(d) {
 async function viewAbout() {
   const [a, d] = await Promise.all([api("/api/about"), isAdmin() ? api("/api/diag").catch(() => null) : null]);
   const checks = d && d.selftest && d.selftest.checks ? Object.entries(d.selftest.checks) : [];
-  const labStatus = h("p", { class: "small", role: "status", "aria-live": "polite" }, "Not checked. The system check never wakes the lab database.");
+  const labStatus = h("p", { class: "small", role: "status", "aria-live": "polite" }, "Not checked. The system check never connects to the lab database.");
   const labProbe = button("Check lab connection now", async () => {
     labProbe.disabled = true;
-    labStatus.textContent = "Waking the database, about a minute…";
+    labStatus.textContent = "Checking the lab connection…";
     try {
       const result = await api("/api/diag/lab", { method: "POST" });
       labStatus.textContent = result.ok
@@ -9350,7 +9351,7 @@ async function viewLab(id) {
   const setBusy = (busy) => { for (const b of controls.querySelectorAll("button")) b.disabled = busy; };
   const call = async (kind, body) => {
     setBusy(true);
-    status.textContent = lab.local ? "Running the local demo…" : "Waking the database, about a minute. Please wait…";
+    status.textContent = lab.local ? "Running the local demo…" : kind === "check" ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…";
     const deadline = Date.now() + 120000;
     try {
       let r;
@@ -9359,9 +9360,9 @@ async function viewLab(id) {
           r = await api(`/api/labs/${id}/${kind}`, { method: "POST", body });
           break;
         } catch (e) {
-          if (lab.local || e.status !== 503 || !e.message.startsWith("Waking the database")) throw e;
+          if (lab.local || e.status !== 503 || !e.message.startsWith("The lab database did not answer")) throw e;
           if (Date.now() + 10000 >= deadline) throw new Error("Could not reach the database after about two minutes. Try again.");
-          status.textContent = "Waking the database, about a minute. Trying again…";
+          status.textContent = "The lab database did not answer. Trying again…";
           await sleep(10000);
         }
       }
@@ -9408,8 +9409,8 @@ async function viewLab(id) {
     pageHead(lab.title, lab.goal, eyebrow("target", "Lab · DP-800 · Azure SQL"), helpQ("labs-dp-800")),
     driftNote(lab.drift),
     h("div", { class: "lab-boundary" }, h("b", null, lab.local ? "Synthetic local demo" : "Authorized live-write sandbox"),
-      h("span", null, lab.local ? `Nothing reaches Azure SQL. Your schema would be ${lab.schema}.` : `Private Azure SQL · your own schema ${lab.schema} only · no learner record in SQL · database auto-pauses at the free monthly limit.`
-        + (lab.shared ? " Members share one database, so one query runs at a time and the free monthly allowance is shared." : ""))),
+      h("span", null, lab.local ? `Nothing reaches Azure SQL. Your schema would be ${lab.schema}.` : `Private Azure SQL · your own schema ${lab.schema} only · no learner record in SQL.`
+        + (lab.shared ? " Members share one database, so one query runs at a time." : ""))),
     h("div", { class: "lab-layout" },
       panel(eyebrow("course", "Lab steps"), h("p", { class: "small" }, lab.why),
         h("ol", { class: "lab-steps" }, lab.steps.map((s) => h("li", null, s))),

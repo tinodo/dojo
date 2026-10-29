@@ -18,10 +18,11 @@ own values. Never commit real identifiers or secrets.
 6. [Configuration reference](#configuration-reference)
 7. [Backups and restore](#backups-and-restore)
 8. [Costs and cost controls](#costs-and-cost-controls)
-9. [Switching team mode on safely](#switching-team-mode-on-safely)
-10. [Upgrading](#upgrading)
-11. [Troubleshooting](#troubleshooting)
-12. [Local development and tests](#local-development-and-tests)
+9. [The daily lab check](#the-daily-lab-check)
+10. [Switching team mode on safely](#switching-team-mode-on-safely)
+11. [Upgrading](#upgrading)
+12. [Troubleshooting](#troubleshooting)
+13. [Local development and tests](#local-development-and-tests)
 
 ## What you need
 
@@ -139,7 +140,8 @@ pull request, or add it to both `--parameters` lines in `deploy.yml`.
 
 ## The deploy pipeline
 
-Two workflows live in `.github/workflows`:
+Two workflows build and deploy Dojo. Three more never touch the app: `pages.yml` and `site-links.yml` (the project site) and
+`lab-watch.yml` (the daily lab check, [below](#the-daily-lab-check)).
 
 - **`ci.yml`** runs on pull requests and on pushes to branches other than `main`. It runs the unit tests with
   `DOJO_LOCAL=1`, the secret scan, and `bicep build` of both templates. It has read-only rights.
@@ -281,24 +283,40 @@ You pay Azure's normal prices. Dojo has no licence fee.
 - **AI use** (models, speech, avatar) is pay as you go. Background work has daily limits (see
   [architecture.md](architecture.md#background-services-and-their-limits)). Avatar filming only starts on an explicit click that
   shows the list price first.
-- **Labs** cost about **USD 23 a month** even when nobody uses them: Defender for SQL (about USD 15, if your
-  tenant's policy switches it on), the private endpoint (about USD 7.30) and the private DNS zone (about
-  USD 0.50). The serverless database uses the free offer and pauses after 60 idle minutes. To stop the cost,
-  remove the lab resources and the `DOJO_LAB_SERVER` and `DOJO_LAB_DATABASE` settings from
-  `infra/main.bicep`, so the next deploy does not bring them back, and delete the SQL server, the private
-  endpoint and the private DNS zone. With both settings empty, labs are off and the rest of Dojo works as
-  before.
+- **Labs** cost about **USD 28 a month**, even when nobody uses them, because all of it is charged by the day: the
+  Basic-tier database (USD 0.161 a day, about USD 5 for a full month; it never pauses), Defender for SQL (about
+  USD 15, if your tenant's policy switches it on), the private endpoint (about USD 7.30) and the private DNS zone
+  (about USD 0.50). Why Basic and not the free offer: ADR 0028. To stop the cost, remove the lab resources and the
+  `DOJO_LAB_SERVER` and `DOJO_LAB_DATABASE` settings from `infra/main.bicep`, so the next deploy does not bring them
+  back, and delete the SQL server, the private endpoint and the private DNS zone. With both settings empty, labs are
+  off and the rest of Dojo works as before.
 - **Performance monitoring of the lab database** (ADR 0023) is off until the owner presses **Turn on** in Studio, on the
-  Health tab. It has no extra price, but Azure then samples the database every 10 to 30 seconds, and Learn does not say whether
-  that keeps a serverless database from pausing. If it does, the free allowance (100,000 vCore-seconds a month) is used in a
-  few days and labs stop until next month. After pressing, read *Free amount remaining* for the database in the Azure portal
-  two hours after the last lab use and again a day later. If the database is still online while idle, or the amount falls
-  fast, press **Turn off**. The ADR has the numbers to compare with.
+  Health tab. Learn lists single databases in the DTU model, which the Basic tier is, as supported. Azure then samples
+  the database every 10 to 30 seconds; Learn does not say how much load that adds on the 5 DTUs of Basic. The daily lab
+  check (below) reads the database's load, so a high reading is flagged without anyone looking. If it is high, press
+  **Turn off** first.
 - **Team budgets** (team mode only, ADR 0009): all members together share a daily cap, **USD 5 by default**
   (the owner can set up to USD 500). Each member also has daily allowances per action, such as graded
   answers or Ask questions. Every paid call reserves its worst case first, so the cap can feel tight when
   several members work at once. The owner is not capped. The Members page shows costs only for groups of five
   or more members.
+
+## The daily lab check
+
+`.github/workflows/lab-watch.yml` runs `tools/lab_watch.py` every morning, and on request (Actions, lab-watch, Run
+workflow). It signs in to Azure as the deploy identity, reads the lab database and prints a few numbers: whether it is
+online, its tier against the one in `infra/main.bicep`, its storage, its load (the database's own DTU percentage) and
+its failed connections over the last 24 hours. It only reads. The log of a public repository is public, so it prints
+numbers and plain words, never names or ids.
+
+The run fails, and GitHub emails whoever last changed the schedule, when the database is not online, when its tier is
+not the one the template declares, when storage is above 80%, when the load averaged over 50% for 24 hours, or when 25
+or more connections failed. A run that cannot read Azure fails too: no reading is not a good reading. The check is for
+the one lab database of the app resource group; a fork that runs without labs deletes the workflow.
+
+GitHub switches scheduled workflows off in a public repository after 60 days without activity: **Enable workflow** in
+Actions, or a commit that changes the cron schedule in the workflow file, turns it on again. A run started from a
+branch other than `main` cannot sign in: the deploy identity trusts `main` only.
 
 ## Switching team mode on safely
 
@@ -360,8 +378,10 @@ sign-in app, or (with team mode off) it is not the owner. Sign out at `https://<
 then sign in again with the right account. A private browser window helps when your browser holds several
 work accounts.
 
-**A lab run waits a long time first.** The serverless lab database pauses after 60 idle minutes. The first
-query wakes it up, which takes about a minute.
+**A lab run says the lab database did not answer.** The database never pauses, but it can be unavailable for a
+moment while its tier changes, during maintenance or in a failover. Dojo tries again for about two minutes when
+it sees that message, so run it again after that. If it keeps happening, run the daily lab check by hand (Actions,
+lab-watch, Run workflow) and read what it says about the database's state.
 
 **Performance monitoring shows no data.** Data usually appears in the Fabric Database Hub (its Performance page) about 10
 minutes after Turn on. Check that Studio's Health tab says *on*, that you have the Reader role on the subscription, that the
@@ -369,8 +389,8 @@ minutes after Turn on. Check that Studio's Health tab says *on*, that you have t
 that the lab database is a single database, not in an elastic pool and not a secondary replica. For KQL, connect the Azure Data
 Explorer web UI to `https://adx.centralus.arcdataservices.com/kusto/` and open the `ArcSqlTelemetry` database.
 
-**Studio says the last try to turn monitoring on or off failed.** *database waking* means the database was paused and did not
-come up in time: press again. Any other reason names the kind of database error, and `/api/diag` shows the same.
+**Studio says the last try to turn monitoring on or off failed.** *the database did not answer* means it was unavailable
+for a moment: press again in a minute. Any other reason names the kind of database error, and `/api/diag` shows the same.
 
 **Avatar filming is slow to start.** The avatar service allows about two new jobs a minute. Dojo spaces its
 requests and queues the rest.

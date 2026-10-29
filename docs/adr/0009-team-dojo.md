@@ -8,6 +8,8 @@
   councils accept the residual risk of operator access in writing (see "Operator access and the residual
   risk").
 - Date: 2026-10-01 (revised the same day)
+- Amended 29 October 2026 by ADR 0028: the lab database is on the Basic tier, which never pauses and has no free allowance. What this record says about the
+  free offer, auto-pause, waking and the allowance no longer applies; the rest stands.
 - Decision owner: the owner. Only the owner can switch team mode on. Before a real-learner pilot they name an
   accountable privacy owner outside the build team, who reviews `docs/privacy.md`.
 - Decision: proposed by the Team Dojo builder. The lead may reject or change it in review. The review

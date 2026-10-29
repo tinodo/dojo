@@ -147,7 +147,7 @@ Read [docs/operations.md](docs/operations.md) for the steps, every setting, back
 ## Costs
 
 You pay normal Azure prices for what you use: a B1 App Service plan, the AI models, Speech, avatar video
-and (for labs) about USD 23 a month for the SQL sandbox's network and security add-ons. Dojo's Studio page
+and (for labs) about USD 28 a month for the SQL sandbox: the small Basic-tier database, its private network path and security add-ons. Dojo's Studio page
 shows its own estimates at Azure **list price**; your bill is in Azure Cost Management. Background work has
 daily limits, and avatar videos are only filmed after you approve their price. See
 [costs and cost controls](docs/operations.md#costs-and-cost-controls).

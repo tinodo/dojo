@@ -33,13 +33,13 @@ FAILED_RETRY_S = 900         # after a failure Dojo waits this long
 WAIT_MIN_S, WAIT_DEFAULT_S, WAIT_MAX_S = 30, 600, 3600   # what Azure's "ask again later" may make Dojo wait
 MAX_PAGES = 20               # a reading that is not complete after this many pages is not shown as a total
 KEPT = "bill"
-SHAPE = 1                    # the shape of the kept reading; another shape is read again
+SHAPE = 2                    # the shape of the kept reading; another shape is read again (2: a line's monthly price comes from the server)
 QUIET_DAYS_MIN = 5           # a "quietest day" needs at least this many complete days to mean anything
 MONEY = re.compile(r"^[A-Z]{3}$")
 
 # What the bill's lines pay for, in the owner's words. The first rule that matches a line (its service and its meter) decides; a line no
 # rule knows is "Everything else", so the groups always add up to the total. `kind`: "use" is charged for what is used, "always" is
-# charged for as long as the resource exists, whether or not anyone uses Dojo.
+# charged for as long as the resource exists, whether or not anyone uses Dojo, "unknown" is a line of a known group that no rule names.
 GROUPS = {
     "ai": ("AI models", "The language models that write lessons, check them, answer questions and grade answers. Charged by how much text goes in and comes out."),
     "voices": ("Voices and presenter videos", "The presenters in the films, the narration you listen to, and the check of what the voices said."),
@@ -48,7 +48,7 @@ GROUPS = {
     "web": ("The web app", "The server Dojo runs on."),
     "network": ("Private link to the database", "Keeps the database off the public internet."),
     "search": ("Web search for finding sources", "Used when Dojo looks for official pages."),
-    "database": ("Database", "The lab database. On the free offer it costs nothing and pauses when nobody uses labs."),
+    "database": ("Database", "The lab database. It has a fixed daily price (the Basic tier), charged whether or not anyone uses labs."),
     "other": ("Everything else", "Bandwidth, DNS and anything Dojo has no name for."),
 }
 RULES = [   # (service, meter or None, group, part label or None, kind)
@@ -63,7 +63,11 @@ RULES = [   # (service, meter or None, group, part label or None, kind)
     (r"virtual network|private link|private endpoint", None, "network", None, "always"),
     (r"dns", r"zone", "network", "Private DNS zone", "always"),
     (r"bing", None, "search", None, "use"),
-    (r"\bsql\b", None, "database", None, "use"),
+    # The meters of the lab database, as Azure names them: "B DTU" (Basic, per day), "vCore" and "General Purpose Data Stored" (serverless,
+    # before the move to Basic; "1 vCore - Free" and "General Purpose Data Stored - Free" on the free offer, which cost nothing).
+    (r"\bsql\b", r"\bb dtus?\b|basic", "database", "Basic tier", "always"),
+    (r"\bsql\b", r"vcore|general purpose", "database", "Before the move to Basic", "use"),
+    (r"\bsql\b", None, "database", "Other database charges", "unknown"),
 ]
 MODELS = [(r"\b5\.5\b|gpt", "gpt-5.5"), (r"grok", "Grok"), (r"v4 pro|deepseek", "DeepSeek"), (r"claude", "Claude")]
 
@@ -99,6 +103,24 @@ def classify(service: str, meter: str) -> tuple[str, str | None, str]:
     return "other", None, "use"
 
 
+def _daily_rate(days: dict[str, float], through: str, first_of_month: str) -> float | None:
+    """What a line that is always on costs a day, from its complete days: the upper middle one of them, so a part day does not pull it down.
+    The day still arriving never counts, and a line that began this month (its first charged day is after the 1st) leaves out its first
+    charged day, which may be a part day. None until two days count: before that Dojo does not guess."""
+    charged = sorted(d for d, cost in days.items() if cost > 0)
+    if charged and charged[0] > first_of_month:
+        charged = charged[1:]
+    full = sorted(days[d] for d in charged if d != through)
+    return full[len(full) // 2] if len(full) >= 2 else None
+
+
+def _part_rate(lines: dict, through: str, first_of_month: str) -> float | None:
+    """What a part costs a day: the sum of what each of its meters costs a day, every meter from its own days. A meter that is new under an
+    old label (two Defender meters are both "Billed per server") is waited for, not read from the history of the old one."""
+    rates = [_daily_rate(days, through, first_of_month) for days in lines.values() if sum(days.values()) >= 0.005]
+    return None if not rates or any(rate is None for rate in rates) else sum(rates)
+
+
 def summarize(rows: list[dict], previous: dict | None = None, link: str | None = None, budget_link: str | None = None) -> dict:
     """The Money tab's numbers from the lines of this month: per group and per day, what is always on, the quietest and the busiest days.
     `rows` have `day` (YYYY-MM-DD), `service`, `meter`, `cost` and `currency`."""
@@ -113,39 +135,61 @@ def summarize(rows: list[dict], previous: dict | None = None, link: str | None =
         g = groups.setdefault(group, {"total": 0.0, "parts": {}})
         g["total"] += r["cost"]
         label = part or GROUPS[group][0]
-        p = g["parts"].setdefault(label, {"total": 0.0, "kind": kind})
+        p = g["parts"].setdefault(label, {"total": 0.0, "kind": kind, "lines": {}})
         p["total"] += r["cost"]
+        meter_days = p["lines"].setdefault((r["service"], r["meter"]), {})
+        meter_days[r["day"]] = meter_days.get(r["day"], 0.0) + r["cost"]
         days[r["day"]] = days.get(r["day"], 0.0) + r["cost"]
     last = max(days)
     first = date.fromisoformat(last[:8] + "01")
     through = date.fromisoformat(last)
     span = (through - first).days + 1
+    in_month = calendar.monthrange(first.year, first.month)[1]
     series = [{"day": (first + timedelta(days=i)).isoformat(), "total": round(days.get((first + timedelta(days=i)).isoformat(), 0.0), 2),
                "partial": (first + timedelta(days=i)) == through} for i in range(span)]
     total = round(sum(g["total"] for g in groups.values()), 2)
+    for g in groups.values():
+        for p in g["parts"].values():   # what a line that is always on costs a day, and so a month; a part that costs nothing has none
+            p["rate"] = _part_rate(p["lines"], last, first.isoformat()) if p["kind"] == "always" and p["total"] >= 0.005 else None
     out_groups = []
     for key, g in groups.items():
-        parts = [{"label": label, "total": round(p["total"], 2), "kind": p["kind"]} for label, p in
-                 sorted(g["parts"].items(), key=lambda kv: -kv[1]["total"])]
+        parts = [{"label": label, "total": round(p["total"], 2), "kind": p["kind"],
+                  "per_month": round(p["rate"] * in_month, 2) if p["rate"] is not None else None} for label, p in
+                 sorted(g["parts"].items(), key=lambda kv: -kv[1]["total"]) if abs(p["total"]) >= 0.005]   # a part that costs nothing is not listed
         if len(parts) == 1 and parts[0]["label"] == GROUPS[key][0]:
             parts = []   # a group of one line has nothing to break down
-        kinds = {p["kind"] for p in g["parts"].values() if abs(p["total"]) >= 0.005} or {next(iter(g["parts"].values()))["kind"]}
+        kinds = {p["kind"] for p in g["parts"].values() if abs(p["total"]) >= 0.005 and p["kind"] != "unknown"}   # what the identified parts are
+        if not kinds:
+            kinds = {"unknown"} if any(p["kind"] == "unknown" and abs(p["total"]) >= 0.005 for p in g["parts"].values()) else {next(iter(g["parts"].values()))["kind"]}
         kind = "mixed" if len(kinds) > 1 else next(iter(kinds))
         if key == "database" and abs(g["total"]) < 0.005:
             kind = "free"
-        out_groups.append({"key": key, "label": GROUPS[key][0], "note": GROUPS[key][1], "total": round(g["total"], 2), "kind": kind, "parts": parts})
+        always_parts = [p for p in g["parts"].values() if p["kind"] == "always" and abs(p["total"]) >= 0.005]
+        unplaced = any(p["kind"] == "unknown" and abs(p["total"]) >= 0.005 for p in g["parts"].values())
+        # a price for the whole group is not said while a charge in it is not identified: the always-on parts keep their own
+        per_month = (round(sum(p["rate"] for p in always_parts) * in_month, 2)
+                     if kind == "always" and not unplaced and all(p["rate"] is not None for p in always_parts) else None)
+        out_groups.append({"key": key, "label": GROUPS[key][0], "note": GROUPS[key][1], "total": round(g["total"], 2), "kind": kind, "parts": parts,
+                           "per_month": per_month})
     out_groups.sort(key=lambda g: (g["key"] == "other", -g["total"]))
+    always_parts = [p for g in groups.values() for p in g["parts"].values() if p["kind"] == "always" and abs(p["total"]) >= 0.005]
     always = sum(p["total"] for g in groups.values() for p in g["parts"].values() if p["kind"] == "always")
-    in_month = calendar.monthrange(first.year, first.month)[1]
+    # the three kinds add up to the total: always on, what follows use, and what no rule could place
+    follows_use = sum(p["total"] for g in groups.values() for p in g["parts"].values() if p["kind"] == "use")
+    not_identified = sum(p["total"] for g in groups.values() for p in g["parts"].values() if p["kind"] == "unknown")
+    # The always-on figures need a daily rate for every always-on line: while one has none (it is new, or the month has just begun) they are not said.
+    per_day = sum(p["rate"] for p in always_parts) if all(p["rate"] is not None for p in always_parts) else None
     complete = [d for d in series if not d["partial"] and d["total"] > 0]
     quiet = min(complete, key=lambda d: d["total"]) if len(complete) >= QUIET_DAYS_MIN else None
     busiest = sorted(complete, key=lambda d: -d["total"])[:3]
     return {"state": "ok", "reason": None, "currency": currency,
             "month": {"id": first.isoformat()[:7], "from": first.isoformat(), "to": last, "days": span, "total": total},
             "groups": out_groups, "days": series,
-            "fixed": {"total": round(always, 2), "per_day": round(always / span, 2), "per_month": round(always / span * in_month, 2)},
+            "fixed": {"total": round(always, 2), "per_day": round(per_day, 2) if per_day is not None else None,
+                      "per_month": round(per_day * in_month, 2) if per_day is not None else None},
+            "use_total": round(follows_use, 2), "unknown_total": round(not_identified, 2),
             # what the month costs at the least: what is spent, and the always-on lines for the days to come
-            "month_floor": round(total + max(0, in_month - span) * always / span, 2),
+            "month_floor": round(total + max(0, in_month - span) * per_day, 2) if per_day is not None else None,
             "quiet_day": {"day": quiet["day"], "total": quiet["total"], "per_month": round(quiet["total"] * in_month, 2)} if quiet else None,
             "busiest": [{"day": d["day"], "total": d["total"]} for d in busiest],
             "previous": previous, "link": link, "budget_link": budget_link}
@@ -207,7 +251,13 @@ class Bill:
 
     def _load(self) -> dict | None:
         doc = self.store.read("content", KEPT, default=None)
-        return doc if isinstance(doc, dict) and doc.get("shape") == SHAPE and doc.get("scope") == self.scope else None
+        if not isinstance(doc, dict) or doc.get("scope") != self.scope:
+            return None
+        if doc.get("shape") != SHAPE:
+            # A reading of another shape is never shown: it may say what the rules of today do not. What Azure said about waiting stays.
+            attempt = doc.get("attempt") or {}
+            return {"attempt": {"retry_at": attempt.get("retry_at"), "state": attempt.get("state"), "reason": attempt.get("reason")}} if attempt.get("retry_at") else None
+        return doc
 
     def _save(self, doc: dict) -> None:
         self.store.write("content", KEPT, value={**doc, "shape": SHAPE, "scope": self.scope})

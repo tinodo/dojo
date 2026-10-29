@@ -1,5 +1,5 @@
 """Performance monitoring of the lab database (ADR 0023): the T-SQL, what Dojo remembers about it, the owner's button, and the
-promise that nothing else connects to the free serverless database for it.
+promise that nothing else connects to the database for it.
 
 Nothing here reaches Azure. The driver is stood in for by a connection that answers the way the real one does for a batch."""
 import json
@@ -16,7 +16,7 @@ from unittest import mock
 
 from app import team as team_mod
 from app.core import Store, UserError
-from app.labs import (FakeRunner, LabRoom, LabUser, MONITORING_PROPERTY, MONITORING_READ, MONITORING_SET, SqlRunner, is_waking,
+from app.labs import (FakeRunner, LabRoom, LabUser, MONITORING_PROPERTY, MONITORING_READ, MONITORING_SET, SqlRunner, is_unavailable,
                       monitoring_state)
 from tests.test_api import POST
 from tests.test_team import OWNER, TeamCase, make
@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "app" / "static" / "app.js").read_text("utf-8")
 NODE = shutil.which("node")
 SERVER, DATABASE = "dojo-lab.database.windows.net", "sqldb-lab-test"
-WAKING = "Database 'sqldb-lab-test' on server 'dojo-lab' is not currently available. Please retry the connection later."
+UNAVAILABLE = "Database 'sqldb-lab-test' on server 'dojo-lab' is not currently available. Please retry the connection later."
 SET_ON = MONITORING_SET.format(name=MONITORING_PROPERTY, value="true")
 SET_OFF = MONITORING_SET.format(name=MONITORING_PROPERTY, value="false")
 READ = MONITORING_READ.format(name=MONITORING_PROPERTY)
@@ -200,21 +200,21 @@ class RoomTests(unittest.TestCase):
         self.assertEqual(room.monitoring()["observed"], "on", "what was last confirmed stays")
 
     def test_a_failed_try_keeps_what_was_confirmed_and_says_why(self):
-        room, _ = self.room(ON, Exception(WAKING))
+        room, _ = self.room(ON, Exception(UNAVAILABLE))
         first = room.set_monitoring(True)
         with self.assertRaises(Exception) as caught:
             room.set_monitoring(False)
-        self.assertTrue(is_waking(caught.exception))
+        self.assertTrue(is_unavailable(caught.exception))
         now = room.monitoring()
         self.assertEqual((now["observed"], now["checked_at"]), ("on", first["checked_at"]), "what was last confirmed stays")
-        self.assertEqual(now["error"], "database waking")
+        self.assertEqual(now["error"], "database unavailable")
         self.assertGreaterEqual(now["attempted_at"], first["attempted_at"])
 
     def test_a_good_try_clears_the_error(self):
-        room, _ = self.room(Exception(WAKING), ON)
+        room, _ = self.room(Exception(UNAVAILABLE), ON)
         with self.assertRaises(Exception):
             room.set_monitoring(True)
-        self.assertEqual(room.monitoring()["error"], "database waking")
+        self.assertEqual(room.monitoring()["error"], "database unavailable")
         self.assertIsNone(room.set_monitoring(True)["error"])
 
     def test_a_busy_room_waits_then_refuses_and_nothing_is_sent(self):
@@ -292,7 +292,7 @@ class RoomTests(unittest.TestCase):
 
 
 class NothingSetsItByItself(unittest.TestCase):
-    """The lab database is on the free offer and pauses when idle: every connection is a wake that uses the month's allowance."""
+    """Every connection to the lab database is a deliberate one: only the owner's button sets monitoring."""
 
     def test_only_the_owners_button_calls_it(self):
         callers = []
@@ -366,11 +366,11 @@ class RouteTests(RouteCase):
         self.assertEqual(self.c.get("/api/diag", headers=OWNER).json()["labs"]["performance_monitoring"]["observed"], "on")
         self.assertEqual(len(wired.connections), 1, "reading it did not connect again")
 
-    def test_a_database_that_is_waking_says_so_and_keeps_the_record(self):
-        self.wire(Exception(WAKING))
+    def test_a_database_that_did_not_answer_says_so_and_keeps_the_record(self):
+        self.wire(Exception(UNAVAILABLE))
         r = self.post({"on": True})
-        self.assertEqual((r.status_code, r.json()["detail"]), (503, "Waking the database, about a minute. Try again shortly."))
-        self.assertEqual(self.c.get("/api/studio/lab", headers=OWNER).json()["monitoring"]["error"], "database waking")
+        self.assertEqual((r.status_code, r.json()["detail"]), (503, "The lab database did not answer. Try again in a minute."))
+        self.assertEqual(self.c.get("/api/studio/lab", headers=OWNER).json()["monitoring"]["error"], "database unavailable")
 
     def test_another_failure_is_a_plain_unavailable_and_shows_no_driver_text(self):
         self.wire(RuntimeError("login failed for a@b.example"))
@@ -500,19 +500,23 @@ console.log(JSON.stringify(states.map((m) => { const v = view(lab(m)); return [v
         self.assertNotIn("confirmed", never[2] + unset[2], "nothing is claimed that was never confirmed")
         for state in out:
             self.assertIn("What is this?", state[2])
-            self.assertIn("free offer and pauses when idle", state[2])
-            self.assertIn("does not say whether monitoring keeps it awake", state[2])
+            self.assertIn("Microsoft collects performance information about the database", state[2])
+            self.assertIn("not individual queries or table contents", state[2])
             self.assertIn("Fabric Database Hub, on its Performance page", state[2])
+            for gone in ("free offer", "pauses when idle", "wakes", "allowance", "Free amount remaining", "serverless"):
+                self.assertNotIn(gone, state[2], "the database is on the Basic tier: nothing to caution about, nothing wakes")
 
     def test_a_failed_try_is_shown_beside_what_was_confirmed(self):
         out = run_node("""
-const v = view(lab({observed: 'on', checked_at: LONG_AGO, attempted_at: WHEN, error: 'database waking'}));
-console.log(JSON.stringify([v.chips, v.text]));""")
-        self.assertEqual(out[0], [["on", "sage"], ["last try failed", "rose"]])
-        self.assertIn("confirmed", out[1])
-        self.assertIn("did not work: the database was waking up; try again in a minute.", out[1])
+const reasons = ['database unavailable', 'database waking'];   // the second is what tries before the Basic tier wrote down
+console.log(JSON.stringify(reasons.map((error) => { const v = view(lab({observed: 'on', checked_at: LONG_AGO, attempted_at: WHEN, error})); return [v.chips, v.text]; })));""")
+        for chips, said in out:
+            self.assertEqual(chips, [["on", "sage"], ["last try failed", "rose"]])
+            self.assertIn("confirmed", said)
+            self.assertIn("did not work: the database did not answer; try again in a minute.", said)
+            self.assertNotIn("waking", said)
 
-    def test_nothing_is_sent_until_the_owner_has_confirmed_and_the_question_says_what_it_costs(self):
+    def test_nothing_is_sent_until_the_owner_has_confirmed_and_the_question_says_what_happens(self):
         out = run_node("""
 (async () => {
   const v = view(lab({}));
@@ -522,8 +526,8 @@ console.log(JSON.stringify([v.chips, v.text]));""")
 })();""")
         self.assertEqual(out[0], [])
         self.assertEqual(len(out[1]), 1)
-        for part in ("wakes the database", "2% of the month's free allowance", "Free amount remaining", "turn it off"):
-            self.assertIn(part, out[1][0])
+        self.assertEqual(out[1][0], "Turn on performance monitoring for the lab database?\n\n"
+                                    "Microsoft will start collecting performance information about it. You can turn it off again here.")
         self.assertFalse(out[2])
 
     def test_pressing_turn_on_posts_true_and_draws_the_answer(self):
@@ -549,7 +553,7 @@ console.log(JSON.stringify([v.chips, v.text]));""")
   console.log(JSON.stringify([calls, asked, v.el.kids.length ? find(v.el, (e) => e.attrs && e.attrs.chip !== undefined).map((e) => [text(e), e.attrs.chip]) : []]));
 })();""")
         self.assertEqual(out[0], [["/api/studio/lab/monitoring", "POST", {"on": False}]])
-        self.assertIn("What it already collected is kept", out[1][0])
+        self.assertEqual(out[1][0], "Turn off performance monitoring for the lab database?\n\nWhat it already collected is kept.")
         self.assertEqual(out[2], [["off", "line"]])
 
     def test_a_refusal_shows_its_reason_and_the_button_can_be_pressed_again(self):
@@ -557,12 +561,12 @@ console.log(JSON.stringify([v.chips, v.text]));""")
 (async () => {
   const v = view(lab({}));
   confirms = [true];
-  answers = [new Error('Waking the database, about a minute. Try again shortly.')];
+  answers = [new Error('The lab database did not answer. Try again in a minute.')];
   const button = v.buttons[0];
   await button.attrs.onclick(); await tick();
   console.log(JSON.stringify([text(v.el), button.disabled, text(button)]));
 })();""")
-        self.assertIn("Waking the database, about a minute. Try again shortly.", out[0])
+        self.assertIn("The lab database did not answer. Try again in a minute.", out[0])
         self.assertFalse(out[1], "the button is live again")
         self.assertEqual(out[2], "Turn on")
 
