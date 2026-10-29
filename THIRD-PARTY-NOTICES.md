@@ -15,7 +15,8 @@ licensed under the **SIL Open Font License, Version 1.1**. The full license text
 | Inter | `Inter-normal.woff2` | Copyright 2016 The Inter Project Authors (github.com/rsms/inter) | [OFL 1.1](app/static/fonts/Inter-OFL.txt) |
 | JetBrains Mono | `JetBrainsMono-normal.woff2` | Copyright 2020 The JetBrains Mono Project Authors (github.com/JetBrains/JetBrainsMono) | [OFL 1.1](app/static/fonts/JetBrainsMono-OFL.txt) |
 
-Dojo serves the fonts as they were downloaded and does not change them.
+Dojo serves the fonts as they were downloaded and does not change them. The project site (`website/`) serves the same files,
+copied from `app/static/fonts` when the site is built, with their licence texts.
 
 ## Python packages
 

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CSS = (ROOT / "app" / "static" / "app.css").read_text("utf-8")
 JS = (ROOT / "app" / "static" / "app.js").read_text("utf-8")
 GUIDE = (ROOT / "docs" / "user-guide.md").read_text("utf-8")
+README = (ROOT / "README.md").read_text("utf-8")
 
 # A 1px divider between columns is a line, not an accent.
 NEUTRAL_LEFT = re.compile(r"^(0|1px solid var\(--line(-2)?\))$")
@@ -226,6 +227,14 @@ class NoSelfVouching(unittest.TestCase):
             for rx, name in BANNED:
                 if re.search(rx, text, re.I):
                     found.append(f"user-guide.md:{n}: {name}: {text.strip()[:110]}")
+        self.assertEqual(found, [])
+
+    def test_the_readme_does_not_either(self):
+        found = []
+        for n, text in enumerate(README.splitlines(), 1):
+            for rx, name in BANNED:
+                if re.search(rx, text, re.I):
+                    found.append(f"README.md:{n}: {name}: {text.strip()[:110]}")
         self.assertEqual(found, [])
 
     def test_the_prediction_disclaimer_is_said_where_a_score_or_advice_is_shown(self):

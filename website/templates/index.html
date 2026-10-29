@@ -1,0 +1,121 @@
+<section class="hero">
+  <div class="wrap">
+    <h1>An exam coach that teaches from the official documentation.</h1>
+    <p class="lead">Dojo writes a lesson for each skill from the official pages that teach it, asks you open questions, judges your answers point by point, and keeps a record of what you have shown you can do. Made for Microsoft and GitHub certification exams. Open source, and yours to host.</p>
+    <p>This is the project site, not a hosted service. You run Dojo on your laptop with a stand-in AI, or host your own copy on Azure.</p>
+    <p class="actions"><a class="btn primary" href="#run">Run your own Dojo</a><a class="btn" href="{{repo_url}}">See the source on GitHub</a></p>
+    <p>{{html:builtin_line}}</p>
+    <div class="box notice" role="note">
+      <p>Dojo is not an official Microsoft product and is not affiliated with or endorsed by the Microsoft or GitHub certification programs. Dojo writes its own practice questions from public, official documentation. It does not use real exam questions or leaked ("dump") content.</p>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="learn">
+  <div class="wrap">
+    <h2>What you do in Dojo</h2>
+    <ol class="doing">
+      <li><b>Learn a skill.</b> Every skill is listed word for word from the official study guide, under its domain and that domain's exam weight. Each skill gets a lesson written from up to {{max_sources_word}} official pages. Read it, listen to two voices talk it through, play it as a narrated slide deck, or watch two presenters on slides.</li>
+      <li><b>Answer in your own words.</b> Practice questions are open, and new every time. Type your answer or say it out loud. Hints are there when you want them, and each hint you open is recorded as help.</li>
+      <li><b>See what you have shown.</b> Dojo judges your answer point by point. For every point it marks as met, it must quote your own words, and Dojo's code checks that quote against your answer.</li>
+      <li><b>Come back later.</b> Skills come back as reviews at growing intervals. Dojo asks how sure you were, so you can see where your confidence and your answers differ.</li>
+      <li><b>Rehearse the exam.</b> A practice exam has questions written by Dojo in seven formats, spread by domain weight, with sections that lock and a clock kept by the server. Labs and active screens are not included.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="sec" id="record">
+  <div class="wrap">
+    <h2>What your record shows</h2>
+    <p>For each skill Dojo shows four pips, not a score. They show where your latest attempt stands, and a disputed judgement never counts in your favour. Each pip includes the ones before it.</p>
+    <figure class="box pips">
+      <ol class="pipset">
+        <li><span class="pip help" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M3 8.5l3.2 3.2L13 5"/></svg></span><p><b>With help.</b> You met it in practice, where hints were offered. Meeting it on your own fills this pip too.</p></li>
+        <li><span class="pip own" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M3 8.5l3.2 3.2L13 5"/></svg></span><p><b>On your own.</b> You met it in a probe or a check, with no help.</p></li>
+        <li><span class="pip own" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M3 8.5l3.2 3.2L13 5"/></svg></span><p><b>Later.</b> You met it on your own at least {{later_hours}} hours after you were last taught it.</p></li>
+        <li><span class="pip" aria-hidden="true"></span><p><b>In a new situation.</b> Dojo does not record this yet, so this pip stays empty.</p></li>
+      </ol>
+      <figcaption>An example: a skill whose latest attempt met every point on your own, {{later_hours}} or more hours after teaching. The first three pips are filled and the fourth is empty.</figcaption>
+    </figure>
+    <p>Being taught includes opening a lesson, an answer from the coach, a lab, a judged answer and the reason after a multiple-choice answer, so "later" waits after any of these.</p>
+    <p>Multiple choice never fills a pip, because a right answer can be a guess. Every attempt is listed with its conditions: whether hints were on offer or opened, how long after teaching it was, and whether you spoke or typed.</p>
+    <p>Dojo does not predict whether you will pass, and it does not map anything to the exam's scaled score. When you ask whether to book the exam, it shows each rule it used and that rule's current value, so you can disagree.</p>
+    <p>Everything you do is added to a record that is never edited. You can export it, and you can delete it.</p>
+  </div>
+</section>
+
+<section class="sec" id="made">
+  <div class="wrap">
+    <h2>How a lesson is made</h2>
+    <p>A lesson, a question or a hint goes through five steps before you see it.</p>
+    <ol class="rows steps">
+      <li><span class="n" aria-hidden="true">1</span><h3>Sources</h3><p>An exam lists each skill with the official pages that teach it. Dojo reads only Microsoft Learn and GitHub Docs, and keeps a dated copy of each page.</p></li>
+      <li><span class="n" aria-hidden="true">2</span><h3>Author</h3><p>A model writes the lesson and must quote the page for every claim.</p></li>
+      <li><span class="n" aria-hidden="true">3</span><h3>Quote check</h3><p>Dojo's own code looks for each quote, word for word, in the stored page. A claim whose quote is not there is removed.</p></li>
+      <li><span class="n" aria-hidden="true">4</span><h3>Second reader</h3><p>A model from a different family reads what is left against the same excerpts and says whether each part holds. What does not hold is removed.</p></li>
+      <li><span class="n" aria-hidden="true">5</span><h3>Shown</h3><p>What is left reaches you. What was removed goes to a quality log with the reason, and is never shown as content.</p></li>
+    </ol>
+    <div class="box example" role="group" aria-labelledby="example-label">
+      <p class="label" id="example-label">Illustration: one claim of a lesson, and the quote Dojo looks for</p>
+      <dl>
+        <dt>Claim</dt>
+        <dd>You can configure Copilot to ignore certain files with content exclusion.</dd>
+        <dt>Quote on the page</dt>
+        <dd><q>You can use content exclusion to configure Copilot to ignore certain files.</q></dd>
+        <dt>Source</dt>
+        <dd><a href="https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/content-exclusion">Content exclusion for GitHub Copilot</a>, GitHub Docs</dd>
+      </dl>
+      <p class="fine">The claim is written for this page. The quote is from GitHub Docs, content licensed CC BY 4.0.</p>
+    </div>
+    <p><b>When a page changes.</b> Dojo reads each cited page again {{recheck_phrase}} ({{missing_phrase}} if a page was missing or moved). When its words change, every quote taken from it is checked again. A lesson with a quote that is gone says so and is rewritten. A question with a quote that is gone is not asked.</p>
+    <p><b>Grading.</b> Answers are judged by a model that did not write the question. Where a second model disagrees about a point, a third decides it.</p>
+  </div>
+</section>
+
+<section class="sec" id="exams">
+  <div class="wrap">
+    <h2>Exams</h2>
+    <p>Dojo comes with these exams.</p>
+    {{html:exam_list}}
+    <p><b>Add another one.</b> Type an exam code. Dojo reads the official study guide, shows what building the course would cost at list price, and builds it when you agree.</p>
+  </div>
+</section>
+
+<section class="sec" id="run">
+  <div class="wrap">
+    <h2>Run your own</h2>
+    <h3>What you need</h3>
+    <p>To try it on a laptop: Python {{python_version}} and Git. To host it: an Azure subscription, a Microsoft Entra tenant where you may create an app registration, quota for the three model deployments set in <a href="{{blob:infra/main.bicep}}"><code>infra/main.bicep</code></a>, and your own copy of the repository on GitHub.</p>
+    <h3>On your laptop</h3>
+    <p>No Azure account is needed: Dojo then uses a stand-in AI, stand-in speech and a fake signed-in owner.</p>
+<pre><code>git clone {{repo_url}}.git
+cd dojo
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+$env:DOJO_LOCAL = "1"
+python -m uvicorn app.main:app --port 8000 --no-access-log</code></pre>
+    <p>On macOS or Linux, use <code>source .venv/bin/activate</code> and <code>export DOJO_LOCAL=1</code>. Open <code>http://localhost:8000</code>. The stand-in AI echoes source text, so the content reads oddly, but you can click through the app.</p>
+    <h3>On Azure</h3>
+    <p>Dojo deploys with Bicep through GitHub Actions. A one-time bootstrap script creates the identities, the sign-in app registration and the repository secrets that hold their IDs. After that, every push to <code>main</code> deploys. No passwords or keys are stored. The steps, every setting, backups and troubleshooting are in <a href="{{blob:docs/operations.md}}">Running your own Dojo</a>.</p>
+    <h3>What it costs</h3>
+    <p>You pay Azure's normal prices. Dojo has no licence fee. Costs come from the App Service plan and storage, the AI models (including the search for official pages), speech, the diagrams of slide decks and avatar video, and, for the DP-800 labs, up to about USD 23 a month (private endpoint, DNS and, where your tenant's policy switches it on, Defender for SQL). Adding an exam, drawing slide-deck diagrams ahead of time and filming avatar videos each show their list price first and start only when you approve. More in <a href="{{blob:docs/operations.md#costs-and-cost-controls}}">costs and cost controls</a>.</p>
+  </div>
+</section>
+
+<section class="sec" id="limits">
+  <div class="wrap">
+    <h2>Where Dojo stops</h2>
+    <ul class="plain">
+      <li>It is not a source of real exam questions, and not a brain dump.</li>
+      <li>It is not an official training product, and not a replacement for Microsoft Learn.</li>
+      <li>It is only as good as the official documentation. A skill with no verified official page is not taught or asked about until Dojo has one.</li>
+      <li>Questions are written by AI and checked by AI and by quote matching. A wrong question can still get through. You can dispute a judgement, and the quality log shows what was removed.</li>
+      <li>Labs exist only for DP-800. The interface and content are in English.</li>
+      <li>The models, speech and avatar video are Azure services, so the full app does not run without Azure.</li>
+      <li>It is built for one owner on one small App Service. It does not scale out.</li>
+      <li>Team mode lets up to 30 colleagues share one Dojo, each with their own record. It is off by default. Keep it off until a privacy owner outside the build team (and, where they apply, works councils) has read the <a href="{{blob:docs/privacy.md}}">privacy sheet</a> and accepted in writing that the operator can technically read everything Dojo stores.</li>
+      <li>One person maintains Dojo in spare time. Expect slow answers to issues.</li>
+    </ul>
+  </div>
+</section>

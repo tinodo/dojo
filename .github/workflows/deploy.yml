@@ -6,6 +6,11 @@ name: deploy
 on:
   push:
     branches: [main]
+    # A change that touches only the project site is published by pages.yml and does not restart the app.
+    paths-ignore:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/site-links.yml"
   workflow_dispatch:
 
 permissions:

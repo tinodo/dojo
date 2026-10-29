@@ -36,6 +36,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0024](0024-studio-checks-short.md) | Studio's Checks tab is a few screens and what the owner presses is at the top: the lab database switch first, one action row for a lab to look at, long lists keep their newest rows under "Show the other N", and the log of blocked text is a box that scrolls. | Proposed (built); its tab is now Health (0025) |
 | [0025](0025-studio-v2.md) | Studio is organised by what the owner asks (To do, Courses, Money, Health, Activity). A film is offered only for a lesson that is steady (not rewritten in 7 days, not about to be rewritten, pages settled); money is asked for in a sheet with Cancel focused; the Money tab shows what Azure charged, read with the app's own identity; Health says only what it could check. | Proposed (built) |
 | [0026](0026-course-packs.md) | Course packs: one exam's finished lessons, audio and films can be handed to another Dojo as a sealed pack from a static list. Every pack is checked at the door like a hostile file and waits, with nothing paid, until the owner presses one priced check. No uploads, accounts or payments. | Proposed (not built) |
+| [0027](0027-project-site.md) | The project site on GitHub Pages is built from the repository on every push to `main`, holds only what the repository already makes public, and is kept true by tests and a weekly link check. | Accepted |
 ## Writing a new ADR
 
 1. Take the next free number (look in this folder; do not reuse one).
