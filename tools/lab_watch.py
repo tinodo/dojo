@@ -108,12 +108,16 @@ def read_metrics(tok: str, database_id: str, now: datetime) -> dict:
 
 
 def numbers(payload: dict) -> dict:
-    """The few numbers the judgement needs, from the hourly points of the four metrics. None where Azure reported no point."""
+    """The few numbers the judgement needs, from the hourly points of the four metrics. None where Azure reported no point. `broken` names the
+    metrics (our own names, never Azure's text) for which Azure answered 200 but said it could not answer that metric."""
     points: dict[str, list[dict]] = {name: [] for name in METRICS}
+    broken: list[str] = []
     for metric in payload.get("value") or []:
         name = (metric.get("name") or {}).get("value")
         if name in points:
             points[name] += [pt for series in metric.get("timeseries") or [] for pt in series.get("data") or []]
+            if metric.get("errorCode") not in (None, "Success"):
+                broken.append(name)
 
     def column(name: str, key: str) -> list[float]:
         return [float(pt[key]) for pt in points[name] if isinstance(pt.get(key), (int, float))]
@@ -122,7 +126,7 @@ def numbers(payload: dict) -> dict:
     peak, ok, failed = column("dtu_consumption_percent", "maximum"), column("connection_successful", "total"), column("connection_failed", "total")
     return {"load_average": sum(load) / len(load) if load else None, "load_peak": max(peak) if peak else None, "hours": len(load),
             "storage_peak": max(storage) if storage else None,
-            "ok": int(sum(ok)) if ok else None, "failed": int(sum(failed)) if failed else None}
+            "ok": int(sum(ok)) if ok else None, "failed": int(sum(failed)) if failed else None, "broken": sorted(set(broken))}
 
 
 def word(value: object) -> str:
@@ -147,25 +151,30 @@ def judge(database: dict, declared: str | None, n: dict | None, why_no_metrics: 
     if n is None:
         gaps.append(f"The storage, the load and the connections could not be read ({why_no_metrics or 'no answer'}).")
         return lines, findings, gaps
+    if n["broken"]:
+        gaps.append("Azure said it could not answer for " + ", ".join(n["broken"]) + ".")   # our own metric names only
     size = props.get("maxSizeBytes")
     room = f" of the {size / 2 ** 30:g} GB" if isinstance(size, (int, float)) and size > 0 else ""
     if n["storage_peak"] is None:
-        gaps.append("Azure gave no storage reading.")
+        if "storage_percent" not in n["broken"]:
+            gaps.append("Azure gave no storage reading.")
     else:
         lines.append(f"Storage: at most {n['storage_peak']:.1f}%{room}.")
         if n["storage_peak"] > STORAGE_MAX_PERCENT:
             findings.append(f"Storage reached {n['storage_peak']:.1f}%, above {STORAGE_MAX_PERCENT}%.")
     if n["load_average"] is None:
-        gaps.append("Azure gave no load reading.")
+        if "dtu_consumption_percent" not in n["broken"]:
+            gaps.append("Azure gave no load reading.")
     else:
         lines.append(f"Load: {n['load_average']:.1f}% of the DTUs on average, {n['load_peak']:.1f}% at most ({n['hours']} hourly readings).")
         if n["load_average"] > LOAD_MAX_PERCENT:
             findings.append(f"The load averaged {n['load_average']:.1f}%, above {LOAD_MAX_PERCENT}%.")
-    # Azure sends no point for a count that did not happen, so a missing connection reading is zero, not a gap.
-    failed = n["failed"] or 0
-    lines.append(f"Connections: {n['ok'] or 0} succeeded, {failed} failed.")
-    if failed >= FAILED_MAX:
-        findings.append(f"{failed} connections failed, {FAILED_MAX} or more.")
+    # Azure sends no point for a count that did not happen, so a missing connection reading is zero, not a gap: unless Azure said it could not answer.
+    if not {"connection_successful", "connection_failed"} & set(n["broken"]):
+        failed = n["failed"] or 0
+        lines.append(f"Connections: {n['ok'] or 0} succeeded, {failed} failed.")
+        if failed >= FAILED_MAX:
+            findings.append(f"{failed} connections failed, {FAILED_MAX} or more.")
     return lines, findings, gaps
 
 

@@ -140,7 +140,8 @@ pull request, or add it to both `--parameters` lines in `deploy.yml`.
 
 ## The deploy pipeline
 
-Two workflows live in `.github/workflows`:
+Two workflows build and deploy Dojo. Three more never touch the app: `pages.yml` and `site-links.yml` (the project site) and
+`lab-watch.yml` (the daily lab check, [below](#the-daily-lab-check)).
 
 - **`ci.yml`** runs on pull requests and on pushes to branches other than `main`. It runs the unit tests with
   `DOJO_LOCAL=1`, the secret scan, and `bicep build` of both templates. It has read-only rights.

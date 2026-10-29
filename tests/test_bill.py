@@ -253,6 +253,20 @@ class DatabaseRowTests(unittest.TestCase):
         _, some_use = self.database([sql(1, "vCore", 1.0, "2026-11"), sql(2, "Backup LRS Data Stored", 0.3, "2026-11")])
         self.assertEqual(some_use["kind"], "use", "an unidentified charge never turns a group into 'partly always on'")
 
+    def test_a_meter_that_is_new_under_an_old_label_is_waited_for_not_read_from_the_old_meters_days(self):
+        """Two Defender meters are both "Billed per server": the second begins on the 5th and must not borrow the first one's history."""
+        def defender(meter, days, cost):
+            return [{"day": f"2026-11-{d:02d}", "service": "Microsoft Defender for Cloud", "meter": meter, "cost": cost, "currency": "USD"} for d in days]
+        old = defender("Standard Node", range(1, 8), 0.64)
+        s = summarize(old + defender("SqlServers Standard", range(5, 8), 0.50))
+        group = next(g for g in s["groups"] if g["key"] == "defender")
+        self.assertEqual(group["parts"][0]["label"], "Billed per server")
+        self.assertIsNone(group["parts"][0]["per_month"], "the new meter has one complete day after its first one: not two yet")
+        self.assertIsNone(s["fixed"]["per_month"])
+        s = summarize(defender("Standard Node", range(1, 9), 0.64) + defender("SqlServers Standard", range(5, 9), 0.50))
+        self.assertEqual(next(g for g in s["groups"] if g["key"] == "defender")["parts"][0]["per_month"], round((0.64 + 0.50) * 30, 2),
+                         "each meter has its own rate; the part's is their sum")
+
     def test_what_an_always_on_line_costs_a_day_comes_from_its_complete_days(self):
         rate = bill_mod._daily_rate
         self.assertIsNone(rate({"2026-10-29": 0.08, "2026-10-30": 0.161, "2026-10-31": 0.161}, "2026-10-31", "2026-10-01"), "it began this month: its first day is left out")

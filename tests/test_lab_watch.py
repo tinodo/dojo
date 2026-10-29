@@ -168,6 +168,25 @@ class LabWatchTests(unittest.TestCase):
         self.assertIn("Needs the owner: The database is Paused, not Online.", out)
         self.assertIn("Also not read: The storage, the load and the connections could not be read (Azure answered HTTP 400).", out)
 
+    def test_a_metric_azure_could_not_answer_is_a_gap_and_not_a_zero(self):
+        for name, said_missing in (("connection_failed", "Connections:"), ("dtu_consumption_percent", "Load:"), ("storage_percent", "Storage:")):
+            with self.subTest(name):
+                metrics = healthy()
+                for m in metrics["value"]:
+                    if m["name"]["value"] == name:
+                        m["errorCode"], m["errorMessage"], m["timeseries"] = "BadRequest", f"failed for {SCOPE}", []
+                lines, status = run(Azure(metrics=metrics))
+                out = text(lines)
+                self.assertEqual(status, 2)
+                self.assertIn(f"Could not judge: Azure said it could not answer for {name}.", out)
+                self.assertNotIn(said_missing, out, "what Azure could not give is not reported as zero or as fine")
+                self.assertNotIn("Azure gave no", out, "one sentence for it, not two")
+                self.assertNothingSecret(out)
+        metrics = healthy()
+        for m in metrics["value"]:
+            m["errorCode"] = "Success"
+        self.assertEqual(run(Azure(metrics=metrics))[1], 0, "Success is what a good answer says")
+
     def test_a_database_of_another_tier_does_not_count_its_size_in_dtus(self):
         lines, _ = run(Azure(db=database(sku="GP_S_Gen5", capacity=2)))
         self.assertIn("State: Online. Tier: GP_S_Gen5; the template declares Basic.", lines)

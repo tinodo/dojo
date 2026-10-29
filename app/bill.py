@@ -114,6 +114,13 @@ def _daily_rate(days: dict[str, float], through: str, first_of_month: str) -> fl
     return full[len(full) // 2] if len(full) >= 2 else None
 
 
+def _part_rate(lines: dict, through: str, first_of_month: str) -> float | None:
+    """What a part costs a day: the sum of what each of its meters costs a day, every meter from its own days. A meter that is new under an
+    old label (two Defender meters are both "Billed per server") is waited for, not read from the history of the old one."""
+    rates = [_daily_rate(days, through, first_of_month) for days in lines.values() if sum(days.values()) >= 0.005]
+    return None if not rates or any(rate is None for rate in rates) else sum(rates)
+
+
 def summarize(rows: list[dict], previous: dict | None = None, link: str | None = None, budget_link: str | None = None) -> dict:
     """The Money tab's numbers from the lines of this month: per group and per day, what is always on, the quietest and the busiest days.
     `rows` have `day` (YYYY-MM-DD), `service`, `meter`, `cost` and `currency`."""
@@ -128,9 +135,10 @@ def summarize(rows: list[dict], previous: dict | None = None, link: str | None =
         g = groups.setdefault(group, {"total": 0.0, "parts": {}})
         g["total"] += r["cost"]
         label = part or GROUPS[group][0]
-        p = g["parts"].setdefault(label, {"total": 0.0, "kind": kind, "days": {}})
+        p = g["parts"].setdefault(label, {"total": 0.0, "kind": kind, "lines": {}})
         p["total"] += r["cost"]
-        p["days"][r["day"]] = p["days"].get(r["day"], 0.0) + r["cost"]
+        meter_days = p["lines"].setdefault((r["service"], r["meter"]), {})
+        meter_days[r["day"]] = meter_days.get(r["day"], 0.0) + r["cost"]
         days[r["day"]] = days.get(r["day"], 0.0) + r["cost"]
     last = max(days)
     first = date.fromisoformat(last[:8] + "01")
@@ -142,7 +150,7 @@ def summarize(rows: list[dict], previous: dict | None = None, link: str | None =
     total = round(sum(g["total"] for g in groups.values()), 2)
     for g in groups.values():
         for p in g["parts"].values():   # what a line that is always on costs a day, and so a month; a part that costs nothing has none
-            p["rate"] = _daily_rate(p["days"], last, first.isoformat()) if p["kind"] == "always" and p["total"] >= 0.005 else None
+            p["rate"] = _part_rate(p["lines"], last, first.isoformat()) if p["kind"] == "always" and p["total"] >= 0.005 else None
     out_groups = []
     for key, g in groups.items():
         parts = [{"label": label, "total": round(p["total"], 2), "kind": p["kind"],
