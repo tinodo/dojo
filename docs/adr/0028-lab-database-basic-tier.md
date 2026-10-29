@@ -81,7 +81,7 @@ the owner's switch (ADR 0023) stays, and with a database that never pauses, turn
 
 Step 1: Azure shows `useFreeLimit` false and the database online; `/healthz` reports the new build. Step 2: Azure shows the current service objective
 Basic and the database online; Azure's metrics show connections that succeed and none that fail (the start-up connection of team mode exists only when team
-mode is on, so it is not what is read); the owner presses the lab check on Health once. The daily check on GitHub (`lab-watch`, from step 2 on) reads the
+mode is on, so it is not what is read); the owner presses **Check lab connection now** on the How Dojo works page once. The daily check on GitHub (`lab-watch`, from step 2 on) reads the
 database's state, tier, storage, load and failed connections, and fails when one is wrong.
 
 ## Review triggers

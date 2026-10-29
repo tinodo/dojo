@@ -249,7 +249,7 @@ async function api(path, opts = {}) {
   if (signIn.banner && r.ok) { signIn.banner.remove(); signIn.banner = null; }  // signed in again in another tab
   if (!r.ok) {
     const d = data && data.detail;
-    const fail = (message) => Object.assign(new Error(message), { status: r.status });
+    const fail = (message) => Object.assign(new Error(message), { status: r.status }, data && data.kind === "sql" ? { kind: "sql", number: data.number } : {});
     if (typeof d === "string") throw fail(d);
     // Team Dojo (ADR 0009): a refusal with a code says which page to show (not_member, notice, removed, ...).
     if (d && typeof d === "object" && typeof d.code === "string") throw Object.assign(fail(String(d.message || "")), { code: d.code });
@@ -9334,6 +9334,31 @@ function examProgress(st) {
 
 // ---------------------------------------------------------------- hands-on Azure SQL labs
 
+// What a call to a lab says back. Each area holds the answer to the last press of its own buttons and replaces what was there: the status line under the
+// buttons and Results belong to a Run or a Reset, the Checker to a Check. They say whether it worked and, if not, why, in the database's own words when it
+// was the database that refused. These take what api() gave and return words, so tests can read them.
+const LAB_FAILED = "That did not work.";
+const LAB_AGAIN = "Change the SQL and run it again, or press Reset this lab to start from the beginning.";
+const LAB_EXISTS = "It is already there. Check it, then go on, or press Reset this lab to start over.";
+const LAB_SIMPLER = "Look at your tables, then try a smaller or simpler query.";
+// `e` is the error of api(): `kind` "sql" and `number` say that the database refused the SQL and with which error; `timedOut` says it ran too long.
+function labFailure(e) {
+  const sql = e.kind === "sql";
+  return { ok: false, status: LAB_FAILED, problem: (sql ? "The database said: " : "") + (e.message || "No reason came back. Try again."),
+    advice: sql ? (e.number === 2714 ? LAB_EXISTS : LAB_AGAIN) : e.timedOut ? LAB_SIMPLER : null };
+}
+// The local demo runs nothing: its own message ("Demo only. No SQL was executed.") says so and stays the status line.
+function labOutcome(r, limit, local) {
+  if (r.timed_out) return labFailure({ message: r.message, timedOut: true });
+  const said = (text) => (local && r.message ? r.message : text);
+  if (!r.columns.length) return { ok: true, status: said("Done."), empty: "Ran without errors. No result set came back." };
+  return { ok: true, status: said(r.truncated ? `Done. Showing the first ${limit} rows; there are more.` : `Done. ${plural(r.rows.length, "row")}.`),
+    none: r.rows.length ? null : "No rows were returned." };
+}
+// The editor is as tall as its text, so that the buttons and the answer under it stay on screen: 5 rows at least, 16 at most. This counts the lines he typed;
+// the page then adds the lines that its width wraps (see fit in viewLab).
+const labRows = (text) => Math.min(16, Math.max(5, String(text).split("\n").length + 3));
+
 async function viewLab(id) {
   if (state.pid !== "dp-800") {
     state.pid = "dp-800";
@@ -9344,15 +9369,44 @@ async function viewLab(id) {
   const lab = await api(`/api/labs/${id}`);
   const status = h("p", { class: "lab-message", role: "status", "aria-live": "polite" }, lab.local
     ? "Local demo: no database. Checks here cannot verify work." : "Authorized live-write sandbox. Only lab schema objects may be changed.");
-  const input = h("textarea", { id: "lab-sql", class: "lab-sql", "aria-label": "SQL editor", spellcheck: "false", rows: 14 }, lab.starter);
+  const say = (text, bad) => { status.className = bad ? "lab-message bad" : "lab-message"; status.textContent = text; };
+  const fit = () => {
+    input.rows = labRows(input.value);
+    while (input.rows < 16 && input.scrollHeight > input.clientHeight + 1) input.rows += 1;   // a long line that wraps needs its rows too
+  };
+  const input = h("textarea", { id: "lab-sql", class: "lab-sql", "aria-label": "SQL editor", spellcheck: "false", rows: labRows(lab.starter), oninput: fit }, lab.starter);
+  setTimeout(fit, 0);   // once the page has it, so that it can measure
   const output = h("div", { class: "lab-output" }, h("p", { class: "small muted" }, "Run a query to see results."));
-  const check = h("div", { class: "lab-check" }, h("p", { class: "small muted" }, "Dojo checks the database, not a screenshot. No lab fills a pip."));
+  const checkStart = () => h("p", { class: "small muted" }, "Dojo checks the database, not a screenshot. No lab fills a pip.");
+  const check = h("div", { class: "lab-check", role: "status", "aria-live": "polite" }, checkStart());
+  let checkAtStart = true;   // a live region says what changes in it: it is set back to its start text only when it holds something else
+  const checkPut = (...kids) => { checkAtStart = false; put(check, ...kids); };
+  const checkClear = () => { if (!checkAtStart) { checkAtStart = true; put(check, checkStart()); } };
   const hints = h("div", { class: "lab-hints" });
+  // The summary line, the Results heading and the results are one block: bringing it into view shows all three.
+  const feedback = h("div", { class: "lab-feedback" }, status, h("h3", null, "Results"), output);
   const setBusy = (busy) => { for (const b of controls.querySelectorAll("button")) b.disabled = busy; };
-  const call = async (kind, body) => {
+  const notice = (o) => h("div", { class: "lab-notice", role: "alert" }, h("p", null, o.problem), o.advice ? h("p", { class: "advice" }, o.advice) : null);
+  const showRun = (r, o) => {
+    say(o.status, !o.ok);
+    if (!o.ok) return put(output, notice(o));
+    if (o.empty) return put(output, h("p", { class: "small muted" }, o.empty));
+    put(output, h("div", { class: "lab-scroll" }, h("table", { class: "lab-table" },
+      h("thead", null, h("tr", null, r.columns.map((x) => h("th", null, x)))),
+      h("tbody", null, r.rows.map((row) => h("tr", null, row.map((v) => h("td", null, v == null ? "NULL" : v))))))),
+    o.none ? h("p", { class: "small muted" }, o.none) : null);
+  };
+  const call = async (kind, body, from) => {
     setBusy(true);
-    status.textContent = lab.local ? "Running the local demo…" : kind === "check" ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…";
+    const checking = kind === "check";
+    // A Check speaks in the Checker, and leaves the status line and Results to the last Run or Reset. What was shown before is not the answer to this call:
+    // a Run or a Reset changes the lab, so a check from before it no longer describes the lab.
+    const tell = (text) => (checking ? checkPut(h("p", { class: "small muted" }, text)) : say(text));
+    tell(lab.local ? "Running the local demo…" : checking ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…");
+    if (checking) check.scrollIntoView({ block: "nearest" });   // where the answer will come
+    else { put(output, h("p", { class: "small muted" }, lab.local ? "Running the local demo…" : "Waiting for the database…")); checkClear(); }
     const deadline = Date.now() + 120000;
+    let answer = feedback;   // what the page scrolls to when the call is done: the answer, wherever it was put
     try {
       let r;
       while (true) {
@@ -9362,26 +9416,27 @@ async function viewLab(id) {
         } catch (e) {
           if (lab.local || e.status !== 503 || !e.message.startsWith("The lab database did not answer")) throw e;
           if (Date.now() + 10000 >= deadline) throw new Error("Could not reach the database after about two minutes. Try again.");
-          status.textContent = "The lab database did not answer. Trying again…";
+          tell("The lab database did not answer. Trying again…");
           await sleep(10000);
         }
       }
-      status.textContent = r.message || "Done.";
-      if (kind === "run") {
-        const table = h("table", { class: "lab-table" },
-          h("thead", null, h("tr", null, r.columns.map((x) => h("th", null, x)))),
-          h("tbody", null, r.rows.map((row) => h("tr", null, row.map((v) => h("td", null, v == null ? "NULL" : v))))));
-        put(output, r.columns.length ? h("div", { class: "lab-scroll" }, table)
-          : h("p", { class: "small muted" }, "SQL completed. No result set."),
-        r.truncated ? h("p", { class: "small muted" }, `Showing only the first ${lab.limits.rows} rows.`) : null);
+      if (kind === "run") showRun(r, labOutcome(r, lab.limits.rows, lab.local));
+      if (kind === "reset") { say(r.message || "Done."); put(output, h("p", { class: "small muted" }, "This lab is back at its starting state."), h("p", { class: "small muted" }, "You can run SQL again.")); }
+      if (checking) {
+        checkPut(h("h3", null, lab.local ? (r.passed ? "Demo pattern matched" : "Demo pattern not matched") : r.passed ? "Verified in Azure SQL" : "Not yet"),
+          h("p", null, r.message), r.conditions ? h("p", { class: "small muted" },
+            `${r.conditions.runs} runs · ${r.conditions.hints_shown} hints shown · ${r.conditions.coach_answers} coach answers. Practice only: no pip.`) : null);
+        answer = check;
       }
-      if (kind === "check") put(check, h("h3", null, lab.local ? (r.passed ? "Demo pattern matched" : "Demo pattern not matched") : r.passed ? "Verified in Azure SQL" : "Not yet"),
-        h("p", null, r.message), r.conditions ? h("p", { class: "small muted" },
-          `${r.conditions.runs} runs · ${r.conditions.hints_shown} hints shown · ${r.conditions.coach_answers} coach answers. Practice only: no pip.`) : null);
-      if (kind === "reset") put(output, h("p", { class: "small muted" }, "This lab is back at its starting state."), h("p", { class: "small muted" }, "You can run SQL again."));
     } catch (e) {
-      status.textContent = e.message;
-    } finally { setBusy(false); }
+      const o = labFailure(e);
+      if (checking) { checkPut(notice(o)); answer = check; }
+      else showRun(null, o);   // a run or a reset: its failure goes where its results would
+    } finally {
+      setBusy(false);
+      if (from) from.focus({ preventScroll: true });   // a button that was disabled while the call ran gives its focus up
+      answer.scrollIntoView({ block: "nearest" });
+    }
   };
   const reveal = async (index) => {
     setBusy(true);
@@ -9389,21 +9444,21 @@ async function viewLab(id) {
       const r = await api(`/api/labs/${id}/hint`, { method: "POST", body: { index } });
       hints.append(h("p", { class: "note" }, r.hint));
       hintButtons[index].remove();
-      status.textContent = "Hint shown. This is practice with help.";
-    } catch (e) { status.textContent = e.message; }
+      say("Hint shown. This is practice with help.");
+    } catch (e) { say(e.message, true); }
     finally { setBusy(false); }
   };
   const hintButtons = Array.from({ length: lab.hint_count }, (_, index) => button(`Show hint ${index + 1}`, () => reveal(index), "ghost sm"));
-  const reset = button("Reset this lab", () => {
+  const reset = button("Reset this lab", (ev) => {
     if (!window.confirm(`Reset ${lab.schema}? Everything you made in this lab goes and the starting tables come back. Nothing outside ${lab.schema} is touched. This cannot be undone.`)) return;
-    call("reset");
+    call("reset", undefined, ev && ev.currentTarget);
   }, "ghost sm");
-  const controls = h("div", { class: "actions top" }, button("Run SQL", () => {
+  const controls = h("div", { class: "actions top" }, button("Run SQL", (ev) => {
     const destructive = /\b(DROP|TRUNCATE|DELETE|ALTER)\b/i.test(input.value);
     if (destructive && !window.confirm(`This SQL may change or remove objects in ${lab.schema}. Run it?`)) return;
-    call("run", { sql: input.value, confirm_destructive: destructive });
+    call("run", { sql: input.value, confirm_destructive: destructive }, ev && ev.currentTarget);
   }, "amber"),
-    button("Check my work", () => call("check"), "ghost"), reset);
+    button("Check my work", (ev) => call("check", undefined, ev && ev.currentTarget), "ghost"), reset);
   return [h("nav", { class: "crumb" }, h("a", { href: "#/skills" }, "Course"), " › ",
     h("a", { href: `#/skill/dp-800/${lab.skill}` }, "DP-800 skill"), " › Lab"),
     pageHead(lab.title, lab.goal, eyebrow("target", "Lab · DP-800 · Azure SQL"), helpQ("labs-dp-800")),
@@ -9421,7 +9476,7 @@ async function viewLab(id) {
           return h("p", null, ext(s.url, s.title), changed ? [" ", changed] : null);
         })),
       h("section", { class: "panel lab-editor" }, h("label", { for: "lab-sql" }, "SQL · one batch, 8 KB max, 20 s timeout"), input,
-        controls, status, h("h3", null, "Results"), output),
+        controls, feedback),
       panel(eyebrow("check", "Checker"), check,
         h("p", { class: "small muted" }, "The app sets up and checks as its managed identity. Your SQL runs on a fresh, unpooled connection as your own lab runner, which reaches only your schema for this lab. Write table names plain (Products) or with your schema. Outside help cannot be observed. Technical errors are never misses.")))];
 }

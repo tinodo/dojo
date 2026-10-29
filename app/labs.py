@@ -183,6 +183,57 @@ def sql_error_reason(exc: Exception) -> str:
     return "database error"
 
 
+# The header of one diagnostic of the database as the driver gives it: "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]" (the driver itself drops the
+# middle group). Only a text that starts with it is a message of the database; the same words further in are only words.
+DIAGNOSTIC_HEADER = re.compile(r"\s*(?:\[(?:Microsoft|ODBC Driver [^\]]*)\])*\[SQL Server\]\s*")
+
+
+def database_said(exc: Exception) -> tuple[str, int | None] | None:
+    """What the database itself said about a statement it refused, without the driver's wrapping: (its sentences, its error number), or None when
+    the failure carries no message of the database (a driver or connection fault: the text then says nothing about the SQL). Its words are kept as
+    they are, quoted spaces and brackets included; only line breaks become spaces, and a message of more than 400 characters ends in "…"."""
+    text = str(exc)
+    text = text.split("DDBC Error:", 1)[1] if "DDBC Error:" in text else ""
+    sentences, number = [], None
+    for part in re.split(r";\s*(?=\[Microsoft\])", text):
+        header = DIAGNOSTIC_HEADER.match(part)
+        if not header:
+            continue
+        part = re.sub(r"\s*\(SQL[A-Za-z]+\)\s*$", "", part[header.end():])
+        found = re.search(r"\s*\((\d{1,6})\)\s*$", part)
+        if found:
+            number = number or int(found.group(1))
+            part = part[:found.start()]
+        part = re.sub(r"\s*[\r\n]+\s*", " ", part).strip()
+        if part:
+            sentences.append(part)
+    if not sentences:
+        return None
+    said = " ".join(sentences)
+    return (said if len(said) <= 400 else said[:399].rstrip() + "…", number)
+
+
+NO_MESSAGE = "No message came back from the database."
+
+
+def said_in_words(said: tuple[str, int | None]) -> str:
+    """"There is already an object named 'Products' in the database. (error 2714)": the sentence, and the number when there is one."""
+    return said[0] + (f" (error {said[1]})" if said[1] else "")
+
+
+class SqlRefused(UserError):
+    """The database refused a learner's SQL, and said why: the text is its sentence and its error number (`number`). The lab page words this, a fault in
+    the SQL, differently from a refusal before the SQL was sent or from a failure that carries no message of the database."""
+    def __init__(self, said: tuple[str, int | None]):
+        super().__init__(said_in_words(said))
+        self.number = said[1]
+
+
+def database_message(exc: Exception) -> str:
+    said = database_said(exc)
+    return said_in_words(said) if said else NO_MESSAGE
+
+
 def monitoring_state(rows: list) -> str | None:
     """What a read of the property says: "on", "off", "unset" (no such property) or None (a value that is neither)."""
     if not rows:
@@ -193,7 +244,9 @@ def monitoring_state(rows: list) -> str | None:
 
 
 def validate(sql: str) -> str:
-    if not sql.strip() or len(sql.encode("utf-8")) > MAX_SQL:
+    if not sql.strip():
+        raise UserError("Enter some SQL to run.")
+    if len(sql.encode("utf-8")) > MAX_SQL:
         raise UserError("Enter SQL up to 8 KB.")
     if re.search(r"(?im)^\s*GO(?:\s+\d+)?\s*$", sql) or sql.count(";") > MAX_BATCH:
         raise UserError("Use one SQL batch, up to 20 statements. GO is not supported.")
@@ -282,7 +335,10 @@ class SqlRunner:
                 if is_query_timeout(exc):
                     return {"columns": [], "rows": [], "truncated": False,
                             "message": "Your query ran longer than 20 seconds.", "timed_out": True}
-                raise UserError(f"SQL error: {str(exc)[:500]}") from None
+                said = database_said(exc)
+                if said is None:
+                    raise UserError(f"The run could not be completed. {NO_MESSAGE}") from None
+                raise SqlRefused(said) from None
             conn.commit()
             return result
 

@@ -179,6 +179,30 @@ delete the billable endpoint and DNS zone.** Incremental deployment **does not d
 resources automatically. Verify all three charges stop; do not delete the existing
 app, identity, AI resource, or learner Record. Export the Record before deleting it if desired.
 
+## Amendment: what the lab page says back (29 October 2026)
+
+After he ran the vector lab's starter twice, the owner said: "I don't like the way the feedback from the database is handled." The second run was refused
+(error 2714, the table was already there). The page showed the driver's whole text in a small line, left the result of the first run beside it, and, with an
+editor at least 18 rem tall, had both below the fold on a laptop. The rules since, read as a spec by two reviewers of different model families and tested
+in node (`tests/test_lab_page.py` runs the real `viewLab`) and in `tests/test_labs.py`:
+
+- **One label for every failure: "That did not work."** It claims nothing about whether part of the SQL ran (a batch that fails half way, or a query stopped
+  after 20 seconds, did run). The area of the button he pressed says the rest, and **replaces** what was there: Results for a Run or a Reset, the Checker for a
+  Check. A Run or a Reset also empties Results when it starts and sets the Checker back, because a check from before no longer describes the lab.
+- **The database's own sentence and its error number**: "The database said: There is already an object named 'Products' in the database. (error 2714)". Never
+  the driver's wrapping. It counts as the database's only when the driver's text has the `[SQL Server]` part (`labs.database_said`); without it the page says
+  "The run could not be completed. No message came back from the database." The 422 answer of a refused run carries `kind: "sql"` and `number` (`SqlRefused`).
+- **A second line only where it is true**: after a refusal by the database ("Fix the SQL and run it again, or press Reset this lab to start from the
+  beginning."; for 2714 "Leave out the statement that made it and run the next one, or press Reset this lab to start over.") and after a timeout ("Try a
+  smaller or simpler query, ..."). Not after a refusal before the SQL was sent, a database that was not reached, or a Check or Reset: their sentence says what
+  to do.
+- **A Check that the database refuses** (a column of the wrong type in his own table) is a 422 "The check could not run: ..." and is not recorded, no longer a
+  503 "The database is unavailable". A Reset that fails says the database's sentence too. An empty editor, or more than 8 KB, reaches `validate()` and gets
+  a plain sentence ("Enter some SQL to run.", "Enter SQL up to 8 KB."); `LabSql` only stops a body of more than 100,000 characters.
+- **The summary line, the "Results" heading and the results are one block**, scrolled into view when a Run or a Reset is done; a Check scrolls to the Checker.
+  The editor is as tall as its text (5 to 16 rows) and the button he pressed gets its focus back.
+- The guard that says "up to 20 statements" counts semicolons, including those inside a string. Its sentence is unchanged: a known imprecision, not part of this change.
+
 Sources: [SQL free offer](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer),
 [free offer FAQ](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer-faq),
 [serverless auto-pause](https://learn.microsoft.com/en-us/azure/azure-sql/database/serverless-tier-overview),

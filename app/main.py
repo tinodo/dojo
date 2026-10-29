@@ -60,7 +60,7 @@ from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
 from .learning import Dojo, dispute_review_refusal
-from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRunner, is_unavailable, sql_error_reason
+from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRefused, SqlRunner, database_message, is_unavailable, sql_error_reason
 from .mirror import Mirror
 from .newexam import NewExams
 from .packages import Packages
@@ -260,7 +260,7 @@ class DeleteRequest(BaseModel):
     confirm: Literal["DELETE"]
 
 class LabSql(BaseModel):
-    sql: str = Field(min_length=1, max_length=8000)
+    sql: str   # no limit here: labs.validate() says the limits (8 KB, 20 statements) in words, and a validation dump of the framework would not
     confirm_destructive: bool = False
 
 class LabHint(BaseModel):
@@ -762,7 +762,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
 
     @app.exception_handler(UserError)
     async def user_error(request: Request, exc: UserError):
-        return JSONResponse({"detail": str(exc)}, status_code=422)
+        body = {"detail": str(exc)}
+        if isinstance(exc, SqlRefused):
+            body.update(kind="sql", number=exc.number)   # the lab page words a fault in the SQL differently from a refusal before it was sent
+        return JSONResponse(body, status_code=422)
 
     @app.exception_handler(Refused)
     async def refused(request: Request, exc: Refused):
@@ -1233,7 +1236,13 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise
         except Exception as exc:
             log.warning("lab check unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
+            if is_unavailable(exc):
+                raise HTTPException(503, f"{NO_ANSWER} Try again in a minute.") from exc
+            from mssql_python import Error as SqlDriverError
+            if isinstance(exc, SqlDriverError):
+                # The check reads the learner's own table: a column of the wrong type makes the database refuse the check, which is not an outage and not a miss.
+                raise HTTPException(422, f"The check could not run: {database_message(exc)}") from exc
+            raise HTTPException(503, "The database is unavailable. Try again.") from exc
         if not lab_demo:
             events = store.events(learner.key)
             previous = next((i for i in range(len(events) - 1, -1, -1) if events[i]["type"] == "lab.reset"
@@ -1268,7 +1277,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
                 raise HTTPException(503, f"{NO_ANSWER} No reset was recorded.") from exc
             from mssql_python import Error as SqlDriverError
             if isinstance(exc, SqlDriverError):
-                raise HTTPException(422, f"Reset failed: {str(exc)[:500]}") from exc
+                raise HTTPException(422, f"Reset failed: {database_message(exc)}") from exc
             raise HTTPException(503, "The database is unavailable. No reset was recorded.") from exc
         store.append_event(learner.key, "lab.reset", {"package": "dp-800", "skill": LABS[lab]["skill"], "lab": lab,
                            "local_demo": lab_demo})
