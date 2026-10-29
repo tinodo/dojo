@@ -4,9 +4,10 @@ Run weekly by .github/workflows/site-links.yml (ADR 0027). It looks at the addre
 docs.github.com only: the exam pages and study guides come from the package files, and Microsoft moves them now and then.
 Links to this repository are checked against the files themselves by tests/test_site.py, not over the network.
 
-A run fails on a connection error, on any final answer that is not 2xx (other than 403, 429 and 5xx, which only say that
-the other side is busy or refuses a robot), and when an address now ends up at a different page after its redirects
-(for example a study guide replaced by an overview). Those three kinds of answer are reported but do not fail the run.
+A run fails on a connection error, on any final answer that is not 2xx (other than 403, 429 and 5xx, which are reported
+as inconclusive because they only say that the other side is busy or refuses a robot), and when an address now ends up
+at a different page after its redirects: another host or another path, for example a study guide replaced by an
+overview. A query string, a trailing slash, capital letters and the English language prefix do not make another page.
 """
 from __future__ import annotations
 
@@ -45,8 +46,16 @@ def collect(site: Path) -> list[str]:
     return sorted(out)
 
 
-def last_segment(url: str) -> str:
-    return urlparse(url).path.rstrip("/").rsplit("/", 1)[-1].lower()
+LOCALES = {"en", "en-us"}
+
+
+def page_of(url: str) -> tuple[str, str]:
+    """Host and full path of an address, without query, fragment, trailing slash, case or the English language prefix."""
+    parts = urlparse(url)
+    segments = [s for s in parts.path.lower().split("/") if s]
+    if segments and segments[0] in LOCALES:
+        segments = segments[1:]
+    return (parts.hostname or "").lower(), "/".join(segments)
 
 
 def judge(url: str, status: int | None, final_url: str | None) -> tuple[str, str]:
@@ -57,7 +66,7 @@ def judge(url: str, status: int | None, final_url: str | None) -> tuple[str, str
         return "inconclusive", f"HTTP {status}"
     if not 200 <= status <= 299:
         return "fail", f"HTTP {status}"
-    if last_segment(url) != last_segment(final_url or url):
+    if page_of(url) != page_of(final_url or url):
         return "fail", f"now ends at {final_url}, a different page"
     return "ok", ""
 

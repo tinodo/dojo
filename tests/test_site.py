@@ -416,7 +416,13 @@ class TheLinkCheck(unittest.TestCase):
         guide = "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-300"
         self.assertEqual(judge(guide, 200, guide)[0], "ok")
         self.assertEqual(judge(guide, 200, guide + "?view=x")[0], "ok", "a query string is not another page")
+        self.assertEqual(judge(guide, 200, guide + "/")[0], "ok", "a trailing slash is not another page")
+        self.assertEqual(judge(guide, 200, guide.replace("/en-us", ""))[0], "ok", "the English language prefix is not another page")
+        self.assertEqual(judge(guide.replace("/en-us", ""), 200, guide)[0], "ok", "an address without the prefix that is sent to it")
         self.assertEqual(judge(guide, 200, "https://learn.microsoft.com/en-us/credentials/")[0], "fail", "replaced by an overview page")
+        self.assertEqual(judge(guide, 200, "https://learn.microsoft.com/en-us/credentials/certifications/gh-300")[0], "fail", "same last word, another page")
+        self.assertEqual(judge(guide, 200, guide.replace("learn.microsoft.com", "example.com"))[0], "fail", "same path on another host")
+        self.assertEqual(judge(guide, 200, guide.replace("/en-us", "/de-de"))[0], "fail", "another language is another page")
         for status in (404, 410, 401, 400):
             self.assertEqual(judge(guide, status, guide)[0], "fail", str(status))
         for status in (403, 429, 500, 503):
