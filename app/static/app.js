@@ -9338,7 +9338,7 @@ function examProgress(st) {
 // buttons and Results belong to a Run or a Reset, the Checker to a Check. They say whether it worked and, if not, why, in the database's own words when it
 // was the database that refused. These take what api() gave and return words, so tests can read them.
 const LAB_FAILED = "That did not work.";
-const LAB_AGAIN = "Change the SQL and run it again, or press Reset this lab to start from the beginning.";
+const LAB_AGAIN = "Read the message, then change the SQL or try again, or press Reset this lab to start from the beginning.";
 const LAB_EXISTS = "It is already there. Check it, then go on, or press Reset this lab to start over.";
 const LAB_SIMPLER = "Look at your tables, then try a smaller or simpler query.";
 // `e` is the error of api(): `kind` "sql" and `number` say that the database refused the SQL and with which error; `timedOut` says it ran too long.
@@ -9369,6 +9369,7 @@ async function viewLab(id) {
   const lab = await api(`/api/labs/${id}`);
   const status = h("p", { class: "lab-message", role: "status", "aria-live": "polite" }, lab.local
     ? "Local demo: no database. Checks here cannot verify work." : "Authorized live-write sandbox. Only lab schema objects may be changed.");
+  const idleStatus = status.textContent, idleResults = () => h("p", { class: "small muted" }, "Run a query to see results.");
   const say = (text, bad) => { status.className = bad ? "lab-message bad" : "lab-message"; status.textContent = text; };
   const fit = () => {
     input.rows = labRows(input.value);
@@ -9376,7 +9377,7 @@ async function viewLab(id) {
   };
   const input = h("textarea", { id: "lab-sql", class: "lab-sql", "aria-label": "SQL editor", spellcheck: "false", rows: labRows(lab.starter), oninput: fit }, lab.starter);
   setTimeout(fit, 0);   // once the page has it, so that it can measure
-  const output = h("div", { class: "lab-output" }, h("p", { class: "small muted" }, "Run a query to see results."));
+  const output = h("div", { class: "lab-output" }, idleResults());
   const checkStart = () => h("p", { class: "small muted" }, "Dojo checks the database, not a screenshot. No lab fills a pip.");
   const check = h("div", { class: "lab-check", role: "status", "aria-live": "polite" }, checkStart());
   let checkAtStart = true;   // a live region says what changes in it: it is set back to its start text only when it holds something else
@@ -9385,9 +9386,13 @@ async function viewLab(id) {
   const hints = h("div", { class: "lab-hints" });
   // The summary line, the Results heading and the results are one block: bringing it into view shows all three.
   const feedback = h("div", { class: "lab-feedback" }, status, h("h3", null, "Results"), output);
+  let held = 0;   // the calls that hold the buttons: a hint that finishes must not release the buttons of a Run that has not
+  const hold = (on) => { held += on ? 1 : -1; setBusy(held > 0); };
   const setBusy = (busy) => { for (const b of controls.querySelectorAll("button")) b.disabled = busy; };
   const notice = (o) => h("div", { class: "lab-notice", role: "alert" }, h("p", null, o.problem), o.advice ? h("p", { class: "advice" }, o.advice) : null);
+  let runFailed = false;   // Results holds the notice of a Run or a Reset that failed: a failure is news only until the next press
   const showRun = (r, o) => {
+    runFailed = !o.ok;
     say(o.status, !o.ok);
     if (!o.ok) return put(output, notice(o));
     if (o.empty) return put(output, h("p", { class: "small muted" }, o.empty));
@@ -9397,14 +9402,16 @@ async function viewLab(id) {
     o.none ? h("p", { class: "small muted" }, o.none) : null);
   };
   const call = async (kind, body, from) => {
-    setBusy(true);
+    hold(true);
     const checking = kind === "check";
-    // A Check speaks in the Checker, and leaves the status line and Results to the last Run or Reset. What was shown before is not the answer to this call:
-    // a Run or a Reset changes the lab, so a check from before it no longer describes the lab.
+    // A Check speaks in the Checker, and leaves the status line and Results to the last Run or Reset, unless that one failed: its failure is not the news now.
+    // What was shown before is not the answer to this call: a Run or a Reset changes the lab, so a check from before it no longer describes the lab.
     const tell = (text) => (checking ? checkPut(h("p", { class: "small muted" }, text)) : say(text));
     tell(lab.local ? "Running the local demo…" : checking ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…");
-    if (checking) check.scrollIntoView({ block: "nearest" });   // where the answer will come
-    else { put(output, h("p", { class: "small muted" }, lab.local ? "Running the local demo…" : "Waiting for the database…")); checkClear(); }
+    if (checking) {
+      if (runFailed) { runFailed = false; say(idleStatus); put(output, idleResults()); }
+      check.scrollIntoView({ block: "nearest" });   // where the answer will come
+    } else { runFailed = false; put(output, h("p", { class: "small muted" }, lab.local ? "Running the local demo…" : "Waiting for the database…")); checkClear(); }
     const deadline = Date.now() + 120000;
     let answer = feedback;   // what the page scrolls to when the call is done: the answer, wherever it was put
     try {
@@ -9433,20 +9440,20 @@ async function viewLab(id) {
       if (checking) { checkPut(notice(o)); answer = check; }
       else showRun(null, o);   // a run or a reset: its failure goes where its results would
     } finally {
-      setBusy(false);
+      hold(false);
       if (from) from.focus({ preventScroll: true });   // a button that was disabled while the call ran gives its focus up
       answer.scrollIntoView({ block: "nearest" });
     }
   };
   const reveal = async (index) => {
-    setBusy(true);
+    hold(true);
     try {
       const r = await api(`/api/labs/${id}/hint`, { method: "POST", body: { index } });
       hints.append(h("p", { class: "note" }, r.hint));
       hintButtons[index].remove();
       say("Hint shown. This is practice with help.");
     } catch (e) { say(e.message, true); }
-    finally { setBusy(false); }
+    finally { hold(false); }
   };
   const hintButtons = Array.from({ length: lab.hint_count }, (_, index) => button(`Show hint ${index + 1}`, () => reveal(index), "ghost sm"));
   const reset = button("Reset this lab", (ev) => {

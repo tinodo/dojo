@@ -195,7 +195,7 @@ def database_said(exc: Exception) -> tuple[str, int | None] | None:
     text = str(exc)
     text = text.split("DDBC Error:", 1)[1] if "DDBC Error:" in text else ""
     sentences, number = [], None
-    for part in re.split(r";\s*(?=\[Microsoft\])", text):
+    for part in re.split(r";\s*(?=\[Microsoft\]\[)", text):
         header = DIAGNOSTIC_HEADER.match(part)
         if not header:
             continue
@@ -335,6 +335,8 @@ class SqlRunner:
                 if is_query_timeout(exc):
                     return {"columns": [], "rows": [], "truncated": False,
                             "message": "Your query ran longer than 20 seconds.", "timed_out": True}
+                if is_unavailable(exc):
+                    raise   # the database went away under the statement: not a fault in the SQL. lab_run says so (a 503) and the page asks again; nothing was committed
                 said = database_said(exc)
                 if said is None:
                     raise UserError(f"The run could not be completed. {NO_MESSAGE}") from None

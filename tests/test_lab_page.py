@@ -58,7 +58,7 @@ const context = vm.createContext({
   pageHead: (title, sub) => h("div", { class: "pageh" }, title, sub), helpQ: () => null, driftNote: () => null, pageChange: () => null,
   ext: (href, label) => h("a", { href }, label), $: () => ({}), renderHeader: () => {}, renderSide: () => {},
   sleep: async () => { seen.push({ status: statusLine().textContent.trim(), results: words(output()), checker: words(checker()) }); },
-  api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (a instanceof Error) throw a; return a; },
+  api: async (path, opts) => { calls.push([path, opts && opts.method, opts && opts.body]); const a = answers.shift(); if (typeof a === "function") return a(); if (a instanceof Error) throw a; return a; },
 });
 vm.runInContext(LABS + "\nthis.part = { LAB_FAILED, LAB_AGAIN, LAB_EXISTS, LAB_SIMPLER, labFailure, labOutcome, labRows, viewLab };", context);
 const P = context.part;
@@ -104,7 +104,7 @@ def run_node(script: str) -> object:
 
 DRIVER_NOISE = ("Driver Error", "DDBC Error", "[Microsoft]", "SQLExecDirectW", "SQL error", "SQL completed", "This SQL did not run")
 START = "Dojo checks the database, not a screenshot. No lab fills a pip."
-AGAIN = "Change the SQL and run it again, or press Reset this lab to start from the beginning."
+AGAIN = "Read the message, then change the SQL or try again, or press Reset this lab to start from the beginning."
 EXISTS = "It is already there. Check it, then go on, or press Reset this lab to start over."
 SIMPLER = "Look at your tables, then try a smaller or simpler query."
 
@@ -292,7 +292,33 @@ class LabPageTests(unittest.TestCase):
         self.assertEqual(out["runs"], 3)
         self.assertEqual((out["snap"]["status"], out["snap"]["notices"], out["snap"]["tables"]), ("Done. 1 row.", 0, 1))
 
-    def test_a_check_speaks_in_the_checker_and_leaves_the_status_line_and_the_results_to_the_last_run(self):
+    def test_a_failure_of_a_run_or_a_reset_is_not_the_news_any_more_when_a_check_starts(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  await open();
+  answers.push(failure("The database is unavailable. Try again.", 503)); await press("Run SQL");
+  got.failedRun = snapshot();
+  answers.push(passed); await press("Check my work");
+  got.afterCheck = snapshot();
+  answers.push(rows(2)); await press("Run SQL");
+  answers.push(failure("Reset failed: Cannot drop a system-versioned table (error 13552)", 422)); await press("Reset this lab");
+  got.failedReset = snapshot();
+  answers.push({ passed: false, message: "Not yet. Check your table or saved results." }); await press("Check my work");
+  got.afterCheck2 = snapshot();
+  console.log(JSON.stringify(got));
+})();
+""")
+        idle = "Authorized live-write sandbox. Only lab schema objects may be changed."
+        self.assertEqual((out["failedRun"]["status"], out["failedRun"]["notices"]), ("That did not work.", 1))
+        for key in ("afterCheck", "afterCheck2"):
+            got = out[key]
+            self.assertEqual((got["status"], got["statusClass"], got["results"], got["notices"], got["tables"]), (idle, "lab-message", "Run a query to see results.", 0, 0), key)
+        self.assertIn("Verified in Azure SQL", out["afterCheck"]["checker"])
+        self.assertIn("Not yet", out["afterCheck2"]["checker"])
+        self.assertEqual(out["failedReset"]["notices"], 1)
+
+    def test_a_check_leaves_the_results_of_a_run_that_worked(self):
         out = run_node("""
 (async () => {
   const got = {};
@@ -375,6 +401,38 @@ class LabPageTests(unittest.TestCase):
         self.assertEqual((failed["status"], failed["statusClass"], failed["tables"], failed["notices"]), ("That did not work.", "lab-message bad", 0, 1))
         self.assertEqual(failed["results"], "Reset failed: Cannot drop a system-versioned table (error 13552)")
         self.assertEqual((out["confirms"], out["scrolled"]), (1, 2))
+
+    def test_a_hint_that_finishes_does_not_release_the_buttons_of_a_run_that_has_not(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  await open();
+  const controls = () => ["Run SQL", "Check my work", "Reset this lab"].map((label) => button(label).disabled);
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  answers.push(() => gate.then(() => rows(3)));      // the Run, with its answer still on the way
+  button("Run SQL").press(); await tick();
+  got.running = controls();
+  answers.push({ hint: "Think about the type." });
+  button("Show hint 1").press(); await tick(); await tick();
+  got.afterHint = controls();
+  got.hintShown = words(all(view, isCls("lab-hints"))[0]);
+  got.statusWhileRunning = statusLine().textContent.trim();
+  release(); await tick(); await tick();
+  got.finished = controls();
+  got.final = snapshot();
+  answers.push({ hint: "Another." });
+  button("Show hint 2").press(); await tick(); await tick();
+  got.afterSecondHint = controls();
+  console.log(JSON.stringify(got));
+})();
+""")
+        self.assertEqual(out["running"], [True, True, True])
+        self.assertEqual(out["afterHint"], [True, True, True], "the Run has not answered: its buttons stay held, or a second press is answered by 'already running'")
+        self.assertEqual(out["hintShown"], "Think about the type.")
+        self.assertEqual(out["finished"], [False, False, False])
+        self.assertEqual((out["final"]["status"], out["final"]["tables"], out["final"]["notices"]), ("Done. 3 rows.", 1, 0))
+        self.assertEqual(out["afterSecondHint"], [False, False, False], "with nothing running, a hint leaves the buttons free")
 
     def test_the_button_gets_its_focus_back_and_nothing_stays_disabled(self):
         out = run_node("""

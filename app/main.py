@@ -60,7 +60,7 @@ from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
 from .learning import Dojo, dispute_review_refusal
-from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRefused, SqlRunner, database_message, is_unavailable, sql_error_reason
+from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRefused, SqlRunner, database_message, database_said, is_unavailable, said_in_words, sql_error_reason
 from .mirror import Mirror
 from .newexam import NewExams
 from .packages import Packages
@@ -1239,9 +1239,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             if is_unavailable(exc):
                 raise HTTPException(503, f"{NO_ANSWER} Try again in a minute.") from exc
             from mssql_python import Error as SqlDriverError
-            if isinstance(exc, SqlDriverError):
+            said = database_said(exc) if isinstance(exc, SqlDriverError) else None
+            if said:
                 # The check reads the learner's own table: a column of the wrong type makes the database refuse the check, which is not an outage and not a miss.
-                raise HTTPException(422, f"The check could not run: {database_message(exc)}") from exc
+                raise HTTPException(422, f"The check could not run: {said_in_words(said)}") from exc
             raise HTTPException(503, "The database is unavailable. Try again.") from exc
         if not lab_demo:
             events = store.events(learner.key)

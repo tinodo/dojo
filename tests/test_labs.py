@@ -203,6 +203,24 @@ class SqlBoundaryTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(database_said(sqlstate_to_exception("08001", text)))
 
+    def test_words_of_the_database_that_look_like_the_drivers_are_kept(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        driver = "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        quoted = sqlstate_to_exception("23000", driver + "The duplicate key value is (A; [Microsoft] B). (2627) (SQLExecDirectW)")
+        self.assertEqual(database_said(quoted), ("The duplicate key value is (A; [Microsoft] B).", 2627))
+        joined = sqlstate_to_exception("23000", driver + "First (A; [Microsoft] B). (2627) (SQLExecDirectW); " + driver + "Second. (3621)")
+        self.assertEqual(database_said(joined), ("First (A; [Microsoft] B). Second.", 2627), "the next diagnostic still starts at its own header")
+
+    def test_a_database_that_goes_away_under_a_statement_is_not_a_refusal_of_the_sql(self):
+        error = paused_error()
+        with mock.patch.object(self.runner, "execute", side_effect=error), self.assertLogs("dojo.labs", "WARNING"):
+            with self.assertRaises(Exception) as caught:
+                self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+        self.assertIs(caught.exception, error, "lab_run answers it with a 503, and the page asks again")
+        self.assertNotIsInstance(caught.exception, UserError)
+        self.assertTrue(self.connections[-1].closed, "nothing was committed: the connection closes on it")
+
     def test_a_failure_that_carries_no_message_of_the_database_is_not_called_a_refusal(self):
         from mssql_python import InterfaceError
         from mssql_python.exceptions import sqlstate_to_exception
@@ -625,6 +643,13 @@ class LabRoutesTests(unittest.TestCase):
         with mock.patch.object(self.app.state.labs, "operation", side_effect=RuntimeError("something of our own")), self.assertLogs("dojo", "WARNING"):
             ours = self.client.post("/api/labs/vector/check", headers=POST)
         self.assertEqual((ours.status_code, ours.json()["detail"]), (503, "The database is unavailable. Try again."))
+        for state, text, what in (("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)", "a connection that broke"),
+                                  ("HY000", "[Microsoft][ODBC Driver 18 for SQL Server]Unexpected token in the stream (SQLExecDirectW)", "a fault of the driver")):
+            with self.subTest(what=what), mock.patch.object(self.app.state.labs, "operation", side_effect=sqlstate_to_exception(state, text)), self.assertLogs("dojo", "WARNING"):
+                lost = self.client.post("/api/labs/vector/check", headers=POST)
+            self.assertEqual((lost.status_code, lost.json()["detail"]), (503, "The database is unavailable. Try again."),
+                             "no message of the database: not a refusal of the learner's table")
+        self.assertEqual(len(store.events(learner.key)), before)
 
     def test_reset_reports_sql_error_and_fixture_collision_requests_reset(self):
         from mssql_python import ProgrammingError

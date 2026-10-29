@@ -356,9 +356,8 @@ For DP-800 there are three hands-on labs in a private Azure SQL database:
 Open a lab from the Course page, or from a skill with **Open the hands-on lab**.
 
 - You run one SQL batch at a time, up to 8 KB. A batch stops after 20 seconds. Dojo shows up to 200 rows.
-- Under the buttons, one line says whether it worked ("Done. 3 rows.", or "That did not work."). Below it, Results shows the answer to the button you pressed
-  and replaces the one before. If the database refuses your SQL, it says why in its own words, with its error number, for example "There is already an object
-  named 'Products' in the database. (error 2714)". That one means an earlier run made it: leave out the statement that made it, or press **Reset this lab**.
+- Under the buttons, one line says whether a Run or a Reset worked ("Done. 3 rows.", or "That did not work."). Below it, Results shows what that press gave and replaces the one before. If the database refuses your SQL, it says why in its own words, with its error number, for example "There is already an object named 'Products' in the database. (error 2714)". That one means the table, or whatever it names, is already there: check it, then go on, or press **Reset this lab** to start over.
+- **Check my work** answers in the Checker, and leaves Results alone. A Run or a Reset clears a check from before it, because that check no longer describes the lab.
 - If Run, Check or Reset says the lab database did not answer, Dojo tries again by itself for up to about two minutes. Any other message is shown at once, without a retry.
 - **Check my work** checks the database itself, not a screenshot.
 - **Reset this lab** empties your part of the database for that lab, so you can start again.
