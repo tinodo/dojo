@@ -197,16 +197,19 @@ in node (`tests/test_lab_page.py` runs the real `viewLab`) and in `tests/test_la
   so brackets inside a value, `(A; [Microsoft][SKU] B)`, stay in the sentence. Without a message of the database after the SQL was sent (the connection broke, the driver failed)
   the page says: "No message came back from the database. Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, or press Reset this lab to
   start from the beginning." The 422 answer of a refused run carries `kind: "sql"` and `number` (`SqlRefused`).
-- **A Run is never sent again by itself once its SQL was sent.** What goes wrong before it is sent (no connection, no identity) is raised as it is: `lab_run` answers 503 "The lab
-  database did not answer. Try again in a minute.", and the page asks again every 10 seconds for about two minutes (it does the same for a Check and a Reset, which can be repeated
-  safely). What goes wrong after (`SqlRunner.run` wraps the statement, the commit and the closing of the connection) is the database's refusal or one of two sentences, never an
+- **A Run is never sent again by itself once its SQL was sent.** What goes wrong in the lab before the SQL is sent (no connection, no identity) is the lab's own failure: `lab_run` answers
+  503 "The lab database did not answer. Try again in a minute.", and the page asks again every 10 seconds for about two minutes (it does the same for a Check and a Reset, which can be
+  repeated safely). What goes wrong after (`SqlRunner.run` wraps the statement, the commit and the closing of the connection) is the database's refusal or one of two sentences, never an
   answer that is asked again: a batch may have run in part, and may even have committed (it can say `COMMIT`), so running it again is his choice, not the page's. The sentence above
   is for a failure of the statement itself; when the statement ran to its end and the commit that saves its changes is what failed without a message of the database, the page says:
-  "No message came back from the database. Your SQL ran, but Dojo cannot tell whether its changes were saved. Look at your tables before you run it again, or press Reset this lab to
-  start from the beginning." (`UNSAVED`); a commit that the database refuses is its own sentence and number, and is never "Your query ran longer than 20 seconds", which is for a
-  statement only. The words of an error do not decide this: they can carry his own, a column named `is not currently available` or a `RAISERROR`, and a database that says so
-  mid-statement (error 40613) is shown as it said it. Nor does anything that happens after the lab has answered: in team mode the budget settles when the action ends, and if that fails
-  (a data share that is not currently available, say) `lab_run` keeps what the lab answered, the result or the refusal, and logs the failure; it is never the 503 that the page asks again for.
+  "No message came back from the database. Your SQL ran, but Dojo cannot tell whether any changes were saved. Look at your tables before you run it again, or press Reset this lab to
+  start from the beginning." (`UNSAVED`; "any", because a batch that only reads has none); a commit that the database refuses is its own sentence and number, and is never "Your query ran
+  longer than 20 seconds", which is for a statement only. The words of an error do not decide this: they can carry his own, a column named `is not currently available` or a `RAISERROR`,
+  and a database that says so mid-statement (error 40613) is shown as it said it. Nor does anything that happens after the lab has answered: in team mode the budget settles when the
+  action ends, and if that fails (a data share that is not currently available, say) `lab_run` keeps what the lab answered, the result or the refusal, and logs the failure; and a Record that
+  cannot be written after a run that worked (`lab.ran`) is logged and does not turn the result into an error. None of it is the 503 that the page asks again for. A failure of the budget
+  *before* the lab is called is not the database's either, and is not called that: `Refused` is a 429, `Abandoned` (the learner's data was deleted) a 409, and a store that is not there a plain
+  500, as for every other action.
 - **A second line only where it is true**: after a refusal by the database ("Read the message, then change the SQL or try again, or press Reset this lab to
   start from the beginning."; the database may as well say that it is busy; for 2714, which does not say that the object that is there is the right one, "It is
   already there. Check it, then go on, or press Reset this lab to start over.") and after a timeout ("Look at your tables, then try a smaller or simpler query.";

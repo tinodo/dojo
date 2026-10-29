@@ -387,9 +387,11 @@ happening, run the daily lab check by hand (Actions, lab-watch, Run workflow) an
 
 **A lab run says "No message came back from the database."** The connection broke while the SQL was running (a failover,
 maintenance) or the driver failed, so nobody can tell whether the SQL ran; when the sentence goes on with "Your SQL ran, but Dojo
-cannot tell whether its changes were saved", it was the saving (the commit) that failed. Dojo never sends it again by itself, because a batch
+cannot tell whether any changes were saved", it was the saving (the commit) that failed. Dojo never sends it again by itself, because a batch
 can have committed in part: the learner looks at their tables and runs it again, or presses Reset this lab. The app log holds one
-warning, `learner SQL failed: <kind>; <reason>` (or `learner SQL commit failed: ...`), and never the SQL.
+warning, `learner SQL failed: <kind>; <reason>` (or `learner SQL commit failed: ...`), and never the SQL. In team mode two more warnings can follow a run
+that worked, and change nothing for the learner: `lab run bookkeeping failed after the answer` (the budget could not settle when the action ended) and
+`lab run could not be recorded after the answer` (the Record could not be written; that run is missing from it); both point at the data share.
 
 **Performance monitoring shows no data.** Data usually appears in the Fabric Database Hub (its Performance page) about 10
 minutes after Turn on. Check that Studio's Health tab says *on*, that you have the Reader role on the subscription, that the

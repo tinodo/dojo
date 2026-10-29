@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from tests.test_api import POST, settings
 from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRefused, SqlRunner, LabRoom, LabUser, FakeRunner, UNCONFIRMED, UNSAVED, UserError, database_message, database_said, is_unavailable, sql_error_reason, validate
-from app.core import Store, sha256
+from app.core import Abandoned, Store, sha256
+from app.budget import Refused
 from app.mirror import Mirror
 from app.evidence import derive
 from app.exam import HELP_EVENTS
@@ -286,7 +287,7 @@ class SqlBoundaryTests(unittest.TestCase):
                 self.assertEqual(str(caught.exception), said, "the batch ran to its end: it is neither 'your query ran longer than 20 seconds' nor 'cannot tell whether your SQL ran'")
                 self.assertIn("commit failed", "\n".join(captured.output))
                 self.assertTrue(conn.closed)
-        self.assertIn("Your SQL ran, but Dojo cannot tell whether its changes were saved", UNSAVED)
+        self.assertIn("Your SQL ran, but Dojo cannot tell whether any changes were saved", UNSAVED)
         self.assertNotEqual(UNSAVED, UNCONFIRMED)
         with self.subTest("close after a result"):
             conn = Commit(closing=broken)
@@ -747,11 +748,33 @@ class LabRoutesTests(unittest.TestCase):
             self.assertEqual((no.status_code, no.json()), (422, {"detail": "Invalid column name 'Nme'. (error 207)", "kind": "sql", "number": 207}),
                              "the refusal stands, whatever the bookkeeping did when the action ended")
             self.assertEqual((operation.call_count, ran()), (1, before + 1), "a refused run is not recorded")
-        with mock.patch.object(self.app.state.budget, "action", refuses_to_start), mock.patch.object(self.app.state.labs, "operation") as operation, self.assertLogs("dojo", "WARNING"):
-            early = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
-        self.assertEqual((early.status_code, early.json()["detail"]), (503, "The lab database did not answer. Try again in a minute."),
-                         "before the lab had been asked nothing of the SQL was sent: the page may ask again")
+        with mock.patch.object(self.app.state.labs, "operation", return_value=result) as operation, \
+                mock.patch.object(store, "append_event", side_effect=OSError(outage)) as record, self.assertLogs("dojo", "WARNING") as captured:
+            unrecorded = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        self.assertEqual((unrecorded.status_code, unrecorded.json()), (200, result), "the SQL ran: a Record that cannot be written is not an error for him to run it again")
+        self.assertEqual((operation.call_count, record.call_count), (1, 1))
+        self.assertIn("could not be recorded after the answer", "\n".join(captured.output))
+        with mock.patch.object(self.app.state.budget, "action", refuses_to_start), mock.patch.object(self.app.state.labs, "operation") as operation:
+            with self.assertRaises(OSError, msg="a store that is not there is Dojo's own failure (a 500), not the database's: it is not called the database"):
+                self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
         operation.assert_not_called()
+        for error, status, answer in ((Abandoned("the learner's data was deleted"), 409, {"detail": {"code": "deleted", "message": "Your data was deleted while this ran."}}),
+                                      (Refused("You have used today's allowance."), 429, {"detail": "You have used today's allowance."})):
+            @contextmanager
+            def refuses(*args, error=error, **kwargs):
+                raise error
+                yield None
+
+            with self.subTest(error=type(error).__name__), mock.patch.object(self.app.state.budget, "action", refuses), \
+                    mock.patch.object(self.app.state.labs, "operation") as operation:
+                early = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+            self.assertEqual((early.status_code, early.json()), (status, answer), "the budget's own answers, not 'the database did not answer'")
+            operation.assert_not_called()
+        with mock.patch.object(self.app.state.labs, "operation", side_effect=paused_error()) as operation, self.assertLogs("dojo", "WARNING"):
+            before_the_sql = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        self.assertEqual((before_the_sql.status_code, before_the_sql.json()["detail"]), (503, "The lab database did not answer. Try again in a minute."),
+                         "a failure of the lab from before the SQL was sent is the one that the page asks again for")
+        self.assertEqual(operation.call_count, 1)
 
     def test_sql_the_page_cannot_send_is_refused_in_plain_words_not_as_a_validation_dump(self):
         for sql, said in (("", "Enter some SQL to run."), ("  \n ", "Enter some SQL to run."), ("a" * 8001, "Enter SQL up to 8 KB."),

@@ -221,8 +221,8 @@ NO_MESSAGE = "No message came back from the database."
 # After the learner's SQL was sent and nothing the database said came back (the connection broke, the driver failed): any of it may have run.
 UNCONFIRMED = (f"{NO_MESSAGE} Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, "
                "or press Reset this lab to start from the beginning.")
-# The same, when the batch did run to its end and the saving of its changes (the commit) is what failed.
-UNSAVED = (f"{NO_MESSAGE} Your SQL ran, but Dojo cannot tell whether its changes were saved. Look at your tables before you run it again, "
+# The same, when the batch did run to its end and the saving of its changes (the commit) is what failed. "Any": a batch that only reads has none.
+UNSAVED = (f"{NO_MESSAGE} Your SQL ran, but Dojo cannot tell whether any changes were saved. Look at your tables before you run it again, "
            "or press Reset this lab to start from the beginning.")
 
 
