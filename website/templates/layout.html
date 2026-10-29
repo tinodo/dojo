@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#F4EFE6">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+{{html:head_extra}}
+<link rel="icon" href="{{prefix}}assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{prefix}}assets/fonts.css">
+<link rel="stylesheet" href="{{prefix}}assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="{{prefix}}"><span class="mark" aria-hidden="true">D</span><span class="word">Dojo</span></a>
+    <nav aria-label="Main">{{html:nav}}</nav>
+  </div>
+</header>
+<main id="main" tabindex="-1">
+{{html:main}}
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <p>Dojo is open source under the <a href="{{blob:LICENSE}}">MIT License</a>.</p>
+    <ul>
+      <li><a href="{{repo_url}}">Source</a></li>
+      <li><a href="{{blob:SECURITY.md}}">Security</a></li>
+      <li><a href="{{blob:docs/privacy.md}}">Privacy</a></li>
+      <li><a href="{{blob:THIRD-PARTY-NOTICES.md}}">Third-party notices</a></li>
+    </ul>
+    <p>{{html:built_line}}</p>
+  </div>
+</footer>
+</body>
+</html>

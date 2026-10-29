@@ -1,0 +1,15 @@
+{
+  "items": [
+    {"path": "docs/user-guide.md", "label": "User guide", "text": "How each page of the app works. It is also the Help page inside Dojo."},
+    {"path": "docs/architecture.md", "label": "Architecture", "text": "The parts of Dojo, how data flows, where it is stored and the limits it runs within."},
+    {"path": "docs/operations.md", "label": "Running your own Dojo", "text": "Hosting on Azure, every setting, costs, backups and troubleshooting."},
+    {"path": "docs/privacy.md", "label": "Privacy and data-flow sheet (draft)", "text": "What is stored about a person, who can see it, and how to delete it."},
+    {"path": "docs/ui-principles.md", "label": "How screens are designed", "text": "The rules the owner's pages are built to: one question a page, plain words, no accent bars."},
+    {"page": "decisions", "label": "Decision records", "text": "Why Dojo is built the way it is."},
+    {"path": "CONTRIBUTING.md", "label": "Contributing", "text": "How to open an issue or a pull request, and the rules a change must keep."},
+    {"path": "CODE_OF_CONDUCT.md", "label": "Code of conduct", "text": "The Contributor Covenant, which everyone taking part in the project follows."},
+    {"path": "SECURITY.md", "label": "Security policy", "text": "How to report a vulnerability privately."},
+    {"path": "THIRD-PARTY-NOTICES.md", "label": "Third-party notices", "text": "The fonts, packages and documentation Dojo uses, with their licenses."}
+  ],
+  "not_listed": ["README.md", "LICENSE"]
+}

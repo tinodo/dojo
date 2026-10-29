@@ -21,5 +21,6 @@
 - [ ] Plain English in the UI, messages and docs.
 - [ ] An ADR in `docs/adr/` (and a line in `docs/adr/README.md`) for an architecture change.
 - [ ] Docs updated where affected (`README.md`, `docs/architecture.md`, `docs/operations.md`, `docs/privacy.md`, module docstrings).
+- [ ] Site updated where the change affects what a visitor reads (`website/`); `python website/build.py --out _site` builds it.
 - [ ] No new dependency without an agreed issue; if added, pinned and listed in `THIRD-PARTY-NOTICES.md`.
 - [ ] No secrets, tokens, tenant/subscription/object IDs, emails or other personal data anywhere in the change.

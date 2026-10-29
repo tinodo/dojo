@@ -4,3 +4,4 @@ __pycache__/
 *.zip
 .dojo-data/
 app/build.txt
+_site/

@@ -64,6 +64,9 @@ Copy this list into your pull request (the template does it for you) and tick wh
       next free number) and a line in `docs/adr/README.md`.
 - [ ] **Documentation updated** where the change affects it: `README.md`, `docs/architecture.md`,
       `docs/operations.md`, `docs/privacy.md` or the module docstring.
+- [ ] **Site updated** where the change affects what a visitor reads. The project site (`website/`) is built from the repository: the exams,
+      the decisions and the numbers it quotes follow the code by themselves; the rest is text in `website/templates/`. Build it with
+      `python website/build.py --out _site`. `tests/test_site.py` runs in CI.
 - [ ] **No new dependency** without an agreed issue. If one is agreed: pin the exact version in
       `requirements.txt` and add it to `THIRD-PARTY-NOTICES.md`.
 - [ ] **No secrets or personal data** anywhere in the change.
@@ -77,6 +80,11 @@ Copy this list into your pull request (the template does it for you) and tick wh
 - `.github/workflows/deploy.yml` runs only on a push to `main` (that is, after a merge) in the
   maintainer's repository. It runs the tests again, deploys the infrastructure and the app to Azure
   with OpenID Connect, and waits for a smoke test. Pull requests from forks never deploy.
+- `.github/workflows/pages.yml` runs on a push to `main`, tests and builds the project site (`website/`) and publishes it to
+  GitHub Pages. A push that touches only `website/` and the two site workflows does not run `deploy.yml`, so it does not restart the
+  app. Any other change does: the README, the documents and the site tests included.
+- `.github/workflows/site-links.yml` runs once a week and checks that the Microsoft Learn and GitHub Docs addresses on the site
+  still answer.
 - Dependabot opens weekly pull requests for Python packages and GitHub Actions. They go through the
   same checks and reviews.
 

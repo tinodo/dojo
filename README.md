@@ -2,7 +2,7 @@
 
 Dojo is a personal AI exam coach for Microsoft and GitHub certification exams. It teaches each skill from
 the official documentation, asks you open questions about it, judges your answers point by point, and
-keeps an honest record of what you have shown you can do.
+keeps a record of what you have shown you can do.
 
 The first exams are **GH-300 (GitHub Copilot)** and **DP-800 (Developing AI-Enabled Database Solutions)**.
 You can add any other Microsoft or GitHub exam that has an official study guide.
@@ -11,7 +11,7 @@ You can add any other Microsoft or GitHub exam that has an official study guide.
 > Its questions are written by Dojo from public, official documentation. They are **never real exam
 > questions**, and Dojo never uses leaked or "dump" content.
 
-**Read next:** the [user guide](docs/user-guide.md) · the [architecture](docs/architecture.md) ·
+**Read next:** the [project site](https://tinodo.github.io/dojo/) · the [user guide](docs/user-guide.md) · the [architecture](docs/architecture.md) ·
 [running your own Dojo](docs/operations.md) · the [decision records](docs/adr/README.md) ·
 [privacy](docs/privacy.md) · [security](SECURITY.md)
 
@@ -73,7 +73,7 @@ Each feature links to the decision record (ADR) that explains it.
 - **Team mode** (off by default). Several colleagues in one Dojo, each with their own isolated record
   ([ADR 0009](docs/adr/0009-team-dojo.md)).
 
-## How Dojo keeps the AI honest
+## How a lesson is checked
 
 - **Official sources only.** Lessons, questions and answers come only from Microsoft Learn and GitHub Docs
   pages that the exam's skills cite. Training material and other sites are never read.
