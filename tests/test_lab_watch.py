@@ -168,6 +168,10 @@ class LabWatchTests(unittest.TestCase):
         self.assertIn("Needs the owner: The database is Paused, not Online.", out)
         self.assertIn("Also not read: The storage, the load and the connections could not be read (Azure answered HTTP 400).", out)
 
+    def test_a_database_of_another_tier_does_not_count_its_size_in_dtus(self):
+        lines, _ = run(Azure(db=database(sku="GP_S_Gen5", capacity=2)))
+        self.assertIn("State: Online. Tier: GP_S_Gen5; the template declares Basic.", lines)
+
     def test_a_wrong_number_of_servers_or_databases_is_a_finding(self):
         lines, status = run(Azure(servers=[]))
         self.assertEqual((lines, status), (["The lab database was not found: expected one SQL server in the resource group, found 0."], 1))
@@ -191,9 +195,10 @@ class LabWatchTests(unittest.TestCase):
 
     def test_main_prints_the_report_and_returns_its_status(self):
         out = io.StringIO()
-        with mock.patch.object(lab_watch, "run", return_value=(["Lab database, last 24 hours.", "All well."], 0)), redirect_stdout(out):
+        with mock.patch.object(lab_watch, "run", return_value=(["Lab database, last 24 hours.", "All well."], 0)), \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), redirect_stdout(out):
             self.assertEqual(lab_watch.main(), 0)
-        self.assertEqual(out.getvalue(), "Lab database, last 24 hours.\nAll well.\n")
+        self.assertEqual(out.getvalue(), "Lab database, last 24 hours.\nAll well.\n", "a good run has no annotation, in Actions or outside")
 
     def test_a_failure_in_actions_is_also_an_annotation(self):
         lines = ["Lab database, last 24 hours.", "Needs the owner: The database is Paused, not Online."]
@@ -208,9 +213,14 @@ class LabWatchTests(unittest.TestCase):
 
     def test_a_crash_prints_its_type_and_never_its_values(self):
         out = io.StringIO()
-        with mock.patch.object(lab_watch, "run", side_effect=KeyError(GROUP + SUB)), redirect_stdout(out):
+        with mock.patch.object(lab_watch, "run", side_effect=KeyError(GROUP + SUB)), mock.patch.dict(os.environ, {"GITHUB_ACTIONS": ""}), redirect_stdout(out):
             self.assertEqual(lab_watch.main(), 2)
         self.assertEqual(out.getvalue(), "The lab check failed unexpectedly (KeyError).\n")
+        out = io.StringIO()
+        with mock.patch.object(lab_watch, "run", side_effect=KeyError(GROUP + SUB)), mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), redirect_stdout(out):
+            lab_watch.main()
+        self.assertEqual(out.getvalue(), "The lab check failed unexpectedly (KeyError).\n::error title=Lab database::The lab check failed unexpectedly (KeyError).\n")
+        self.assertNothingSecret(out.getvalue())
 
 
 class GetTests(unittest.TestCase):

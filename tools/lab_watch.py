@@ -35,6 +35,7 @@ FAILED_MAX = 25               # failed connections in the window: this many or m
 METRICS = ("dtu_consumption_percent", "storage_percent", "connection_successful", "connection_failed")
 
 GUID = re.compile(r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+DTU_TIERS = ("Basic", "Standard", "Premium")   # only these count their size in DTUs
 GROUP = re.compile(r"[A-Za-z0-9._()-]{1,90}")
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,23}")   # a state or a tier name: the only text of Azure that is ever printed
 
@@ -135,7 +136,7 @@ def judge(database: dict, declared: str | None, n: dict | None, why_no_metrics: 
     findings: list[str] = []
     gaps: list[str] = []
     lines = [f"Lab database, last {WINDOW_HOURS} hours."]
-    lines.append(f"State: {state}. Tier: {tier}" + (f" with {int(units)} DTUs" if isinstance(units, (int, float)) and units == int(units) else "")
+    lines.append(f"State: {state}. Tier: {tier}" + (f" with {int(units)} DTUs" if tier in DTU_TIERS and isinstance(units, (int, float)) and units == int(units) else "")
                  + (f"; the template declares {word(declared)}." if declared else "."))
     if state != "Online":
         findings.append(f"The database is {state}, not Online.")
