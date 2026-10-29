@@ -13,7 +13,7 @@
 
 The labs need a database that answers whenever the owner opens a lab, at a small and known price. ADR 0003 chose the free serverless offer
 because, as far as Dojo's own code goes, nothing wakes a paused database except a lab. Free meant 100,000 vCore-seconds a month; when they run
-out the database stays shut until the next month (`AutoPause`), so labs fail for the rest of that month. Normal use cost about 1,750 a day.
+out the database stays shut until the next month (`AutoPause`), so labs fail for the rest of that month. Normal use took about 1,750 of them a day.
 
 ## What was found
 
@@ -36,13 +36,14 @@ Read-only, on 29 October 2026, from Azure's activity log and metrics:
 | Option | Cost at list price | Verdict |
 |---|---|---|
 | Do nothing | USD 0, but labs are shut for about half of every month | Rejected |
-| Stay on the free offer and pay for what goes over it (`BillOverUsage`) | about USD 1 a day, USD 31 a month: 13 wakes a day at USD 0.08 | Rejected: dearer than the next row |
+| Stay on the free offer and pay for what goes over it (`BillOverUsage`) | about USD 1 a day once the free amount is used up, about USD 16 a month: 13 wakes a day at USD 0.08, less the free 100,000 vCore-seconds (worth about USD 16) | Rejected: dearer than the next row |
 | **Basic tier** (5 DTUs, 2 GB) | **USD 0.161 a day: USD 4.83 a month (4.99 in a 31-day month)** | **Chosen** |
 | Standard S0 and up | USD 14.52 a month for S0, three times Basic, for room the labs do not need | Rejected |
 | An always-on serverless or provisioned vCore database | USD 200 a month and more | Rejected |
 
-The Basic price is Sweden Central's, read from the Azure Retail Prices API on 29 October 2026. A serverless wake: USD 0.574 per vCore-hour at the
-0.5 vCore minimum for about 16.7 minutes.
+The Basic price is Sweden Central's, read from the Azure Retail Prices API on 29 October 2026. A wake on the free offer: USD 0.574 per vCore-hour at the
+0.5 vCore minimum for about 16.7 minutes, about USD 0.08. (The free offer fixes the auto-pause at 15 minutes and Learn says it cannot be changed,
+which is why a wake lasts about 16 minutes although the template says 60.)
 
 ## The decision
 
@@ -50,8 +51,9 @@ The Basic price is Sweden Central's, read from the Azure Retail Prices API on 29
 
 1. **Leave the free offer (this change).** Learn says an update that removes the free offer must not also change the service tier, and that removal is
    permanent for the database: the offer cannot be applied again, even if the next step fails. So `useFreeLimit` becomes `false` and nothing else about the
-   database changes: still General Purpose serverless with the 60-minute auto-pause. From here the database is billed at serverless prices, about USD
-   0.08 for each wake, until step 2.
+   database changes: still General Purpose serverless with the 60-minute auto-pause. From here the database is billed at serverless prices, and the 60
+   minutes in the template now apply (the free offer fixed the pause at 15): a wake keeps it on for an hour, about USD 0.29, so about USD 3.70 a day at
+   today's 13 wakes, about USD 0.15 an hour, until step 2.
 2. **Move to Basic (the next change).** `sku` Basic, 5 DTUs, `maxSizeBytes` 2 GB, the serverless settings gone. Everything the owner or a learner reads
    that says the database is free or pauses (the Money tab's line, the lab database line on Health, the Labs page, the guide, the operator guide)
    changes in the same pull request, because it would not be true any more.
@@ -63,7 +65,7 @@ the owner's switch (ADR 0023) stays, and with a database that never pauses, turn
 
 ## Consequences
 
-- **Cost:** about USD 5 a month more. The labs' fixed cost goes from about USD 23 to about USD 28 a month (Defender for SQL about USD 15, private
+- **Cost:** about USD 5 a month more, plus about USD 0.15 an hour between step 1 and step 2. The labs' fixed cost goes from about USD 23 to about USD 28 a month (Defender for SQL about USD 15, private
   endpoint about USD 7.30, private DNS zone about USD 0.50, the database about USD 4.83 to 4.99).
 - **One way:** the free offer cannot come back to this database. To have it again, Dojo would need a new free database, and any wake would cost
   nothing until the allowance ran out.
