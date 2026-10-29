@@ -58,7 +58,7 @@ class Azure:
         self.fail_metrics = fail_metrics
         self.asked = []
 
-    def __call__(self, url, tok, tries=3):
+    def __call__(self, url, tok, tries=3, retry_also=()):
         self.asked.append(url)
         if "Microsoft.Insights/metrics" in url:
             if self.fail_metrics:
@@ -276,6 +276,34 @@ class GetTests(unittest.TestCase):
     def test_a_throttle_or_a_hiccup_is_tried_again_and_then_given_up(self):
         error = urllib.error.HTTPError("https://x", 429, "slow down", {}, io.BytesIO(b""))
         self.assertEqual(self.call(error), ("Azure answered HTTP 429", 2))
+
+    def test_a_400_is_tried_again_only_when_asked_for(self):
+        busy = urllib.error.HTTPError("https://x", 400, "Bad request", {}, io.BytesIO(b""))
+        self.assertEqual(self.call(busy), ("Azure answered HTTP 400", 0))
+        good = mock.MagicMock()
+        good.__enter__.return_value.read.return_value = b'{"value": [1]}'
+        with mock.patch.object(lab_watch.urllib.request, "urlopen", side_effect=[busy, busy, good]), mock.patch.object(lab_watch.time, "sleep") as sleep:
+            self.assertEqual(lab_watch.get("https://x", "secret-token", 8, (400,)), {"value": [1]})
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_the_metrics_read_asks_again_for_a_400_and_then_gives_up(self):
+        busy = urllib.error.HTTPError("https://x", 400, "Failed to find metric configuration " + SUB, {}, io.BytesIO(b"{}"))
+        good = mock.MagicMock()
+        good.__enter__.return_value.read.return_value = b'{"value": []}'
+        with mock.patch.object(lab_watch.urllib.request, "urlopen", side_effect=[busy] * 3 + [good]) as urlopen, mock.patch.object(lab_watch.time, "sleep"):
+            self.assertEqual(lab_watch.read_metrics("secret-token", DATABASE_ID, NOW), {"value": []})
+        self.assertEqual(urlopen.call_count, 4)
+        with mock.patch.object(lab_watch.urllib.request, "urlopen", side_effect=busy) as urlopen, mock.patch.object(lab_watch.time, "sleep") as sleep:
+            with self.assertRaises(lab_watch.Unreadable) as raised:
+                lab_watch.read_metrics("secret-token", DATABASE_ID, NOW)
+        self.assertEqual((str(raised.exception), urlopen.call_count, sleep.call_count),
+                         ("Azure answered HTTP 400", lab_watch.METRICS_TRIES, lab_watch.METRICS_TRIES - 1))
+
+    def test_the_wait_between_tries_grows_and_then_stops_growing(self):
+        with mock.patch.object(lab_watch.time, "sleep") as sleep:
+            for attempt in range(7):
+                lab_watch.pause(attempt)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 4, 8, 10, 10, 10, 10])
 
     def test_an_answer_that_is_not_json_is_unreadable(self):
         response = mock.MagicMock()
