@@ -88,10 +88,17 @@ class Site:
         self.built_on = built_on
 
     def blob(self, spec: str) -> str:
+        """The address on GitHub of a file of this repository. The path must be spelled the way the repository spells it (no
+        '..', no backslash, the same capitals): a file that only the local disk finds would be a dead link on GitHub."""
         path, _, anchor = spec.partition("#")
-        if not path or not (ROOT / path).is_file():
-            raise BuildError(f"{{{{blob:{spec}}}}}: no such file in the repository")
-        return f"{self.repo_url}/blob/main/{path}" + (f"#{anchor}" if anchor else "")
+        target = (ROOT / path).resolve() if path else ROOT
+        try:
+            spelled = target.relative_to(ROOT).as_posix()
+        except ValueError:
+            spelled = ""
+        if not path or spelled != path or not target.is_file():
+            raise BuildError(f"{{{{blob:{spec}}}}}: not a file of the repository, spelled as the repository spells it")
+        return f"{self.repo_url}/blob/main/{spelled}" + (f"#{anchor}" if anchor else "")
 
 
 def commit_facts(sha: str | None) -> tuple[str, str]:
@@ -335,8 +342,8 @@ def build(out: Path, slug: str | None = None, site_url: str | None = None, sha: 
     site = Site(slug, site_url, sha, built_on)
     out = out.resolve()
     if out.exists() and any(out.iterdir()):
-        if not clean or ROOT not in out.parents:
-            raise BuildError(f"{out} is not empty; remove it first (or use --clean for a folder inside the repository)")
+        if not (clean and out == ROOT / "_site"):
+            raise BuildError(f"{out} is not empty; remove it first (--clean empties only {ROOT / '_site'})")
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -367,7 +374,7 @@ def build(out: Path, slug: str | None = None, site_url: str | None = None, sha: 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build the Dojo project site.")
     ap.add_argument("--out", default="_site", help="folder to write (default _site)")
-    ap.add_argument("--clean", action="store_true", help="empty the folder first (only inside the repository)")
+    ap.add_argument("--clean", action="store_true", help="empty the repository's own _site folder first")
     args = ap.parse_args()
     try:
         files = build(Path(args.out), clean=args.clean)

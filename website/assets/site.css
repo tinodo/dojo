@@ -119,6 +119,10 @@ main > section:last-child { padding-bottom: 8px; }
 .doclist li { padding: 14px 0; }
 .doclist li + li { border-top: 1px solid var(--line-2); }
 .doclist a { font: 600 19px/1.4 var(--serif); }
+/* A link that stands alone gets a hit area of at least 44px: padding that a negative margin takes back, so nothing moves. */
+.doclist a { display: inline-block; padding: 9px 0; margin: -9px 0; }
+.examlist .emeta a { display: inline-block; padding: 10px 0; margin: -10px 0; }
+td.num a { display: inline-block; padding: 10px 12px; margin: -10px -12px; }
 .doclist p { margin: 2px 0 0; color: var(--ink-2); }
 .exam { margin-top: 40px; }
 .exam .meta { margin-bottom: 4px; color: var(--ink-2); }

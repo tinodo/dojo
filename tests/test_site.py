@@ -15,7 +15,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-from tests.test_ui_rules import BANNED, NEUTRAL_LEFT, rules
+from unittest import mock
+
+from tests.test_ui_rules import BANNED, NEUTRAL_LEFT, by_selector, rules
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE_URL = "https://tinodo.github.io/dojo/"
@@ -184,6 +186,24 @@ class TheBuild(unittest.TestCase):
             with self.assertRaises(BUILD.BuildError, msg=text):
                 BUILD.fill(text, site, "./", {}, {})
 
+    def test_a_link_to_a_file_must_be_spelled_as_the_repository_spells_it(self):
+        site = BUILD.Site("tinodo/dojo", SITE_URL, "", "")
+        for spec in ("../README.md", "docs/../README.md", "readme.md", "docs\\user-guide.md", "/etc/passwd", "docs", ""):
+            with self.assertRaises(BUILD.BuildError, msg=repr(spec)):
+                site.blob(spec)
+
+    def test_clean_empties_only_the_repositorys_own_output_folder(self):
+        for folder in (ROOT, ROOT / "app", ROOT / "docs", ROOT / "website", ROOT / "tests"):
+            with mock.patch.object(BUILD.shutil, "rmtree") as rmtree:
+                with self.assertRaises(BUILD.BuildError, msg=str(folder)):
+                    BUILD.build(folder, slug="tinodo/dojo", site_url=SITE_URL, sha=SHA, clean=True)
+                rmtree.assert_not_called()
+        with tempfile.TemporaryDirectory() as other, mock.patch.object(BUILD.shutil, "rmtree") as rmtree:
+            (Path(other) / "keep.txt").write_text("x")
+            with self.assertRaises(BUILD.BuildError):
+                BUILD.build(Path(other), slug="tinodo/dojo", site_url=SITE_URL, sha=SHA, clean=True)
+            rmtree.assert_not_called()
+
     def test_values_are_escaped_and_blob_and_page_links_are_made_right(self):
         site = BUILD.Site("tinodo/dojo", SITE_URL, "", "")
         self.assertEqual(BUILD.fill("{{x}}", site, "./", {"x": "<b>&\""}, {}), "&lt;b&gt;&amp;&quot;")
@@ -315,6 +335,17 @@ class TheLook(unittest.TestCase):
         self.assertRegex(self.CSS, r":focus-visible\s*\{[^}]*outline:\s*2px solid var\(--amber-ink\)")
         for token in ("--ink-3", "--slate", "--ochre"):
             self.assertNotIn(token, self.CSS, f"{token} does not reach the contrast the site needs")
+
+    def test_a_link_that_stands_alone_has_a_hit_area_of_at_least_44_px_that_moves_nothing(self):
+        css = by_selector(self.CSS)
+        # selector, the height of one line of its text, the padding that is added and taken back by a negative margin
+        for selector, line, pad in ((".doclist a", 19 * 1.4, 9), (".examlist .emeta a", 15 * 1.6, 10), ("td.num a", 17 * 1.6, 10)):
+            with self.subTest(selector):
+                body = css[selector]
+                self.assertIn("display: inline-block", body)
+                self.assertRegex(body, rf"padding:\s*{pad}px")
+                self.assertRegex(body, rf"margin:\s*-{pad}px")
+                self.assertGreaterEqual(line + 2 * pad, 44)
 
     def test_one_box_is_used_everywhere(self):
         self.assertRegex(self.CSS, r"\.box, \.rows, \.tablewrap\s*\{[^}]*border: 1px solid var\(--line\)[^}]*border-radius: var\(--r\)")
