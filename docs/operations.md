@@ -314,9 +314,10 @@ stored on the share, and members cannot see when you do. The app itself shows yo
    your models offer them, by changing `modelSku`.
 3. **Set the budget** you are willing to pay (the default cap is USD 5 a day for all members).
 4. **Invite members.** Colleagues outside your tenant sign in as B2B guests: invite them in the Entra admin
-   center. The bootstrap sets "Assignment required" on the sign-in app, so also assign each member to its
-   enterprise application. (You may switch assignment off instead; then every account in the tenant reaches
-   Dojo's "Ask for access" page, and Dojo's own approval is the only gate.)
+   center. Keep the Dojo enterprise application's **Assignment required** switch off. That lets invited tenant
+   accounts reach Dojo's **Ask for access** page, and Dojo's own approval is the membership gate. Turning
+   assignment on is optional hardening only: it creates a second manual step and anyone not assigned in Entra
+   never reaches Dojo's request page.
 5. **Switch it on.** Set the repository variable `DOJO_TEAM_MODE` to `true`
    (`gh variable set DOJO_TEAM_MODE --body true --repo <github-owner>/<repo>`, see [GitHub secrets](#github-secrets)),
    then run the deploy workflow (Actions → deploy → Run workflow, or

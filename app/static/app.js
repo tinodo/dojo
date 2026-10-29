@@ -7860,7 +7860,7 @@ function invitePanel() {
       h("li", null, "Enter the colleague's work email. As the redirect URL use ", h("code", null, location.origin), "."),
       h("li", null, "They accept the invitation and its consent page. How soon they can sign in afterwards is not documented."),
       h("li", null, "They open Dojo, sign in and ask for access. You approve them here.")),
-    h("p", { class: "small muted top" }, "Optional hardening: in Entra you can set \u201cAssignment required\u201d on the Dojo app. Then only assigned users reach the Ask for access page."));
+    h("p", { class: "small muted top" }, "Optional hardening: in Entra you can set \u201cAssignment required\u201d on the Dojo app. That adds a second manual step: only assigned users reach the Ask for access page."));
 }
 
 function endPanel(m, run, post) {
