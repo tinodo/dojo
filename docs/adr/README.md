@@ -37,6 +37,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0025](0025-studio-v2.md) | Studio is organised by what the owner asks (To do, Courses, Money, Health, Activity). A film is offered only for a lesson that is steady (not rewritten in 7 days, not about to be rewritten, pages settled); money is asked for in a sheet with Cancel focused; the Money tab shows what Azure charged, read with the app's own identity; Health says only what it could check. | Proposed (built) |
 | [0026](0026-course-packs.md) | Course packs: one exam's finished lessons, audio and films can be handed to another Dojo as a sealed pack from a static list. Every pack is checked at the door like a hostile file and waits, with nothing paid, until the owner presses one priced check. No uploads, accounts or payments. | Proposed (not built) |
 | [0027](0027-project-site.md) | The project site on GitHub Pages is built from the repository on every push to `main`, holds only what the repository already makes public, and is kept true by tests and a weekly link check. | Accepted |
+| [0028](0028-lab-database-basic-tier.md) | The lab database leaves the free serverless offer and moves to the Basic tier, about USD 5 a month, in two steps: a tenant policy wakes a paused serverless database every two hours, which empties the free amount before the month ends. | Accepted (step 1 built) |
 ## Writing a new ADR
 
 1. Take the next free number (look in this folder; do not reuse one).
