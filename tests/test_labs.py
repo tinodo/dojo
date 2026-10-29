@@ -602,7 +602,7 @@ class LabRoutesTests(unittest.TestCase):
 
 
 class InfrastructureTests(unittest.TestCase):
-    def test_bicep_free_private_and_identity_boundaries(self):
+    def test_bicep_private_and_identity_boundaries(self):
         b = (ROOT / "infra" / "main.bicep").read_text("utf-8")
         server = b.split("resource sqlServer 'Microsoft.Sql/servers@", 1)[1].split("resource labDatabase ", 1)[0]
         self.assertIn("publicNetworkAccess: 'Disabled'", server)
@@ -610,12 +610,22 @@ class InfrastructureTests(unittest.TestCase):
         self.assertIn("sid: appIdentity.properties.clientId", server)
         self.assertIn("principalType: 'Application'", server)
         self.assertIn("login: appIdentity.name", server)
-        for choice in ("useFreeLimit: true",
-                       "freeLimitExhaustionBehavior: 'AutoPause'", "vnetRouteAllEnabled: false",
+        for choice in ("vnetRouteAllEnabled: false",
                        "privatelink${environment().suffixes.sqlServerHostname}", "groupIds: ['sqlServer']",
                        "Microsoft.Web/serverFarms", "virtualNetworkSubnetId: integrationSubnet.id"):
             self.assertIn(choice, b)
         self.assertNotIn("Microsoft.Authorization/roleAssignments", b)
+
+    def test_lab_database_has_left_the_free_offer(self):
+        """ADR 0028, step 1. Leaving the free offer is permanent and must be an update of its own, so this step changes nothing
+        else about the database: still General Purpose serverless. A setting that brought the offer back would be refused by Azure
+        and would fail the deployment."""
+        b = (ROOT / "infra" / "main.bicep").read_text("utf-8")
+        database = b.split("resource labDatabase ", 1)[1].split("resource sqlDns ", 1)[0]
+        self.assertIn("useFreeLimit: false", database)
+        self.assertNotIn("useFreeLimit: true", b)
+        self.assertNotIn("freeLimitExhaustionBehavior", database)
+        self.assertIn("name: 'GP_S_Gen5_2'", database, "the tier is changed in step 2, in a separate update")
 
     def test_lab_ui_never_aborts_an_inflight_sql_write(self):
         script = (ROOT / "app" / "static" / "app.js").read_text("utf-8")

@@ -250,8 +250,9 @@ resource labDatabase 'Microsoft.Sql/servers/databases@2023-08-01' = {
     capacity: 2
   }
   properties: {
-    useFreeLimit: true
-    freeLimitExhaustionBehavior: 'AutoPause'
+    // Step 1 of ADR 0028: the free offer is removed in an update of its own. Learn: an update that leaves the free offer must not
+    // also change the service tier, and removal is permanent for this database. Step 2 (the next change) moves it to the Basic tier.
+    useFreeLimit: false
     autoPauseDelay: 60
     minCapacity: json('0.5')
     maxSizeBytes: 34359738368
