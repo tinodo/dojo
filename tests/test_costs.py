@@ -361,10 +361,11 @@ class CostViewTests(unittest.TestCase):
             self.assertEqual(set(m), {"role", "model", "deployment", "found", "product", "input", "output", "meters", "note"})
         self.assertFalse({"budget", "alert", "alerts", "budgets"} & set(body), "budgets and alerts are the owner's decision")
         self.assertEqual(len(body["notes"]), 4)
-        self.assertTrue(any("private endpoint" in note and "free offer" in note for note in body["notes"]))
+        self.assertTrue(any("private endpoint" in note and "Basic-tier SQL database" in note for note in body["notes"]))
         self.assertTrue(any(all(part in note for part in
-                                ("$23/month", "SqlServers Standard", "$15", "$7.30", "$0.50", "$0"))
+                                ("$28/month", "SqlServers Standard", "$15", "$7.30", "$0.50", "$5", "$0.161 a day"))
                             for note in body["notes"]))
+        self.assertFalse(any("free offer" in note or "AutoPause" in note or "$23/month" in note for note in body["notes"]))
 
 
 class DeploymentTypeTests(unittest.TestCase):

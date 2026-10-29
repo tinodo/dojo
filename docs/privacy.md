@@ -293,7 +293,7 @@ pays for and runs their own hosting, models and lab database, and the federation
 - **Leave:** "Leave Dojo and delete my data" first puts the learner on the deletion list, stops their
   queued and running jobs, and then deletes the whole learner folder (record and its hash chain, plan,
   links, "on air" notes, check audio, allowance counts, social data), their job results, their lab schemas
-  and database users (dropped at the next sync with the lab database, at once if it is awake), and the
+  and database users (dropped at the next sync with the lab database, at once when it answers), and the
   name, email and display name in their membership. A job that was running
   cannot write anything back afterwards. Pooled cost sums stay; they hold no learner key.
 - **What remains after delete or leave:**

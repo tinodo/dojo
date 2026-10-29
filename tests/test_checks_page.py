@@ -342,7 +342,7 @@ class HealthTabTests(unittest.TestCase):
   const course = (failed) => ({ package: "p", exam: "XY-110", make: { videos: { failed } } });
   const build = await sentence({ "/api/studio/courses": { courses: [], todo: { labs: [], stuck: [], builds: [{ package: "xy", exam: "XY-110", state: "stopped" }] } } });
   const films = await sentence({ "/api/studio/courses": { courses: [course(2)], todo: { labs: [], stuck: [], builds: [] } } });
-  const monitoring = await sentence({ "/api/studio/lab": { on: true, demo: false, monitoring: { observed: "on", error: "database waking" } } });
+  const monitoring = await sentence({ "/api/studio/lab": { on: true, demo: false, monitoring: { observed: "on", error: "database unavailable" } } });
   const clear = await sentence({});
   console.log(JSON.stringify([build, films, monitoring, clear]));
 })();""")

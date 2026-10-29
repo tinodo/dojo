@@ -1,0 +1,41 @@
+name: lab-watch
+
+# The daily check of the lab database (ADR 0028): online, on the tier the template declares, with room and not overloaded. It only reads.
+# It signs in with OpenID Connect as the deploy identity, which trusts runs on main of this repository only: a scheduled run is on main, so it
+# works; a manual run from another branch is refused at sign-in. The log of a public repository is public, so tools/lab_watch.py prints only
+# numbers and plain words, never names, ids or messages of Azure (docs/operations.md, "The daily lab check"). The run fails when something needs
+# the owner, and also when Azure cannot be read: no reading is not a good reading.
+on:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: lab-watch
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-dojo-swc
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Sign in to Azure (OpenID Connect, no secret)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Read the lab database
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: python3 tools/lab_watch.py

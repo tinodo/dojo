@@ -2,6 +2,9 @@
 
 Status: proposed. The owner and deployment lead must review the first infrastructure change.
 
+Amended 29 October 2026 by ADR 0028: the lab database is on the Basic tier, which never pauses and has no free allowance. What this record says about the
+free offer, auto-pause, waking and the allowance no longer applies.
+
 ## Decision and action boundary
 
 These are **authorized live-write sandbox** exercises, not production work. The only learner is the

@@ -243,19 +243,15 @@ resource labDatabase 'Microsoft.Sql/servers/databases@2023-08-01' = {
   name: sqlDatabaseName
   location: location
   tags: tags
+  // ADR 0028, step 2: the Basic tier (5 DTUs, 2 GB), a fixed price of about USD 5 a month that never pauses. Step 1 took the database off the
+  // free offer in an update of its own, because Learn says leaving the offer must not be combined with a tier change.
   sku: {
-    name: 'GP_S_Gen5_2'
-    tier: 'GeneralPurpose'
-    family: 'Gen5'
-    capacity: 2
+    name: 'Basic'
+    tier: 'Basic'
+    capacity: 5
   }
   properties: {
-    // Step 1 of ADR 0028: the free offer is removed in an update of its own. Learn: an update that leaves the free offer must not
-    // also change the service tier, and removal is permanent for this database. Step 2 (the next change) moves it to the Basic tier.
-    useFreeLimit: false
-    autoPauseDelay: 60
-    minCapacity: json('0.5')
-    maxSizeBytes: 34359738368
+    maxSizeBytes: 2147483648
     requestedBackupStorageRedundancy: 'Local'
   }
 }

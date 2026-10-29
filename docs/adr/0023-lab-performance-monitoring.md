@@ -2,6 +2,8 @@
 
 - Status: proposed
 - Date: 2026-10-19
+- Amended 29 October 2026 by ADR 0028: the lab database is on the Basic tier, which never pauses and has no free allowance. What this record says about the
+  free offer, auto-pause, waking and the allowance no longer applies; the switch itself stays. Outcome of the measurement: see the last section.
 - Decision owner: the Dojo lead, for the owner
 - Decision: proposed by the builder (branch `feat/lab-performance-monitoring`). The lead can reject or change it in review.
 - Guardrails: ADR 0003 (the lab database is on the free serverless offer and never wakes on its own), ADR 0009 (members' lab
@@ -82,3 +84,11 @@ day, the owner presses **Turn off**. If the result is unclear, it stays off. The
 
 Learn says what monitoring does to auto-pause; the preview ends or changes its property, endpoint or tables; the lab database
 leaves the free offer; the notice or the sheet no longer describes what the database sends.
+
+## Outcome (29 October 2026)
+
+Monitoring did not keep the database awake. It was turned on on 19 October at 17:42 local; the database paused about 16 minutes after each of its first three
+wakes, and stayed paused for 52 hours 51 minutes in a row (20 to 23 October) with monitoring on. From 24 October the free amount fell 5,400 to 11,600 a day instead of
+about 1,750, for another reason: an application identity that is not Dojo's, passing through a tenant-wide Azure Policy, writes a tag on every resource of the resource
+group about every two hours, and every such write resumes a paused serverless database (ADR 0028). The database is now on the Basic tier, which does not pause, so the
+question this record asked has no answer left to give. The switch stays: Learn lists single databases in the DTU model as supported.

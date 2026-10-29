@@ -60,7 +60,7 @@ from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
 from .learning import Dojo, dispute_review_refusal
-from .labs import LABS, FakeRunner, LabRoom, LabUser, SqlRunner, is_waking, sql_error_reason
+from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRunner, is_unavailable, sql_error_reason
 from .mirror import Mirror
 from .newexam import NewExams
 from .packages import Packages
@@ -1210,8 +1210,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise
         except Exception as exc:
             log.warning("lab run unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            raise HTTPException(503, "Waking the database, about a minute. Try again shortly."
-                                if is_waking(exc) else "The database is unavailable. Try again.") from exc
+            raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
         store.append_event(learner.key, "lab.ran", {"package": "dp-800", "skill": LABS[lab]["skill"],
                            "lab": lab, "local_demo": lab_demo})
         return result
@@ -1234,8 +1233,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise
         except Exception as exc:
             log.warning("lab check unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            raise HTTPException(503, "Waking the database, about a minute. Try again shortly."
-                                if is_waking(exc) else "The database is unavailable. Try again.") from exc
+            raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
         if not lab_demo:
             events = store.events(learner.key)
             previous = next((i for i in range(len(events) - 1, -1, -1) if events[i]["type"] == "lab.reset"
@@ -1266,8 +1264,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise
         except Exception as exc:
             log.warning("lab reset unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            if is_waking(exc):
-                raise HTTPException(503, "Waking the database, about a minute. No reset was recorded.") from exc
+            if is_unavailable(exc):
+                raise HTTPException(503, f"{NO_ANSWER} No reset was recorded.") from exc
             from mssql_python import Error as SqlDriverError
             if isinstance(exc, SqlDriverError):
                 raise HTTPException(422, f"Reset failed: {str(exc)[:500]}") from exc
@@ -1882,7 +1880,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @app.get("/api/studio/lab")
     def studio_lab(learner: Learner = Admin) -> dict:
         """Studio's Checks tab reads this. It is Dojo's own file, never the database: a page that is read and warmed on
-        its own must not wake a free database that pauses (ADR 0003, ADR 0023)."""
+        its own opens no connection (ADR 0003, ADR 0023)."""
         return _lab_view()
 
     @app.post("/api/studio/lab/monitoring")
@@ -1896,8 +1894,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise
         except Exception as exc:
             log.warning("lab monitoring unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            raise HTTPException(503, "Waking the database, about a minute. Try again shortly." if is_waking(exc)
-                                else "The database is unavailable. Try again.") from exc
+            raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
         return _lab_view()
 
     @app.post("/api/diag/lab")
@@ -1908,7 +1905,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             return labs.probe()
         except Exception as exc:
             log.warning("lab probe failed: %s", type(exc).__name__)
-            return {"ok": False, "message": "Private database is unavailable or waking. Retry in a minute."}
+            return {"ok": False, "message": f"{NO_ANSWER} Try again in a minute."}
 
     @app.post("/api/diag/lab/repair")
     def lab_repair(body: LabRepair, learner: Learner = Admin) -> dict:

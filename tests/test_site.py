@@ -220,7 +220,7 @@ class TheBuild(unittest.TestCase):
         self.assertIn(f"Python {c['python_version']} and Git", text)
 
     def test_facts_that_are_written_by_hand_still_hold_in_the_documents_they_came_from(self):
-        ties = [("up to about USD 23 a month", "USD 23", "docs/operations.md"), ("up to 30 colleagues", "up to 30", "docs/user-guide.md")]
+        ties = [("up to about USD 28 a month", "USD 28", "docs/operations.md"), ("up to 30 colleagues", "up to 30", "docs/user-guide.md")]
         text = PAGES["index.html"].text
         for on_site, in_doc, source in ties:
             self.assertIn(on_site, text)

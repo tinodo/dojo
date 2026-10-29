@@ -156,7 +156,7 @@ LINES = (
     ("transcription", "Transcribed by the voice check", "transcription", "minutes"),
 )
 NOTES = (
-    "DP-800 labs: about $23/month outside the Speech total: subscription-policy Defender for Cloud (SqlServers Standard) about $15 per new SQL server, private endpoint about $7.30, and private DNS zone about $0.50. The Azure SQL database is $0 if eligible for the free offer with AutoPause at its limit. Check your Azure bill and free-offer eligibility before deployment.",
+    "DP-800 labs: about $28/month outside the Speech total: subscription-policy Defender for Cloud (SqlServers Standard) about $15 per new SQL server, private endpoint about $7.30, private DNS zone about $0.50, and the Basic-tier SQL database about $5 ($0.161 a day at Sweden Central's list price). Check Azure's prices for your region before deployment.",
     "Counts what is stored now: a video removed to stay inside the video storage budget is no longer counted, although it was paid for.",
     "Model calls (writing and checking lessons, questions and feedback) are not in this total: Dojo does not count model tokens yet. The models' list prices are shown above.",
     "Dojo sets no budget and no alert; that is your decision in Azure.",

@@ -45,7 +45,8 @@ def october() -> list[list]:
                  line(d, "Microsoft Defender for Cloud", "Standard Node", 0.64),
                  line(d, "Azure App Service", "B1", 0.42),
                  line(d, "Virtual Network", "Standard Private Endpoint", 0.23),
-                 line(d, "SQL Database", "Free Offer vCore", 0.0)]
+                 line(d, "SQL Database", "1 vCore - Free", 0.0),
+                 line(d, "SQL Database", "General Purpose Data Stored - Free", 0.0)]
     return rows
 
 
@@ -111,7 +112,13 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(classify("Azure App Service", "B1"), ("web", None, "always"))
         self.assertEqual(classify("Virtual Network", "Standard Private Endpoint"), ("network", None, "always"))
         self.assertEqual(classify("MS Bing Services", "Grounding"), ("search", None, "use"))
-        self.assertEqual(classify("SQL Database", "Free Offer vCore"), ("database", None, "use"))
+        self.assertEqual(classify("SQL Database", "B DTU"), ("database", "Basic tier", "always"), "Basic, charged per day")
+        self.assertEqual(classify("SQL Database", "B DTUs"), ("database", "Basic tier", "always"))
+        for meter in ("1 vCore - Free", "General Purpose Data Stored - Free", "vCore", "General Purpose Data Stored"):
+            self.assertEqual(classify("SQL Database", meter), ("database", "Before the move to Basic", "use"), meter)
+        self.assertEqual(classify("SQL Database", "Backup LRS Data Stored"), ("database", "Other database charges", "unknown"),
+                         "a line of the database that no rule names is not called pay per use, and not always on")
+        self.assertEqual(classify("SQL Database", "Free DTU"), ("database", "Other database charges", "unknown"))
         self.assertEqual(classify("Bandwidth", "Data Transfer Out"), ("other", None, "use"), "a line nobody named still counts in the total")
 
     def rows(self) -> list[dict]:
@@ -168,6 +175,95 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(summarize(mixed), {"state": "error", "reason": bill_mod.MIXED})
 
 
+def sql(day: int, meter: str, cost: float, month: str = "2026-10") -> dict:
+    return {"day": f"{month}-{day:02d}", "service": "SQL Database", "meter": meter, "cost": cost, "currency": "USD"}
+
+
+def web(days, month: str = "2026-10", cost: float = 0.42) -> list[dict]:
+    return [{"day": f"{month}-{d:02d}", "service": "Azure App Service", "meter": "B1", "cost": cost, "currency": "USD"} for d in days]
+
+
+class DatabaseRowTests(unittest.TestCase):
+    """What the Money tab says about the lab database after the move to the Basic tier (ADR 0028): a fixed price a day. The meter names are
+    the ones Azure uses: "1 vCore - Free" and "General Purpose Data Stored - Free" on the free offer, "vCore" on paid serverless, "B DTU" on Basic."""
+
+    @staticmethod
+    def database(rows):
+        s = summarize(rows)
+        return s, next(g for g in s["groups"] if g["key"] == "database")
+
+    def test_the_free_offer_lines_cost_nothing_and_are_not_listed(self):
+        rows = web(range(1, 6)) + [sql(d, "1 vCore - Free", 0.0) for d in range(1, 6)] + [sql(d, "General Purpose Data Stored - Free", 0.0) for d in range(1, 6)]
+        s, g = self.database(rows)
+        self.assertEqual((g["kind"], g["parts"], g["total"], g["per_month"]), ("free", [], 0.0, None))
+        self.assertEqual(g["note"], "The lab database. It has a fixed daily price (the Basic tier), charged whether or not anyone uses labs.")
+        for old in ("free offer", "pauses"):
+            self.assertNotIn(old, g["note"])
+
+    def test_the_first_days_after_the_move_have_no_monthly_figure_anywhere(self):
+        """Paid serverless until the 30th, a half day of Basic on the 30th and one full day on the 31st (the day still arriving)."""
+        rows = (web(range(1, 32)) + [sql(d, "1 vCore - Free", 0.0) for d in range(1, 28)]
+                + [sql(28, "vCore", 0.40), sql(29, "vCore", 5.10), sql(30, "vCore", 2.00), sql(30, "General Purpose Data Stored", 0.01),
+                   sql(30, "B DTU", 0.08), sql(31, "B DTU", 0.161)])
+        s, g = self.database(rows)
+        self.assertEqual(g["kind"], "mixed")
+        self.assertEqual([(p["label"], p["kind"], p["total"]) for p in g["parts"]],
+                         [("Before the move to Basic", "use", 7.51), ("Basic tier", "always", 0.24)])
+        self.assertEqual([p["per_month"] for p in g["parts"]], [None, None], "Basic has no complete day yet: nothing is guessed")
+        self.assertIsNone(g["per_month"])
+        self.assertEqual(s["fixed"]["total"], round(0.42 * 31 + 0.241, 2))
+        self.assertIsNone(s["fixed"]["per_day"])
+        self.assertIsNone(s["fixed"]["per_month"], "one always-on line has no rate yet: the figure for all of them is not said")
+        self.assertIsNone(s["month_floor"])
+        self.assertAlmostEqual(s["use_total"] + s["fixed"]["total"] + s["unknown_total"], s["month"]["total"], delta=0.02)
+
+    def test_a_week_into_the_next_month_basic_has_its_monthly_price(self):
+        s, g = self.database(web(range(1, 7), "2026-11") + [sql(d, "B DTU", 0.161, "2026-11") for d in range(1, 7)])
+        self.assertEqual((g["kind"], g["total"], g["per_month"]), ("always", 0.97, 4.83), "30 days at USD 0.161")
+        self.assertEqual([(p["label"], p["kind"], p["per_month"]) for p in g["parts"]], [("Basic tier", "always", 4.83)])
+        self.assertEqual(s["fixed"]["per_day"], 0.58)
+        self.assertEqual(s["fixed"]["per_month"], round((0.42 + 0.161) * 30, 2))
+        self.assertEqual(s["month_floor"], round(s["month"]["total"] + 24 * (0.42 + 0.161), 2))
+
+    def test_the_first_two_days_of_a_month_say_no_monthly_figure_and_the_third_does(self):
+        def rows(through):
+            return web(range(1, through + 1), "2026-11") + [sql(d, "B DTU", 0.161, "2026-11") for d in range(1, through + 1)]
+        for through in (1, 2):
+            s, g = self.database(rows(through))
+            self.assertEqual((s["fixed"]["per_month"], s["month_floor"], g["per_month"]), (None, None, None), through)
+        s, g = self.database(rows(3))
+        self.assertEqual((s["fixed"]["per_month"], g["per_month"]), (round(0.581 * 30, 2), 4.83))
+
+    def test_zero_cost_parts_decide_nothing_and_are_not_listed(self):
+        rows = [sql(d, "1 vCore - Free", 0.0, "2026-11") for d in range(1, 6)] + [sql(d, "B DTU", 0.161, "2026-11") for d in range(1, 6)]
+        _, g = self.database(rows)
+        self.assertEqual(g["kind"], "always", "a part that costs nothing does not make the group partly something else")
+        self.assertEqual([p["label"] for p in g["parts"]], ["Basic tier"])
+
+    def test_a_charge_that_no_rule_names_is_not_called_use_or_always_and_has_no_group_price(self):
+        rows = [sql(d, "B DTU", 0.161, "2026-11") for d in range(1, 7)] + [sql(d, "Backup LRS Data Stored", 0.05, "2026-11") for d in range(1, 7)]
+        s, g = self.database(rows)
+        self.assertEqual(g["kind"], "always", "what is identified decides the chip")
+        self.assertEqual({p["label"]: (p["kind"], p["per_month"]) for p in g["parts"]}, {"Basic tier": ("always", 4.83), "Other database charges": ("unknown", None)})
+        self.assertIsNone(g["per_month"], "no price for the whole group while a charge in it is not identified")
+        self.assertEqual((s["unknown_total"], s["use_total"], s["fixed"]["total"]), (0.30, 0.0, 0.97))
+        self.assertAlmostEqual(s["use_total"] + s["fixed"]["total"] + s["unknown_total"], s["month"]["total"], delta=0.02)
+        _, only = self.database([sql(d, "Backup LRS Data Stored", 0.05, "2026-11") for d in range(1, 4)])
+        self.assertEqual(only["kind"], "unknown")
+        _, some_use = self.database([sql(1, "vCore", 1.0, "2026-11"), sql(2, "Backup LRS Data Stored", 0.3, "2026-11")])
+        self.assertEqual(some_use["kind"], "use", "an unidentified charge never turns a group into 'partly always on'")
+
+    def test_what_an_always_on_line_costs_a_day_comes_from_its_complete_days(self):
+        rate = bill_mod._daily_rate
+        self.assertIsNone(rate({"2026-10-29": 0.08, "2026-10-30": 0.161, "2026-10-31": 0.161}, "2026-10-31", "2026-10-01"), "it began this month: its first day is left out")
+        self.assertEqual(rate({"2026-11-03": 0.08, "2026-11-04": 0.161, "2026-11-05": 0.161, "2026-11-06": 0.161}, "2026-11-06", "2026-11-01"), 0.161)
+        self.assertEqual(rate({"2026-11-01": 0.5, "2026-11-02": 0.5, "2026-11-03": 0.5}, "2026-11-03", "2026-11-01"), 0.5, "it ran from the 1st: no day is left out")
+        self.assertEqual(rate({"2026-11-01": 1.0, "2026-11-02": 3.0, "2026-11-03": 2.0, "2026-11-04": 9.0}, "2026-11-04", "2026-11-01"), 2.0)
+        self.assertEqual(rate({"2026-11-01": 1.0, "2026-11-02": 3.0, "2026-11-03": 2.0, "2026-11-04": 9.0, "2026-11-05": 9.0}, "2026-11-05", "2026-11-01"), 3.0,
+                         "with an even number of days the upper middle one: a part day does not pull the price down")
+        self.assertIsNone(rate({"2026-11-01": 0.0, "2026-11-02": 0.0}, "2026-11-02", "2026-11-01"))
+
+
 class BillTests(BillCase):
     def test_a_first_visit_reads_azure_once_and_keeps_the_reading(self):
         bill = self.bill(Azure())
@@ -190,6 +286,31 @@ class BillTests(BillCase):
         self.assertEqual(bill.view()["state"], "ok")
         self.assertEqual(Bill(self.store, self.tokens, RESOURCE, httpx.Client(transport=httpx.MockTransport(self.azure))).view()["state"], "ok", "after a restart too")
         self.assertEqual(len(self.azure.requests), before, "six hours on the share: nobody asks Azure again")
+
+    def test_a_reading_of_an_old_shape_is_never_shown_but_what_azure_said_about_waiting_is_kept(self):
+        """A reading made by the rules before the move to Basic still says the database is free: it is not shown, it is read again."""
+        scope = f"/subscriptions/{SUB}/resourceGroups/{RG}"
+        old = {"shape": bill_mod.SHAPE - 1, "scope": scope, "read_at": iso(self.now), "month": "2026-10",
+               "summary": {"state": "ok", "currency": "USD", "groups": [{"key": "database", "note": "The lab database. On the free offer it costs nothing and pauses when nobody uses labs."}]},
+               "attempt": {"at": iso(self.now), "state": "ok", "retry_at": None, "reason": None}}
+        self.store.write("content", "bill", value=old)
+        azure = Azure()
+        v = self.bill(azure).view()
+        self.assertEqual(v["state"], "ok")
+        self.assertNotIn("free offer", json.dumps(v))
+        self.assertEqual(len(azure.requests), 2, "this month and last month, read again")
+        self.assertEqual(self.store.read("content", "bill")["shape"], bill_mod.SHAPE)
+        waiting = {**old, "attempt": {"at": iso(self.now), "state": "throttled", "retry_at": iso(self.now + timedelta(seconds=300)), "reason": bill_mod.WAITING}}
+        self.store.write("content", "bill", value=waiting)
+        azure = Azure()
+        bill = self.bill(azure)
+        v = bill.view()
+        self.assertEqual((v["state"], v["reason"]), ("error", bill_mod.WAITING))
+        self.assertNotIn("free offer", json.dumps(v))
+        self.assertEqual(azure.requests, [], "Azure said to wait: nobody asks before then, the old reading or not")
+        self.now += timedelta(seconds=301)
+        self.assertEqual(bill.view()["state"], "ok")
+        self.assertEqual(len(azure.requests), 2)
 
     def test_what_the_page_gets_holds_only_numbers_and_plain_words(self):
         v = self.bill(Azure()).view()

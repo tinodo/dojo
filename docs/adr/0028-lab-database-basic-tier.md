@@ -1,6 +1,6 @@
 # ADR 0028 - The lab database moves to a small fixed-price tier
 
-- Status: accepted (step 1 built; step 2 follows)
+- Status: accepted (built: step 1, the free offer left, in pull request 44; step 2, the Basic tier, with the daily check)
 - Date: 2026-10-29
 - Decision owner: the Dojo lead, for the owner
 - Decision: the owner, 29 October 2026, after the cost options were put to him: "Perhaps move it to the $5 a month tier? that is cheaper than
@@ -27,8 +27,8 @@ Read-only, on 29 October 2026, from Azure's activity log and metrics:
 - **The free amount fell 5,400 to 11,600 a day** since 24 October (the most on a day with seven deploys), against about
   1,750 before. 16,236 were left on 29 October, enough until about 31 October. Left alone, the same happens about two weeks into every month.
 - **It is not Dojo and not performance monitoring.** In 70 of the 74 wakes no one logged in or ran a session. The database stayed paused for
-  52 hours in a row while monitoring was on (20 to 23 October). Dojo's only code that connects on its own runs at start, when a membership changes
-  and every five minutes while the database does not answer.
+  52 hours in a row while monitoring was on (20 to 23 October). In team mode, Dojo's only code that connects on its own runs at start, when a
+  membership changes and every five minutes while the database does not answer; with team mode off nothing connects on its own.
 - **The resource group cannot be exempted.** That is the owner's statement of how the tenant works.
 
 ## Options
@@ -48,20 +48,21 @@ offer fixes the auto-pause at 15 minutes and Learn says it cannot be changed, wh
 
 **Move the lab database to the Basic tier, in two steps, each its own change through the pipeline.**
 
-1. **Leave the free offer (this change).** Learn says an update that removes the free offer must not also change the service tier, and that removal is
+1. **Leave the free offer (built first, on its own).** Learn says an update that removes the free offer must not also change the service tier, and that removal is
    permanent for the database: the offer cannot be applied again, even if the next step fails. So `useFreeLimit` becomes `false` and nothing else about the
    database changes: still General Purpose serverless with the 60-minute auto-pause. From here the database is billed at serverless prices, and the 60
    minutes in the template now apply (the free offer fixed the pause at 15): a wake keeps it on for an hour. Learn bills at least the larger of the
    minimum vCores and the minimum memory divided by 3 GB per vCore: for this size 2.05 GB, so at least 0.68 vCore at USD 0.574 an hour. That is about
    USD 0.40 a wake, about USD 5 a day at today's 13 wakes, about USD 0.21 an hour, until step 2.
-2. **Move to Basic (the next change).** `sku` Basic, 5 DTUs, `maxSizeBytes` 2 GB, the serverless settings gone. Everything the owner or a learner reads
-   that says the database is free or pauses (the Money tab's line, the lab database line on Health, the Labs page, the guide, the operator guide)
-   changes in the same pull request, because it would not be true any more.
+2. **Move to Basic (built second).** `sku` Basic, 5 DTUs, `maxSizeBytes` 2 GB, the serverless settings gone. Everything the owner or a learner reads
+   that says the database is free, pauses or wakes (the Money tab's line and its figures, the lab database line on Health, the About page, the Labs page,
+   the guide, the operator guide, the architecture, the privacy sheet, the project site) changes in the same pull request, because it would not be true any more.
 
 **What fits.** The database holds 23 MB (its largest size in 30 days; Basic allows 2 GB). The three labs need the `vector` type, `VECTOR_DISTANCE` and
 `JSON_VALUE`; Learn lists no tier limit for them and no preview setting (ADR 0003). Basic allows 5 DTUs, 30 workers and 30 logins and keeps its data on
 hard disks: enough for one learner at a time and tiny tables. Learn lists single databases in the DTU model as supported by performance monitoring, so
-the owner's switch (ADR 0023) stays, and with a database that never pauses, turning it on or off wakes nothing.
+the owner's switch (ADR 0023) stays, and with a database that never pauses, turning it on or off wakes nothing. Learn does not say how much load the sampling adds on
+5 DTUs, so the daily check reads the load and fails above 50% on average.
 
 ## Consequences
 
@@ -69,8 +70,8 @@ the owner's switch (ADR 0023) stays, and with a database that never pauses, turn
   endpoint about USD 7.30, private DNS zone about USD 0.50, the database about USD 4.83 to 4.99).
 - **One way:** the free offer cannot come back to this database. To have it again, Dojo would need a new free database, and any wake would cost
   nothing until the allowance ran out.
-- **A database that does not pause:** a lab never waits for a wake, and the "database waking" message becomes rare (it can still appear for a
-  few moments when the tier changes).
+- **A database that does not pause:** a lab never waits for a wake. A failure can still come for a moment (a tier change, maintenance, a failover): Dojo then
+  says the lab database did not answer, and the lab page tries again for about two minutes. Nothing says the database is waking any more.
 - **Slower, and it has limits:** a very heavy lab query is cut after 20 seconds, as before. More than about 30 learners at once, or tables that grow
   past 2 GB, mean Standard S0 or S1.
 - **Restores:** Learn says a restore on Basic may need a bigger size for a while. The lab data can be rebuilt: the labs are exercises, and the deletion
@@ -79,8 +80,9 @@ the owner's switch (ADR 0023) stays, and with a database that never pauses, turn
 ## How we know it worked
 
 Step 1: Azure shows `useFreeLimit` false and the database online; `/healthz` reports the new build. Step 2: Azure shows the current service objective
-Basic and the database online; the app's start-up check of the deletion list connects and does not fail (Azure's connection counts); the owner presses
-the lab check on Health once. A daily check on GitHub (`lab-watch`) reads the database's state, tier, storage and load, and fails when one is wrong.
+Basic and the database online; Azure's metrics show connections that succeed and none that fail (the start-up connection of team mode exists only when team
+mode is on, so it is not what is read); the owner presses the lab check on Health once. The daily check on GitHub (`lab-watch`, from step 2 on) reads the
+database's state, tier, storage, load and failed connections, and fails when one is wrong.
 
 ## Review triggers
 
