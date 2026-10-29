@@ -20,18 +20,21 @@ const LABS = cut("// -----------------------------------------------------------
 const flat = (list) => list.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
 const text = (el) => (typeof el === "string" ? el : el.kids.map(text).join(" "));
 const all = (el, pred) => (typeof el === "string" ? [] : [...(pred(el) ? [el] : []), ...el.kids.flatMap((k) => all(k, pred))]);
+const doc = { body: { tag: "body" }, activeElement: null };   // where the focus is: a browser drops it to the body when the element that has it is disabled or removed
 class El {
-  constructor(tag, attrs) { this.tag = tag; this.attrs = attrs || {}; this.kids = []; this.className = this.attrs.class || ""; this.disabled = false; this.listeners = {};
+  constructor(tag, attrs) { this.tag = tag; this.attrs = attrs || {}; this.kids = []; this.className = this.attrs.class || ""; this._disabled = false; this.listeners = {};
     this.scrolled = 0; this.focused = 0; this.value = ""; this.rows = this.attrs.rows; }
+  get disabled() { return this._disabled; }
+  set disabled(v) { this._disabled = v; if (v && doc.activeElement === this) doc.activeElement = doc.body; }
   get textContent() { return text(this); }
   set textContent(v) { this.kids = [String(v)]; }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
-  press() { (this.listeners.click || []).forEach((fn) => fn({ currentTarget: this })); }
+  press() { doc.activeElement = this; (this.listeners.click || []).forEach((fn) => fn({ currentTarget: this })); }
   type(value) { this.value = value; (this.listeners.input || []).forEach((fn) => fn({ target: this })); }
   querySelectorAll(tag) { return all(this, (e) => e.tag === tag); }
   scrollIntoView() { this.scrolled += 1; }
-  focus() { this.focused += 1; }
-  remove() { this.removed = true; }
+  focus() { if (this._disabled) return; this.focused += 1; doc.activeElement = this; }
+  remove() { this.removed = true; if (doc.activeElement === this) doc.activeElement = doc.body; }
   append(...kids) { this.kids.push(...flat(kids)); }
 }
 const h = (tag, attrs, ...kids) => {
@@ -51,7 +54,7 @@ const state = { pid: "dp-800" };
 let confirmAnswer = true;
 const windowStub = { confirm: (m) => { confirms.push(m); return confirmAnswer; } };
 const context = vm.createContext({
-  h, put, state, console, window: windowStub, Date, setTimeout,
+  h, put, state, console, window: windowStub, document: doc, Date, setTimeout,
   plural: (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`,
   button: (label, onclick, kind) => h("button", { onclick, kind }, label),
   panel: (...kids) => h("section", { class: "panel" }, ...kids), eyebrow: (icon, label) => h("p", { eyebrow: icon }, label),
@@ -79,7 +82,7 @@ const output = () => all(view, isCls("lab-output"))[0];
 const checker = () => all(view, isCls("lab-check"))[0];
 const editor = () => all(view, (e) => e.tag === "textarea")[0];
 const button = (label) => all(view, (e) => e.tag === "button" && text(e).trim() === label)[0];
-const open = async (extra) => { answers = [detail(extra)]; calls.length = 0; confirms.length = 0; seen = []; confirmAnswer = true; view = h("div", null, await P.viewLab("vector")); return view; };
+const open = async (extra) => { answers = [detail(extra)]; calls.length = 0; confirms.length = 0; seen = []; confirmAnswer = true; doc.activeElement = null; view = h("div", null, await P.viewLab("vector")); return view; };
 const tick = () => new Promise((r) => setTimeout(r, 5));
 const press = async (label) => { button(label).press(); await tick(); await tick(); };
 const words = (el) => text(el).replace(/\s+/g, " ").trim();
@@ -264,7 +267,7 @@ class LabPageTests(unittest.TestCase):
     ["empty", failure("Enter some SQL to run.", 422)],
     ["busy", failure("A lab query is already running. Wait for it to finish.", 422)],
     ["collision", failure("The fixture name is used by a different object. Press Reset this lab.", 422)],
-    ["noMessage", failure("The run could not be completed. No message came back from the database.", 422)],
+    ["noMessage", failure("No message came back from the database. Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, or press Reset this lab to start from the beginning.", 422)],
     ["none", failure("", 500)],
   ]) { answers.push(e); await press("Run SQL"); got[name] = snapshot(); }
   console.log(JSON.stringify(got));
@@ -445,6 +448,82 @@ class LabPageTests(unittest.TestCase):
 """)
         self.assertEqual(out["focused"], 1)
         self.assertEqual(out["snap"]["disabled"], [False, False, False, False, False])
+
+    def test_the_focus_waits_for_the_last_call_that_holds_the_buttons_and_is_not_taken_from_where_he_put_it(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  const gate = () => { let go; const p = new Promise((resolve) => { go = resolve; }); return { p, go }; };
+  const at = (b) => ({ disabled: b.disabled, focused: b.focused, onIt: doc.activeElement === b });
+  // the Run answers first, a hint is still on its way: the Run's button is held, so the focus is given back when the hint is done
+  await open();
+  let run = gate(), hint = gate();
+  answers.push(() => run.p.then(() => rows(3)));
+  button("Run SQL").press(); await tick();
+  answers.push(() => hint.p.then(() => ({ hint: "Think about the type." })));
+  button("Show hint 1").press(); await tick();
+  run.go(); await tick(); await tick();
+  got.runFirst = at(button("Run SQL"));
+  hint.go(); await tick(); await tick();
+  got.runFirstThenHint = at(button("Run SQL"));
+  // the hint answers first, the Run last
+  await open();
+  run = gate();
+  answers.push(() => run.p.then(() => rows(1)));
+  button("Run SQL").press(); await tick();
+  answers.push({ hint: "Think about the type." });
+  button("Show hint 1").press(); await tick(); await tick();
+  got.hintFirst = at(button("Run SQL"));
+  run.go(); await tick(); await tick();
+  got.hintFirstThenRun = at(button("Run SQL"));
+  // he put the cursor in the editor while the Run was on its way: the focus stays there
+  await open();
+  run = gate();
+  answers.push(() => run.p.then(() => rows(1)));
+  button("Run SQL").press(); await tick();
+  doc.activeElement = editor();
+  run.go(); await tick(); await tick();
+  got.inEditor = { ...at(button("Run SQL")), editor: doc.activeElement === editor() };
+  console.log(JSON.stringify(got));
+})();
+""")
+        self.assertEqual(out["runFirst"], {"disabled": True, "focused": 0, "onIt": False}, "the hint still holds the buttons: a disabled button cannot take the focus")
+        self.assertEqual(out["runFirstThenHint"], {"disabled": False, "focused": 1, "onIt": True}, "the focus comes back when the hint is done")
+        self.assertEqual(out["hintFirst"], {"disabled": True, "focused": 0, "onIt": False})
+        self.assertEqual(out["hintFirstThenRun"], {"disabled": False, "focused": 1, "onIt": True})
+        self.assertEqual(out["inEditor"], {"disabled": False, "focused": 0, "onIt": False, "editor": True})
+
+    def test_the_buttons_are_never_left_held_when_something_goes_wrong_inside_a_call(self):
+        out = run_node("""
+(async () => {
+  await open();
+  let broken = true;
+  checker().scrollIntoView = function () { if (broken) { broken = false; throw new Error("The page broke."); } this.scrolled += 1; };
+  await press("Check my work");
+  console.log(JSON.stringify(snapshot()));
+})();
+""")
+        self.assertEqual(out["disabled"], [False, False, False, False, False])
+        self.assertIn("The page broke.", out["checker"])
+
+    def test_what_the_database_said_is_never_asked_again_by_itself_whatever_its_words(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  for (const [name, e] of [
+    ["outageWords", refusal("Invalid column name 'is not currently available'. Please retry the connection later. (error 207)", 207)],
+    ["unconfirmed", failure("No message came back from the database. Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, or press Reset this lab to start from the beginning.", 422)],
+    ["unavailable", failure("The database is unavailable. Try again.", 503)],
+  ]) {
+    await open();
+    answers.push(e); await press("Run SQL");
+    got[name] = { runs: calls.filter((c) => c[0].endsWith("/run")).length, waited: seen.length, status: statusLine().textContent.trim() };
+  }
+  console.log(JSON.stringify(got));
+})();
+""")
+        for key, value in out.items():
+            self.assertEqual(value, {"runs": 1, "waited": 0, "status": "That did not work."}, f"{key}: the SQL went once and was not sent again by the page")
 
     def test_dangerous_sql_still_asks_first_and_nothing_is_sent_when_he_says_no(self):
         out = run_node("""

@@ -9386,8 +9386,17 @@ async function viewLab(id) {
   const hints = h("div", { class: "lab-hints" });
   // The summary line, the Results heading and the results are one block: bringing it into view shows all three.
   const feedback = h("div", { class: "lab-feedback" }, status, h("h3", null, "Results"), output);
-  let held = 0;   // the calls that hold the buttons: a hint that finishes must not release the buttons of a Run that has not
+  let held = 0, focusTo = null;   // the calls that hold the buttons (a hint that finishes must not release the buttons of a Run that has not), and the button that gets its focus back
   const hold = (on) => { held += on ? 1 : -1; setBusy(held > 0); };
+  // A button that was disabled while its call ran lost its focus: it gets it back when the last call that holds the buttons is done, unless he put the focus elsewhere himself.
+  const release = (back) => {
+    hold(false);
+    if (back) focusTo = back;
+    if (held || !focusTo) return;
+    const at = document.activeElement;
+    if (!at || at === document.body) focusTo.focus({ preventScroll: true });
+    focusTo = null;
+  };
   const setBusy = (busy) => { for (const b of controls.querySelectorAll("button")) b.disabled = busy; };
   const notice = (o) => h("div", { class: "lab-notice", role: "alert" }, h("p", null, o.problem), o.advice ? h("p", { class: "advice" }, o.advice) : null);
   let runFailed = false;   // Results holds the notice of a Run or a Reset that failed: a failure is news only until the next press
@@ -9402,19 +9411,19 @@ async function viewLab(id) {
     o.none ? h("p", { class: "small muted" }, o.none) : null);
   };
   const call = async (kind, body, from) => {
-    hold(true);
     const checking = kind === "check";
     // A Check speaks in the Checker, and leaves the status line and Results to the last Run or Reset, unless that one failed: its failure is not the news now.
     // What was shown before is not the answer to this call: a Run or a Reset changes the lab, so a check from before it no longer describes the lab.
     const tell = (text) => (checking ? checkPut(h("p", { class: "small muted" }, text)) : say(text));
-    tell(lab.local ? "Running the local demo…" : checking ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…");
-    if (checking) {
-      if (runFailed) { runFailed = false; say(idleStatus); put(output, idleResults()); }
-      check.scrollIntoView({ block: "nearest" });   // where the answer will come
-    } else { runFailed = false; put(output, h("p", { class: "small muted" }, lab.local ? "Running the local demo…" : "Waiting for the database…")); checkClear(); }
-    const deadline = Date.now() + 120000;
     let answer = feedback;   // what the page scrolls to when the call is done: the answer, wherever it was put
-    try {
+    hold(true);
+    try {   // whatever happens from here, the finally lets the hold go
+      tell(lab.local ? "Running the local demo…" : checking ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…");
+      if (checking) {
+        if (runFailed) { runFailed = false; say(idleStatus); put(output, idleResults()); }
+        check.scrollIntoView({ block: "nearest" });   // where the answer will come
+      } else { runFailed = false; put(output, h("p", { class: "small muted" }, lab.local ? "Running the local demo…" : "Waiting for the database…")); checkClear(); }
+      const deadline = Date.now() + 120000;
       let r;
       while (true) {
         try {
@@ -9440,8 +9449,7 @@ async function viewLab(id) {
       if (checking) { checkPut(notice(o)); answer = check; }
       else showRun(null, o);   // a run or a reset: its failure goes where its results would
     } finally {
-      hold(false);
-      if (from) from.focus({ preventScroll: true });   // a button that was disabled while the call ran gives its focus up
+      release(from);
       answer.scrollIntoView({ block: "nearest" });
     }
   };
@@ -9453,7 +9461,7 @@ async function viewLab(id) {
       hintButtons[index].remove();
       say("Hint shown. This is practice with help.");
     } catch (e) { say(e.message, true); }
-    finally { hold(false); }
+    finally { release(); }
   };
   const hintButtons = Array.from({ length: lab.hint_count }, (_, index) => button(`Show hint ${index + 1}`, () => reveal(index), "ghost sm"));
   const reset = button("Reset this lab", (ev) => {

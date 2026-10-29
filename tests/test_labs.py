@@ -9,7 +9,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from tests.test_api import POST, settings
-from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRefused, SqlRunner, LabRoom, LabUser, FakeRunner, UserError, database_message, database_said, is_unavailable, sql_error_reason, validate
+from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRefused, SqlRunner, LabRoom, LabUser, FakeRunner, UNCONFIRMED, UserError, database_message, database_said, is_unavailable, sql_error_reason, validate
 from app.core import Store, sha256
 from app.mirror import Mirror
 from app.evidence import derive
@@ -211,21 +211,36 @@ class SqlBoundaryTests(unittest.TestCase):
         self.assertEqual(database_said(quoted), ("The duplicate key value is (A; [Microsoft] B).", 2627))
         joined = sqlstate_to_exception("23000", driver + "First (A; [Microsoft] B). (2627) (SQLExecDirectW); " + driver + "Second. (3621)")
         self.assertEqual(database_said(joined), ("First (A; [Microsoft] B). Second.", 2627), "the next diagnostic still starts at its own header")
+        for value in ("(A; [Microsoft][SKU] B)", "(A; [Microsoft][SQL Server] B)", "(A; [Microsoft][ODBC Driver] B)"):
+            with self.subTest(value=value):
+                said = sqlstate_to_exception("23000", driver + f"The duplicate key value is {value}. (2627) (SQLExecDirectW)")
+                self.assertEqual(database_said(said), (f"The duplicate key value is {value}.", 2627), "bracket groups inside a value are words, not a header")
+        later_by_the_driver = sqlstate_to_exception(
+            "23000", driver + "Msg A. (123) (SQLExecDirectW); [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")
+        self.assertEqual(database_said(later_by_the_driver), ("Msg A.", 123), "a diagnostic of the driver is not a sentence of the database")
 
-    def test_a_database_that_goes_away_under_a_statement_is_not_a_refusal_of_the_sql(self):
-        error = paused_error()
-        with mock.patch.object(self.runner, "execute", side_effect=error), self.assertLogs("dojo.labs", "WARNING"):
-            with self.assertRaises(Exception) as caught:
-                self.runner.run("SELECT 1", "lr_0123456789ab_vector")
-        self.assertIs(caught.exception, error, "lab_run answers it with a 503, and the page asks again")
-        self.assertNotIsInstance(caught.exception, UserError)
-        self.assertTrue(self.connections[-1].closed, "nothing was committed: the connection closes on it")
+    def test_nothing_the_learner_sent_is_asked_again_by_itself_whatever_the_words_of_its_failure(self):
+        from mssql_python.exceptions import sqlstate_to_exception
 
-    def test_a_failure_that_carries_no_message_of_the_database_is_not_called_a_refusal(self):
+        driver = "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        outage = "Database 'sandbox' on server 'example' is not currently available. Please retry the connection later."
+        batch = "INSERT INTO Products VALUES (1); COMMIT; RAISERROR('x', 16, 1)"   # may have committed before it failed
+        for error, number in ((sqlstate_to_exception("42S22", driver + "Invalid column name 'is not currently available'. (207) (SQLExecDirectW)"), 207),
+                              (sqlstate_to_exception("42000", driver + "Inventory is not currently available. (50000) (SQLExecDirectW)"), 50000),
+                              (sqlstate_to_exception("HY000", driver + outage + " (40613) (SQLExecDirectW)"), 40613)):
+            with self.subTest(number=number):
+                self.assertTrue(is_unavailable(error), "its words would pass for an outage")
+                with mock.patch.object(self.runner, "execute", side_effect=error), self.assertLogs("dojo.labs", "WARNING"):
+                    with self.assertRaises(SqlRefused) as caught:
+                        self.runner.run(batch, "lr_0123456789ab_vector")
+                self.assertEqual(caught.exception.number, number)
+                self.assertTrue(self.connections[-1].closed)
+
+    def test_a_failure_after_the_sql_was_sent_that_carries_no_message_of_the_database_says_it_cannot_tell_whether_it_ran(self):
         from mssql_python import InterfaceError
         from mssql_python.exceptions import sqlstate_to_exception
 
-        for error in (InterfaceError("Cursor is closed", ""),
+        for error in (InterfaceError("Cursor is closed", ""), paused_error(),
                       sqlstate_to_exception("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")):
             with self.subTest(error=type(error).__name__):
                 self.assertIsNone(database_said(error))
@@ -234,7 +249,68 @@ class SqlBoundaryTests(unittest.TestCase):
                     with self.assertRaises(UserError) as caught:
                         self.runner.run("SELECT 1", "lr_0123456789ab_vector")
                 self.assertNotIsInstance(caught.exception, SqlRefused)
-                self.assertEqual(str(caught.exception), "The run could not be completed. No message came back from the database.")
+                self.assertEqual(str(caught.exception), UNCONFIRMED)
+        self.assertIn("cannot tell whether your SQL ran", UNCONFIRMED)
+        self.assertNotIn("did not run", UNCONFIRMED)
+
+    def test_a_commit_that_fails_or_a_connection_that_will_not_close_changes_nothing_of_what_the_run_said(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        broken = sqlstate_to_exception("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")
+        refused = sqlstate_to_exception("40001", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Transaction was deadlocked. Rerun the transaction. (1205) (SQLExecDirectW)")
+
+        class Commit(Connection):
+            def __init__(self, error=None, closing=None):
+                super().__init__()
+                self.error, self.closing = error, closing
+
+            def commit(self):
+                if self.error:
+                    raise self.error
+
+            def close(self):
+                super().close()
+                if self.closing:
+                    raise self.closing
+
+        for error, outcome in ((broken, UserError), (refused, SqlRefused)):
+            with self.subTest(commit=type(error).__name__):
+                conn = Commit(error)
+                self.runner.connect = lambda conn=conn: conn
+                with self.assertLogs("dojo.labs", "WARNING"), self.assertRaises(outcome) as caught:
+                    self.runner.run("INSERT INTO Products VALUES (1)", "lr_0123456789ab_vector")
+                self.assertIs(type(caught.exception), outcome, "a commit that could not be confirmed is never a failure that the page asks again for")
+                self.assertTrue(conn.closed)
+        with self.subTest("close after a result"):
+            conn = Commit(closing=broken)
+            self.runner.connect = lambda: conn
+            self.assertEqual(self.runner.run("SELECT 1", "lr_0123456789ab_vector")["message"], "SQL completed.")
+        with self.subTest("close after a refusal"):
+            conn = Commit(closing=broken)
+            self.runner.connect = lambda: conn
+            with mock.patch.object(self.runner, "execute", side_effect=refused), self.assertLogs("dojo.labs", "WARNING"), self.assertRaises(SqlRefused):
+                self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+
+    def test_a_failure_before_the_sql_is_sent_is_raised_as_it_is_so_that_the_page_may_ask_again(self):
+        error = paused_error()
+        self.runner.connect = mock.Mock(side_effect=error)
+        with self.assertRaises(type(error)) as caught:
+            self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+        self.assertIs(caught.exception, error)
+
+        class NoIdentity(Cursor):
+            def execute(self, sql):
+                self.conn.statements.append(sql)
+                raise error
+
+        conn = Connection()
+        conn.cursor = lambda: NoIdentity(conn)
+        self.runner.connect = lambda: conn
+        with self.assertRaises(type(error)) as caught:
+            self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+        self.assertIs(caught.exception, error)
+        self.assertEqual(conn.statements, ["EXECUTE AS USER = N'lr_0123456789ab_vector' WITH NO REVERT;"], "the learner's SQL was never sent")
+        self.assertTrue(conn.closed)
 
     def test_log_reason_prefers_valid_sqlstate_and_never_includes_query_text(self):
         from types import SimpleNamespace
@@ -620,6 +696,13 @@ class LabRoutesTests(unittest.TestCase):
         with mock.patch.object(self.app.state.labs, "operation", side_effect=UserError("A lab query is already running. Wait for it to finish.")):
             busy = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
         self.assertEqual((busy.status_code, busy.json()), (422, {"detail": "A lab query is already running. Wait for it to finish."}))
+        looks_like_an_outage = SqlRefused(database_said(sqlstate_to_exception(
+            "42S22", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'is not currently available'. (207) (SQLExecDirectW)")))
+        for error, answer in ((looks_like_an_outage, {"detail": "Invalid column name 'is not currently available'. (error 207)", "kind": "sql", "number": 207}),
+                              (UserError(UNCONFIRMED), {"detail": UNCONFIRMED})):
+            with self.subTest(detail=answer["detail"][:30]), mock.patch.object(self.app.state.labs, "operation", side_effect=error):
+                after_sending = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+            self.assertEqual((after_sending.status_code, after_sending.json()), (422, answer), "after the SQL was sent it is never the 503 that the page asks again for")
 
     def test_sql_the_page_cannot_send_is_refused_in_plain_words_not_as_a_validation_dump(self):
         for sql, said in (("", "Enter some SQL to run."), ("  \n ", "Enter some SQL to run."), ("a" * 8001, "Enter SQL up to 8 KB."),

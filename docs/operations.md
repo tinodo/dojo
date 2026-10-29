@@ -382,8 +382,13 @@ work accounts.
 
 **A lab run says the lab database did not answer.** The database never pauses, but it can be unavailable for a
 moment while its tier changes, during maintenance or in a failover. Dojo tries again for about two minutes when
-it sees that message, so run it again after that. If it keeps happening, run the daily lab check by hand (Actions,
-lab-watch, Run workflow) and read what it says about the database's state.
+it sees that message (the learner's SQL had not reached the database yet), so run it again after that. If it keeps
+happening, run the daily lab check by hand (Actions, lab-watch, Run workflow) and read what it says about the database's state.
+
+**A lab run says "No message came back from the database."** The connection broke while the SQL was running (a failover,
+maintenance) or the driver failed, so nobody can tell whether the SQL ran. Dojo never sends it again by itself, because a batch
+can have committed in part: the learner looks at their tables and runs it again, or presses Reset this lab. The app log holds one
+warning, `learner SQL failed: <kind>; <reason>`, and never the SQL.
 
 **Performance monitoring shows no data.** Data usually appears in the Fabric Database Hub (its Performance page) about 10
 minutes after Turn on. Check that Studio's Health tab says *on*, that you have the Reader role on the subscription, that the

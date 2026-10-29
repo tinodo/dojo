@@ -1212,6 +1212,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         except UserError:
             raise
         except Exception as exc:
+            # Only a failure from before the SQL was sent gets here (SqlRunner.run answers what follows with a UserError): the page may ask again.
             log.warning("lab run unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
             raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
         store.append_event(learner.key, "lab.ran", {"package": "dp-800", "skill": LABS[lab]["skill"],

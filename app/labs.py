@@ -160,7 +160,8 @@ NO_ANSWER = "The lab database did not answer."   # the sentence the lab page rec
 
 
 def is_unavailable(exc: Exception) -> bool:
-    """SQL says the database is not available for a moment (a tier change, maintenance, a failover): worth trying again."""
+    """SQL says the database is not available for a moment (a tier change, maintenance, a failover): worth trying again, for what is done with no SQL of the
+    learner's in it (a connection, a check, a reset). The words of a statement's own error can carry the learner's, so `SqlRunner.run` never asks this of one."""
     return bool(re.search(r"is not currently available|retry the connection later", str(exc), re.I))
 
 
@@ -184,8 +185,11 @@ def sql_error_reason(exc: Exception) -> str:
 
 
 # The header of one diagnostic of the database as the driver gives it: "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]" (the driver itself drops the
-# middle group). Only a text that starts with it is a message of the database; the same words further in are only words.
+# middle group of the first). Only a text that starts with it is a message of the database; the same words further in are only words.
 DIAGNOSTIC_HEADER = re.compile(r"\s*(?:\[(?:Microsoft|ODBC Driver [^\]]*)\])*\[SQL Server\]\s*")
+# Where the driver joins the next diagnostic to the one before: "; [Microsoft][ODBC Driver 18 for SQL Server]". A value of the learner's own such as
+# "(A; [Microsoft][SKU] B)" does not start one: it is not that header.
+NEXT_DIAGNOSTIC = re.compile(r";\s*(?=\[Microsoft\]\[ODBC Driver )")
 
 
 def database_said(exc: Exception) -> tuple[str, int | None] | None:
@@ -195,7 +199,7 @@ def database_said(exc: Exception) -> tuple[str, int | None] | None:
     text = str(exc)
     text = text.split("DDBC Error:", 1)[1] if "DDBC Error:" in text else ""
     sentences, number = [], None
-    for part in re.split(r";\s*(?=\[Microsoft\]\[)", text):
+    for part in NEXT_DIAGNOSTIC.split(text):
         header = DIAGNOSTIC_HEADER.match(part)
         if not header:
             continue
@@ -214,6 +218,9 @@ def database_said(exc: Exception) -> tuple[str, int | None] | None:
 
 
 NO_MESSAGE = "No message came back from the database."
+# After the learner's SQL was sent and nothing the database said came back (the connection broke, the driver failed): any of it may have run.
+UNCONFIRMED = (f"{NO_MESSAGE} Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, "
+               "or press Reset this lab to start from the beginning.")
 
 
 def said_in_words(said: tuple[str, int | None]) -> str:
@@ -316,10 +323,22 @@ class SqlRunner:
             conn.commit()
             return out
 
+    @staticmethod
+    def close_quietly(conn):
+        """A connection that will not close changes nothing of what the run said: a close that raised would replace its answer, or its result."""
+        try:
+            conn.close()
+        except Exception as exc:
+            log.info("lab connection did not close cleanly: %s", sql_error_reason(exc))
+
     def run(self, sql: str, runner: str):
+        """Runs the learner's SQL as their own runner. What goes wrong before it is sent (no connection, no identity) is raised as it is: nothing of the learner's
+        has run, so `lab_run` may let the page ask again. What goes wrong after it was sent never is: a batch may have run in part, and may even have committed
+        (it can say COMMIT), so it is answered with the database's own refusal (`SqlRefused`) or with `UNCONFIRMED`, and run again only when he presses Run."""
         if not RUNNER.fullmatch(runner):
             raise ValueError("Not a lab runner.")
-        with closing(self.connect()) as conn:
+        conn = self.connect()
+        try:
             conn.timeout = TIMEOUT
             # No statement supplied by the learner runs before this irreversible context change.
             cursor = conn.cursor()
@@ -329,20 +348,20 @@ class SqlRunner:
                 cursor.close()
             try:
                 result = self.execute(conn, sql)
+                conn.commit()
             except Exception as exc:
                 # SQL errors are not failed checks. No answer or result is put in the Record.
                 log.warning("learner SQL failed: %s; %s", type(exc).__name__, sql_error_reason(exc))
                 if is_query_timeout(exc):
                     return {"columns": [], "rows": [], "truncated": False,
                             "message": "Your query ran longer than 20 seconds.", "timed_out": True}
-                if is_unavailable(exc):
-                    raise   # the database went away under the statement: not a fault in the SQL. lab_run says so (a 503) and the page asks again; nothing was committed
                 said = database_said(exc)
                 if said is None:
-                    raise UserError(f"The run could not be completed. {NO_MESSAGE}") from None
+                    raise UserError(UNCONFIRMED) from None
                 raise SqlRefused(said) from None
-            conn.commit()
             return result
+        finally:
+            self.close_quietly(conn)
 
     def check(self, sql: str):
         return self.admin(sql)["rows"][0][0] == "1"
