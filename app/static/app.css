@@ -1270,6 +1270,7 @@ details.how[open] summary { margin-bottom: 6px; }
 .lab-notice { background: var(--rose-t); border: 1px solid var(--rose-2); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--rose-ink); }
 .lab-notice p { margin: 0; overflow-wrap: anywhere; }
 .lab-notice p.advice { margin-top: 6px; font-size: 12px; }
+.lab-hint-failed .lab-notice { margin: 8px 0; }
 .lab-scroll + p { margin-top: 7px; }
 .lab-check + p { margin-top: 7px; }
 .lab-scroll { overflow-x: auto; max-height: 18rem; overflow-y: auto; }

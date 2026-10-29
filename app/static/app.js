@@ -9383,21 +9383,15 @@ async function viewLab(id) {
   let checkAtStart = true;   // a live region says what changes in it: it is set back to its start text only when it holds something else
   const checkPut = (...kids) => { checkAtStart = false; put(check, ...kids); };
   const checkClear = () => { if (!checkAtStart) { checkAtStart = true; put(check, checkStart()); } };
-  const hints = h("div", { class: "lab-hints" });
+  // A hint speaks where it appears, never in the status line or in Results, which belong to a Run or a Reset: the hint goes in here (a live region, so that it is
+  // read out), and a hint that could not be shown says why in the slot under it. A hint does not touch the buttons of a Run, a Check or a Reset.
+  const hints = h("div", { class: "lab-hints", role: "status", "aria-live": "polite" });
+  const hintFailed = h("div", { class: "lab-hint-failed" });
   // The summary line, the Results heading and the results are one block: bringing it into view shows all three.
   const feedback = h("div", { class: "lab-feedback" }, status, h("h3", null, "Results"), output);
-  let held = 0, focusTo = null;   // the calls that hold the buttons (a hint that finishes must not release the buttons of a Run that has not), and the button that gets its focus back
-  const hold = (on) => { held += on ? 1 : -1; setBusy(held > 0); };
-  // A button that was disabled while its call ran lost its focus: it gets it back when the last call that holds the buttons is done, unless he put the focus elsewhere himself.
-  const release = (back) => {
-    hold(false);
-    if (back) focusTo = back;
-    if (held || !focusTo) return;
-    const at = document.activeElement;
-    if (!at || at === document.body) focusTo.focus({ preventScroll: true });
-    focusTo = null;
-  };
   const setBusy = (busy) => { for (const b of controls.querySelectorAll("button")) b.disabled = busy; };
+  // A button that was disabled while its call ran lost its focus: it gets it back, unless he put the focus somewhere else himself while he waited.
+  const refocus = (b) => { if (b && (!document.activeElement || document.activeElement === document.body)) b.focus({ preventScroll: true }); };
   const notice = (o) => h("div", { class: "lab-notice", role: "alert" }, h("p", null, o.problem), o.advice ? h("p", { class: "advice" }, o.advice) : null);
   let runFailed = false;   // Results holds the notice of a Run or a Reset that failed: a failure is news only until the next press
   const showRun = (r, o) => {
@@ -9416,8 +9410,8 @@ async function viewLab(id) {
     // What was shown before is not the answer to this call: a Run or a Reset changes the lab, so a check from before it no longer describes the lab.
     const tell = (text) => (checking ? checkPut(h("p", { class: "small muted" }, text)) : say(text));
     let answer = feedback;   // what the page scrolls to when the call is done: the answer, wherever it was put
-    hold(true);
-    try {   // whatever happens from here, the finally lets the hold go
+    setBusy(true);
+    try {   // whatever happens from here, the finally frees the buttons
       tell(lab.local ? "Running the local demo…" : checking ? "Checking your work…" : kind === "reset" ? "Resetting this lab…" : "Running your SQL…");
       if (checking) {
         if (runFailed) { runFailed = false; say(idleStatus); put(output, idleResults()); }
@@ -9449,19 +9443,24 @@ async function viewLab(id) {
       if (checking) { checkPut(notice(o)); answer = check; }
       else showRun(null, o);   // a run or a reset: its failure goes where its results would
     } finally {
-      release(from);
+      setBusy(false);
+      refocus(from);
       answer.scrollIntoView({ block: "nearest" });
     }
   };
   const reveal = async (index) => {
-    hold(true);
+    const pressed = hintButtons[index];
+    pressed.disabled = true;   // a second press while this one is on its way would record a second hint and show it twice
+    put(hintFailed);
     try {
       const r = await api(`/api/labs/${id}/hint`, { method: "POST", body: { index } });
       hints.append(h("p", { class: "note" }, r.hint));
-      hintButtons[index].remove();
-      say("Hint shown. This is practice with help.");
-    } catch (e) { say(e.message, true); }
-    finally { release(); }
+      pressed.remove();
+    } catch (e) {
+      pressed.disabled = false;
+      refocus(pressed);
+      put(hintFailed, notice(labFailure(e)));
+    }
   };
   const hintButtons = Array.from({ length: lab.hint_count }, (_, index) => button(`Show hint ${index + 1}`, () => reveal(index), "ghost sm"));
   const reset = button("Reset this lab", (ev) => {
@@ -9485,7 +9484,7 @@ async function viewLab(id) {
       panel(eyebrow("course", "Lab steps"), h("p", { class: "small" }, lab.why),
         h("ol", { class: "lab-steps" }, lab.steps.map((s) => h("li", null, s))),
         h("div", { class: "divider" }), h("p", { class: "small" }, "Opening a hint counts as help. Docs you open yourself are allowed."),
-        h("div", { class: "actions" }, hintButtons), hints,
+        h("div", { class: "actions" }, hintButtons), hints, hintFailed,
         h("h3", null, "Official docs"), lab.sources.map((s) => {
           const changed = pageChange(lab.drift, s.url);
           return h("p", null, ext(s.url, s.title), changed ? [" ", changed] : null);

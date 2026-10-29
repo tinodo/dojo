@@ -21,6 +21,7 @@ const flat = (list) => list.flat(Infinity).filter((k) => k !== null && k !== und
 const text = (el) => (typeof el === "string" ? el : el.kids.map(text).join(" "));
 const all = (el, pred) => (typeof el === "string" ? [] : [...(pred(el) ? [el] : []), ...el.kids.flatMap((k) => all(k, pred))]);
 const doc = { body: { tag: "body" }, activeElement: null };   // where the focus is: a browser drops it to the body when the element that has it is disabled or removed
+const adopt = (el, kids) => { for (const k of kids) if (typeof k !== "string") k.parent = el; return kids; };
 class El {
   constructor(tag, attrs) { this.tag = tag; this.attrs = attrs || {}; this.kids = []; this.className = this.attrs.class || ""; this._disabled = false; this.listeners = {};
     this.scrolled = 0; this.focused = 0; this.value = ""; this.rows = this.attrs.rows; }
@@ -29,22 +30,27 @@ class El {
   get textContent() { return text(this); }
   set textContent(v) { this.kids = [String(v)]; }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
-  press() { doc.activeElement = this; (this.listeners.click || []).forEach((fn) => fn({ currentTarget: this })); }
+  press() { if (this._disabled) return; doc.activeElement = this; (this.listeners.click || []).forEach((fn) => fn({ currentTarget: this })); }   // a browser sends no click to a disabled button
   type(value) { this.value = value; (this.listeners.input || []).forEach((fn) => fn({ target: this })); }
   querySelectorAll(tag) { return all(this, (e) => e.tag === tag); }
   scrollIntoView() { this.scrolled += 1; }
   focus() { if (this._disabled) return; this.focused += 1; doc.activeElement = this; }
-  remove() { this.removed = true; if (doc.activeElement === this) doc.activeElement = doc.body; }
-  append(...kids) { this.kids.push(...flat(kids)); }
+  remove() {
+    this.removed = true;
+    if (this.parent) this.parent.kids = this.parent.kids.filter((k) => k !== this);
+    this.parent = null;
+    if (doc.activeElement === this) doc.activeElement = doc.body;
+  }
+  append(...kids) { this.kids.push(...adopt(this, flat(kids))); }
 }
 const h = (tag, attrs, ...kids) => {
   const el = new El(tag, attrs);
   for (const [k, v] of Object.entries(attrs || {})) if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
-  el.kids = flat(kids);
+  el.kids = adopt(el, flat(kids));
   if (tag === "textarea") el.value = text(el);
   return el;
 };
-const put = (el, ...kids) => { el.kids = flat(kids); };
+const put = (el, ...kids) => { el.kids = adopt(el, flat(kids)); };
 const cls = (el) => String(el.className || "").split(" ");
 const isCls = (name) => (e) => cls(e).includes(name);
 
@@ -405,37 +411,107 @@ class LabPageTests(unittest.TestCase):
         self.assertEqual(failed["results"], "Reset failed: Cannot drop a system-versioned table (error 13552)")
         self.assertEqual((out["confirms"], out["scrolled"]), (1, 2))
 
-    def test_a_hint_that_finishes_does_not_release_the_buttons_of_a_run_that_has_not(self):
+    def test_a_hint_speaks_under_the_hints_and_touches_nothing_of_a_run_that_is_on_its_way(self):
         out = run_node("""
 (async () => {
   const got = {};
   await open();
   const controls = () => ["Run SQL", "Check my work", "Reset this lab"].map((label) => button(label).disabled);
+  const hintsArea = () => all(view, isCls("lab-hints"))[0];
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   answers.push(() => gate.then(() => rows(3)));      // the Run, with its answer still on the way
   button("Run SQL").press(); await tick();
-  got.running = controls();
+  got.running = { buttons: controls(), status: statusLine().textContent.trim(), results: words(output()) };
   answers.push({ hint: "Think about the type." });
   button("Show hint 1").press(); await tick(); await tick();
-  got.afterHint = controls();
-  got.hintShown = words(all(view, isCls("lab-hints"))[0]);
-  got.statusWhileRunning = statusLine().textContent.trim();
+  got.afterHint = { buttons: controls(), status: statusLine().textContent.trim(), results: words(output()), checker: words(checker()), hints: words(hintsArea()) };
   release(); await tick(); await tick();
-  got.finished = controls();
   got.final = snapshot();
   answers.push({ hint: "Another." });
   button("Show hint 2").press(); await tick(); await tick();
-  got.afterSecondHint = controls();
+  got.afterSecondHint = { buttons: controls(), snap: snapshot(), hints: words(hintsArea()) };
+  got.live = { role: hintsArea().attrs.role, live: hintsArea().attrs["aria-live"] };
   console.log(JSON.stringify(got));
 })();
 """)
-        self.assertEqual(out["running"], [True, True, True])
-        self.assertEqual(out["afterHint"], [True, True, True], "the Run has not answered: its buttons stay held, or a second press is answered by 'already running'")
-        self.assertEqual(out["hintShown"], "Think about the type.")
-        self.assertEqual(out["finished"], [False, False, False])
-        self.assertEqual((out["final"]["status"], out["final"]["tables"], out["final"]["notices"]), ("Done. 3 rows.", 1, 0))
-        self.assertEqual(out["afterSecondHint"], [False, False, False], "with nothing running, a hint leaves the buttons free")
+        self.assertEqual(out["running"], {"buttons": [True, True, True], "status": "Running your SQL…", "results": "Waiting for the database…"})
+        self.assertEqual(out["afterHint"], {"buttons": [True, True, True], "status": "Running your SQL…", "results": "Waiting for the database…", "checker": START,
+                                            "hints": "Think about the type."}, "the hint shows under the hints; the status line, Results and the buttons stay the Run's")
+        self.assertEqual((out["final"]["status"], out["final"]["tables"], out["final"]["notices"], out["final"]["disabled"]), ("Done. 3 rows.", 1, 0, [False] * 4),
+                         "four buttons are left: the hint that was shown has gone, and nothing stays disabled")
+        self.assertEqual(out["afterSecondHint"]["hints"], "Think about the type. Another.")
+        self.assertEqual((out["afterSecondHint"]["buttons"], out["afterSecondHint"]["snap"]["status"], out["afterSecondHint"]["snap"]["tables"]), ([False, False, False], "Done. 3 rows.", 1),
+                         "with nothing running, a hint leaves the buttons and what the Run said alone")
+        self.assertEqual(out["live"], {"role": "status", "live": "polite"}, "a hint that appears is read out")
+
+    def test_a_hint_leaves_what_the_last_run_said_whatever_it_said(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  for (const [name, answer] of [["truncated", { ...rows(2), truncated: true }], ["refused", refusal("Incorrect syntax near 'FORM'. (error 102)", 102)],
+                                ["rows", rows(3)], ["none", noResultSet], ["failed", failure("The database is unavailable. Try again.", 503)]]) {
+    await open();
+    answers.push(answer); await press("Run SQL");
+    const before = snapshot();
+    answers.push({ hint: "Think about the type." }); await press("Show hint 1");
+    got[name] = { before, after: snapshot(), hints: words(all(view, isCls("lab-hints"))[0]) };
+  }
+  console.log(JSON.stringify(got));
+})();
+""")
+        for name, said in out.items():
+            self.assertEqual(said["hints"], "Think about the type.", name)
+            for key in ("status", "statusClass", "results", "checker", "tables", "notices", "alerts", "advice"):
+                self.assertEqual(said["after"][key], said["before"][key], f"{name}: a hint does not change {key}")
+        self.assertEqual(out["truncated"]["after"]["status"], "Done. Showing the first 200 rows; there are more.", "the only place that says that the table is cut")
+        self.assertEqual((out["refused"]["after"]["status"], out["refused"]["after"]["statusClass"]), ("That did not work.", "lab-message bad"))
+
+    def test_a_hint_that_could_not_be_shown_says_why_under_the_hints_and_can_be_pressed_again(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  const slot = () => all(view, isCls("lab-hint-failed"))[0];
+  const hintsArea = () => all(view, isCls("lab-hints"))[0];
+  const there = (label) => all(view, (e) => e.tag === "button" && text(e).trim() === label).length;
+  await open();
+  answers.push(rows(3)); await press("Run SQL");
+  got.run = snapshot();
+  answers.push(failure("Hint not found.", 404)); await press("Show hint 1");
+  got.failed = { snap: snapshot(), slot: words(slot()), alerts: all(slot(), (e) => e.attrs.role === "alert").length, hints: words(hintsArea()),
+                 enabled: !button("Show hint 1").disabled, there: there("Show hint 1"), focused: doc.activeElement === button("Show hint 1") };
+  answers.push({ hint: "Think about the type." }); await press("Show hint 1");
+  got.shown = { slot: words(slot()), hints: words(hintsArea()), there: there("Show hint 1"), snap: snapshot() };
+  answers.push(failure("Dojo could not be reached. If you were away for a while, your sign-in may have expired: reload the page.")); await press("Show hint 2");
+  got.network = { slot: words(slot()), hints: words(hintsArea()), snap: snapshot() };
+  console.log(JSON.stringify(got));
+})();
+""")
+        failed = out["failed"]
+        self.assertEqual((failed["slot"], failed["alerts"], failed["hints"], failed["enabled"], failed["there"], failed["focused"]), ("Hint not found.", 1, "", True, 1, True),
+                         "the button can be pressed again, and has its focus back")
+        for key in ("status", "statusClass", "results", "checker", "tables", "notices"):
+            self.assertEqual(failed["snap"][key], out["run"][key], f"a hint that fails does not change {key}")
+        self.assertEqual((out["shown"]["slot"], out["shown"]["hints"], out["shown"]["there"]), ("", "Think about the type.", 0), "the next press clears the failure; the shown hint's button goes")
+        self.assertEqual(out["network"]["slot"], "Dojo could not be reached. If you were away for a while, your sign-in may have expired: reload the page.")
+        self.assertEqual(out["network"]["hints"], "Think about the type.")
+        self.assertEqual((out["network"]["snap"]["status"], out["network"]["snap"]["tables"]), ("Done. 3 rows.", 1))
+
+    def test_a_second_press_on_a_hint_that_is_on_its_way_sends_nothing(self):
+        out = run_node("""
+(async () => {
+  await open();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  answers.push(() => gate.then(() => ({ hint: "Think about the type." })));
+  button("Show hint 1").press(); await tick();
+  const during = button("Show hint 1").disabled;
+  button("Show hint 1").press(); await tick();
+  release(); await tick(); await tick();
+  console.log(JSON.stringify({ during, sent: calls.filter((c) => c[0].endsWith("/hint")).length, hints: words(all(view, isCls("lab-hints"))[0]) }));
+})();
+""")
+        self.assertEqual(out, {"during": True, "sent": 1, "hints": "Think about the type."}, "a second press would record a second hint and show it twice")
 
     def test_the_button_gets_its_focus_back_and_nothing_stays_disabled(self):
         out = run_node("""
@@ -449,49 +525,39 @@ class LabPageTests(unittest.TestCase):
         self.assertEqual(out["focused"], 1)
         self.assertEqual(out["snap"]["disabled"], [False, False, False, False, False])
 
-    def test_the_focus_waits_for_the_last_call_that_holds_the_buttons_and_is_not_taken_from_where_he_put_it(self):
+    def test_the_focus_is_not_taken_from_where_he_put_it_while_he_waited(self):
         out = run_node("""
 (async () => {
   const got = {};
   const gate = () => { let go; const p = new Promise((resolve) => { go = resolve; }); return { p, go }; };
   const at = (b) => ({ disabled: b.disabled, focused: b.focused, onIt: doc.activeElement === b });
-  // the Run answers first, a hint is still on its way: the Run's button is held, so the focus is given back when the hint is done
+  // he put the cursor in the editor while the Run was on its way
   await open();
-  let run = gate(), hint = gate();
-  answers.push(() => run.p.then(() => rows(3)));
+  let wait = gate();
+  answers.push(() => wait.p.then(() => rows(1)));
+  button("Run SQL").press(); await tick();
+  doc.activeElement = editor();
+  wait.go(); await tick(); await tick();
+  got.inEditor = { ...at(button("Run SQL")), editor: doc.activeElement === editor() };
+  // he pressed a hint while the Run was on its way: the hint's button was disabled while its call ran, which dropped its focus. The hint is still on its way when the Run is done:
+  // the hint holds nothing of the Run, so the Run's button is free at once and gets the focus that is on nothing; the hint that is shown later leaves it there
+  await open();
+  wait = gate();
+  const hint = gate();
+  answers.push(() => wait.p.then(() => rows(1)));
   button("Run SQL").press(); await tick();
   answers.push(() => hint.p.then(() => ({ hint: "Think about the type." })));
   button("Show hint 1").press(); await tick();
-  run.go(); await tick(); await tick();
+  wait.go(); await tick(); await tick();
   got.runFirst = at(button("Run SQL"));
   hint.go(); await tick(); await tick();
-  got.runFirstThenHint = at(button("Run SQL"));
-  // the hint answers first, the Run last
-  await open();
-  run = gate();
-  answers.push(() => run.p.then(() => rows(1)));
-  button("Run SQL").press(); await tick();
-  answers.push({ hint: "Think about the type." });
-  button("Show hint 1").press(); await tick(); await tick();
-  got.hintFirst = at(button("Run SQL"));
-  run.go(); await tick(); await tick();
-  got.hintFirstThenRun = at(button("Run SQL"));
-  // he put the cursor in the editor while the Run was on its way: the focus stays there
-  await open();
-  run = gate();
-  answers.push(() => run.p.then(() => rows(1)));
-  button("Run SQL").press(); await tick();
-  doc.activeElement = editor();
-  run.go(); await tick(); await tick();
-  got.inEditor = { ...at(button("Run SQL")), editor: doc.activeElement === editor() };
+  got.afterHint = at(button("Run SQL"));
   console.log(JSON.stringify(got));
 })();
 """)
-        self.assertEqual(out["runFirst"], {"disabled": True, "focused": 0, "onIt": False}, "the hint still holds the buttons: a disabled button cannot take the focus")
-        self.assertEqual(out["runFirstThenHint"], {"disabled": False, "focused": 1, "onIt": True}, "the focus comes back when the hint is done")
-        self.assertEqual(out["hintFirst"], {"disabled": True, "focused": 0, "onIt": False})
-        self.assertEqual(out["hintFirstThenRun"], {"disabled": False, "focused": 1, "onIt": True})
         self.assertEqual(out["inEditor"], {"disabled": False, "focused": 0, "onIt": False, "editor": True})
+        self.assertEqual(out["runFirst"], {"disabled": False, "focused": 1, "onIt": True}, "the Run's button is free at once")
+        self.assertEqual(out["afterHint"], {"disabled": False, "focused": 1, "onIt": True}, "the hint that is shown later leaves the focus where it is")
 
     def test_the_buttons_are_never_left_held_when_something_goes_wrong_inside_a_call(self):
         out = run_node("""

@@ -361,7 +361,7 @@ Open a lab from the Course page, or from a skill with **Open the hands-on lab**.
 - If Run, Check or Reset says the lab database did not answer, Dojo tries again by itself for up to about two minutes (a Run had not reached the database yet). Any other message is shown at once. Once the database has seen your SQL, Dojo never sends it again by itself: it may have run in part, so running it again is your choice.
 - **Check my work** checks the database itself, not a screenshot.
 - **Reset this lab** empties your part of the database for that lab, so you can start again.
-- Hints count as help.
+- Hints count as help. A hint appears under the hint buttons, and it does not change what your last Run said.
 
 No lab fills a pip. Lab work counts as teaching.
 

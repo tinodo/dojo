@@ -214,10 +214,15 @@ in node (`tests/test_lab_page.py` runs the real `viewLab`) and in `tests/test_la
   reaches the page.
 - **The summary line, the "Results" heading and the results are one block**, scrolled into view when a Run or a Reset is done; a Check scrolls to the Checker
   (a polite live region) when it starts and when it is done. The editor is as tall as its text (the lines he typed, then the lines the width wraps; 5 to 16
-  rows). The buttons stay held until the last call that holds them is done (a hint that finishes must not release the buttons of a Run that has not, and the hold is let
-  go whatever happens inside a call). The button he pressed gets its focus back when that call is done and no other call holds the buttons (a disabled button cannot take it:
-  with a hint still on its way it waits for the hint), unless he has put the focus somewhere else himself, in the editor for instance. The local demo keeps its own message
-  ("Demo only. No SQL was executed.").
+  rows). The buttons of a Run, a Check and a Reset are held (disabled) while one of them is on its way, and freed whatever happens inside the call. The button he pressed
+  gets its focus back when its call is done, unless he has put the focus somewhere else himself while he waited, in the editor for instance. The local demo keeps its own
+  message ("Demo only. No SQL was executed.").
+- **A hint speaks where it appears.** The hint goes in the hints area under the hint buttons (a polite live region, so that it is read out) and the button that was pressed
+  goes. A hint never writes in the status line, in Results or in the Checker, which belong to a Run or a Reset and to a Check: it would wipe "Done. 3 rows.", the note that only the
+  first 200 rows are shown, or "That did not work." beside the notice that explains it. A hint does not hold the buttons of a Run, a Check or a Reset either. The pressed hint's own
+  button is disabled while its call is on its way (a second press would record a second `lab.hint` and show the hint twice). A hint that cannot be shown says why in a notice under
+  the hints, replaced by the next press, and its button can be pressed again, with its focus back. The words "Hint shown. This is practice with help." are gone: the hint is the
+  answer, and the sentence above the hint buttons ("Opening a hint counts as help.") says the rest.
 - The guard that says "up to 20 statements" counts semicolons, including those inside a string. Its sentence is unchanged: a known imprecision, not part of this change.
 
 Sources: [SQL free offer](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer),
