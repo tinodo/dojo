@@ -170,9 +170,11 @@ def judge(database: dict, declared: str | None, n: dict | None, why_no_metrics: 
         if n["load_average"] > LOAD_MAX_PERCENT:
             findings.append(f"The load averaged {n['load_average']:.1f}%, above {LOAD_MAX_PERCENT}%.")
     # Azure sends no point for a count that did not happen, so a missing connection reading is zero, not a gap: unless Azure said it could not answer.
-    if not {"connection_successful", "connection_failed"} & set(n["broken"]):
+    # The two counts are judged apart: a failed-connection finding does not wait for the succeeded count.
+    if "connection_failed" not in n["broken"]:
         failed = n["failed"] or 0
-        lines.append(f"Connections: {n['ok'] or 0} succeeded, {failed} failed.")
+        succeeded = "not read" if "connection_successful" in n["broken"] else f"{n['ok'] or 0} succeeded"
+        lines.append(f"Connections: {succeeded}, {failed} failed.")
         if failed >= FAILED_MAX:
             findings.append(f"{failed} connections failed, {FAILED_MAX} or more.")
     return lines, findings, gaps

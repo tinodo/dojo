@@ -187,6 +187,19 @@ class LabWatchTests(unittest.TestCase):
             m["errorCode"] = "Success"
         self.assertEqual(run(Azure(metrics=metrics))[1], 0, "Success is what a good answer says")
 
+    def test_a_broken_succeeded_count_does_not_hide_a_failed_count_that_needs_the_owner(self):
+        metrics = healthy(connection_failed={"total": 2.0})   # 48 in 24 hours
+        for m in metrics["value"]:
+            if m["name"]["value"] == "connection_successful":
+                m["errorCode"], m["timeseries"] = "BadRequest", []
+        lines, status = run(Azure(metrics=metrics))
+        out = text(lines)
+        self.assertEqual(status, 1)
+        self.assertIn("Connections: not read, 48 failed.", out)
+        self.assertIn("Needs the owner: 48 connections failed, 25 or more.", out)
+        self.assertIn("Also not read: Azure said it could not answer for connection_successful.", out)
+        self.assertNothingSecret(out)
+
     def test_a_database_of_another_tier_does_not_count_its_size_in_dtus(self):
         lines, _ = run(Azure(db=database(sku="GP_S_Gen5", capacity=2)))
         self.assertIn("State: Online. Tier: GP_S_Gen5; the template declares Basic.", lines)
