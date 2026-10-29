@@ -539,8 +539,8 @@ class LabPageTests(unittest.TestCase):
   doc.activeElement = editor();
   wait.go(); await tick(); await tick();
   got.inEditor = { ...at(button("Run SQL")), editor: doc.activeElement === editor() };
-  // he pressed a hint while the Run was on its way: the hint's button was disabled while its call ran, which dropped its focus. The hint is still on its way when the Run is done:
-  // the hint holds nothing of the Run, so the Run's button is free at once and gets the focus that is on nothing; the hint that is shown later leaves it there
+  // he pressed a hint while the Run was on its way, and the hint is shown after the Run is done: the hint's button was the last he pressed, and it goes: the Run that finishes
+  // first leaves the focus on nothing, as the removed button left it
   await open();
   wait = gate();
   const hint = gate();
@@ -549,15 +549,45 @@ class LabPageTests(unittest.TestCase):
   answers.push(() => hint.p.then(() => ({ hint: "Think about the type." })));
   button("Show hint 1").press(); await tick();
   wait.go(); await tick(); await tick();
-  got.runFirst = at(button("Run SQL"));
+  got.runFirst = { ...at(button("Run SQL")), body: doc.activeElement === doc.body };
   hint.go(); await tick(); await tick();
-  got.afterHint = at(button("Run SQL"));
+  got.afterHint = { ...at(button("Run SQL")), body: doc.activeElement === doc.body };
   console.log(JSON.stringify(got));
 })();
 """)
         self.assertEqual(out["inEditor"], {"disabled": False, "focused": 0, "onIt": False, "editor": True})
-        self.assertEqual(out["runFirst"], {"disabled": False, "focused": 1, "onIt": True}, "the Run's button is free at once")
-        self.assertEqual(out["afterHint"], {"disabled": False, "focused": 1, "onIt": True}, "the hint that is shown later leaves the focus where it is")
+        self.assertEqual(out["runFirst"], {"disabled": False, "focused": 0, "onIt": False, "body": True}, "the Run's button is free at once, and is not given a focus that is not its own")
+        self.assertEqual(out["afterHint"], {"disabled": False, "focused": 0, "onIt": False, "body": True})
+
+    def test_the_last_press_has_the_focus_whichever_of_a_main_button_and_a_failing_hint_finishes_first(self):
+        out = run_node("""
+(async () => {
+  const got = {};
+  const gate = () => { let go; const p = new Promise((resolve) => { go = resolve; }); return { p, go }; };
+  const on = () => { const a = doc.activeElement; return a === doc.body ? "body" : a === null ? null : a.tag === "button" ? text(a).trim() : a.tag; };
+  for (const [label, ok] of [["Run SQL", rows(1)], ["Check my work", passed], ["Reset this lab", { message: "Only this lab was reset to its starting state." }]]) {
+    for (const last of ["hint", "main"]) {
+      for (const firstDone of ["main", "hint"]) {
+        await open();
+        const main = gate(), hint = gate();
+        const pressMain = async () => { answers.push(() => main.p.then(() => ok)); button(label).press(); await tick(); };
+        const pressHint = async () => { answers.push(() => hint.p.then(() => { throw failure("Hint not found.", 404); })); button("Show hint 1").press(); await tick(); };
+        if (last === "hint") { await pressMain(); await pressHint(); } else { await pressHint(); await pressMain(); }
+        const [one, two] = firstDone === "main" ? [main, hint] : [hint, main];
+        one.go(); await tick(); await tick();
+        two.go(); await tick(); await tick();
+        got[`${label} / last press ${last} / ${firstDone} done first`] = { on: on(), disabled: snapshot().disabled };
+      }
+    }
+  }
+  console.log(JSON.stringify(got));
+})();
+""")
+        self.assertEqual(len(out), 12)
+        for key, said in out.items():
+            label, last = key.split(" / ")[0], key.split(" / ")[1].split()[-1]
+            self.assertEqual(said["on"], "Show hint 1" if last == "hint" else label, f"{key}: the button that he pressed last has the focus, so that Enter does what he meant")
+            self.assertEqual(said["disabled"], [False] * 5, f"{key}: nothing stays disabled")
 
     def test_the_buttons_are_never_left_held_when_something_goes_wrong_inside_a_call(self):
         out = run_node("""

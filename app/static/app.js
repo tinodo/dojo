@@ -9390,8 +9390,10 @@ async function viewLab(id) {
   // The summary line, the Results heading and the results are one block: bringing it into view shows all three.
   const feedback = h("div", { class: "lab-feedback" }, status, h("h3", null, "Results"), output);
   const setBusy = (busy) => { for (const b of controls.querySelectorAll("button")) b.disabled = busy; };
-  // A button that was disabled while its call ran lost its focus: it gets it back, unless he put the focus somewhere else himself while he waited.
-  const refocus = (b) => { if (b && (!document.activeElement || document.activeElement === document.body)) b.focus({ preventScroll: true }); };
+  // A button that was disabled while its call ran lost its focus: it gets it back when its call is done, unless he put the focus somewhere else himself while he waited, or pressed
+  // another button of this page since (the last press has the focus: with a Run and a hint on their way together, the one that finishes first must not take it from the other).
+  let presses = 0;
+  const refocus = (b, mine) => { if (b && presses === mine && (!document.activeElement || document.activeElement === document.body)) b.focus({ preventScroll: true }); };
   const notice = (o) => h("div", { class: "lab-notice", role: "alert" }, h("p", null, o.problem), o.advice ? h("p", { class: "advice" }, o.advice) : null);
   let runFailed = false;   // Results holds the notice of a Run or a Reset that failed: a failure is news only until the next press
   const showRun = (r, o) => {
@@ -9405,6 +9407,7 @@ async function viewLab(id) {
     o.none ? h("p", { class: "small muted" }, o.none) : null);
   };
   const call = async (kind, body, from) => {
+    const mine = ++presses;
     const checking = kind === "check";
     // A Check speaks in the Checker, and leaves the status line and Results to the last Run or Reset, unless that one failed: its failure is not the news now.
     // What was shown before is not the answer to this call: a Run or a Reset changes the lab, so a check from before it no longer describes the lab.
@@ -9444,11 +9447,12 @@ async function viewLab(id) {
       else showRun(null, o);   // a run or a reset: its failure goes where its results would
     } finally {
       setBusy(false);
-      refocus(from);
+      refocus(from, mine);
       answer.scrollIntoView({ block: "nearest" });
     }
   };
   const reveal = async (index) => {
+    const mine = ++presses;
     const pressed = hintButtons[index];
     pressed.disabled = true;   // a second press while this one is on its way would record a second hint and show it twice
     put(hintFailed);
@@ -9458,7 +9462,7 @@ async function viewLab(id) {
       pressed.remove();
     } catch (e) {
       pressed.disabled = false;
-      refocus(pressed);
+      refocus(pressed, mine);
       put(hintFailed, notice(labFailure(e)));
     }
   };

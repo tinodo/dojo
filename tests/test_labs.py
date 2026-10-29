@@ -9,7 +9,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from tests.test_api import POST, settings
-from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRefused, SqlRunner, LabRoom, LabUser, FakeRunner, UNCONFIRMED, UserError, database_message, database_said, is_unavailable, sql_error_reason, validate
+from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRefused, SqlRunner, LabRoom, LabUser, FakeRunner, UNCONFIRMED, UNSAVED, UserError, database_message, database_said, is_unavailable, sql_error_reason, validate
 from app.core import Store, sha256
 from app.mirror import Mirror
 from app.evidence import derive
@@ -258,6 +258,7 @@ class SqlBoundaryTests(unittest.TestCase):
 
         broken = sqlstate_to_exception("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")
         refused = sqlstate_to_exception("40001", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Transaction was deadlocked. Rerun the transaction. (1205) (SQLExecDirectW)")
+        timeout = sqlstate_to_exception("HYT00", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Timeout expired (SQLExecDirectW)")
 
         class Commit(Connection):
             def __init__(self, error=None, closing=None):
@@ -273,14 +274,20 @@ class SqlBoundaryTests(unittest.TestCase):
                 if self.closing:
                     raise self.closing
 
-        for error, outcome in ((broken, UserError), (refused, SqlRefused)):
-            with self.subTest(commit=type(error).__name__):
+        for error, outcome, said in ((broken, UserError, UNSAVED),
+                                     (refused, SqlRefused, "Transaction was deadlocked. Rerun the transaction. (error 1205)"),
+                                     (timeout, SqlRefused, "Timeout expired")):
+            with self.subTest(commit=type(error).__name__, said=said[:30]):
                 conn = Commit(error)
                 self.runner.connect = lambda conn=conn: conn
-                with self.assertLogs("dojo.labs", "WARNING"), self.assertRaises(outcome) as caught:
+                with self.assertLogs("dojo.labs", "WARNING") as captured, self.assertRaises(outcome) as caught:
                     self.runner.run("INSERT INTO Products VALUES (1)", "lr_0123456789ab_vector")
                 self.assertIs(type(caught.exception), outcome, "a commit that could not be confirmed is never a failure that the page asks again for")
+                self.assertEqual(str(caught.exception), said, "the batch ran to its end: it is neither 'your query ran longer than 20 seconds' nor 'cannot tell whether your SQL ran'")
+                self.assertIn("commit failed", "\n".join(captured.output))
                 self.assertTrue(conn.closed)
+        self.assertIn("Your SQL ran, but Dojo cannot tell whether its changes were saved", UNSAVED)
+        self.assertNotEqual(UNSAVED, UNCONFIRMED)
         with self.subTest("close after a result"):
             conn = Commit(closing=broken)
             self.runner.connect = lambda: conn
@@ -703,6 +710,48 @@ class LabRoutesTests(unittest.TestCase):
             with self.subTest(detail=answer["detail"][:30]), mock.patch.object(self.app.state.labs, "operation", side_effect=error):
                 after_sending = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
             self.assertEqual((after_sending.status_code, after_sending.json()), (422, answer), "after the SQL was sent it is never the 503 that the page asks again for")
+
+    def test_what_the_budget_does_after_the_lab_has_answered_is_not_an_answer_about_the_sql(self):
+        from contextlib import contextmanager
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        outage = "The data share is not currently available. Please retry the connection later."
+
+        @contextmanager
+        def settles_badly(*args, **kwargs):
+            try:
+                yield None
+            finally:
+                raise OSError(outage)   # the bookkeeping at the end of the action, which replaces whatever was in flight
+
+        @contextmanager
+        def refuses_to_start(*args, **kwargs):
+            raise OSError(outage)
+            yield None
+
+        store, learner = self.app.state.dojo.store, self.app.state.preparer.owner
+        ran = lambda: sum(e["type"] == "lab.ran" for e in store.events(learner.key))
+        result = {"columns": [], "rows": [], "truncated": False, "message": "SQL completed."}
+        refused = SqlRefused(database_said(sqlstate_to_exception(
+            "42S22", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Nme'. (207) (SQLExecDirectW)")))
+        before = ran()
+        with mock.patch.object(self.app.state.budget, "action", settles_badly):
+            with mock.patch.object(self.app.state.labs, "operation", return_value=result) as operation, self.assertLogs("dojo", "WARNING") as captured:
+                ok = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+            self.assertEqual((ok.status_code, ok.json()), (200, result), "the SQL ran: its result is the answer, not an outage")
+            self.assertEqual(operation.call_count, 1)
+            self.assertIn("bookkeeping failed after the answer", "\n".join(captured.output))
+            self.assertEqual(ran(), before + 1, "the run is recorded")
+            with mock.patch.object(self.app.state.labs, "operation", side_effect=refused) as operation, self.assertLogs("dojo", "WARNING"):
+                no = self.client.post("/api/labs/vector/run", json={"sql": "SELECT Nme FROM Products"}, headers=POST)
+            self.assertEqual((no.status_code, no.json()), (422, {"detail": "Invalid column name 'Nme'. (error 207)", "kind": "sql", "number": 207}),
+                             "the refusal stands, whatever the bookkeeping did when the action ended")
+            self.assertEqual((operation.call_count, ran()), (1, before + 1), "a refused run is not recorded")
+        with mock.patch.object(self.app.state.budget, "action", refuses_to_start), mock.patch.object(self.app.state.labs, "operation") as operation, self.assertLogs("dojo", "WARNING"):
+            early = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        self.assertEqual((early.status_code, early.json()["detail"]), (503, "The lab database did not answer. Try again in a minute."),
+                         "before the lab had been asked nothing of the SQL was sent: the page may ask again")
+        operation.assert_not_called()
 
     def test_sql_the_page_cannot_send_is_refused_in_plain_words_not_as_a_validation_dump(self):
         for sql, said in (("", "Enter some SQL to run."), ("  \n ", "Enter some SQL to run."), ("a" * 8001, "Enter SQL up to 8 KB."),

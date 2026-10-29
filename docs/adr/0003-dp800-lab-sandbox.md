@@ -199,9 +199,14 @@ in node (`tests/test_lab_page.py` runs the real `viewLab`) and in `tests/test_la
   start from the beginning." The 422 answer of a refused run carries `kind: "sql"` and `number` (`SqlRefused`).
 - **A Run is never sent again by itself once its SQL was sent.** What goes wrong before it is sent (no connection, no identity) is raised as it is: `lab_run` answers 503 "The lab
   database did not answer. Try again in a minute.", and the page asks again every 10 seconds for about two minutes (it does the same for a Check and a Reset, which can be repeated
-  safely). What goes wrong after (`SqlRunner.run` wraps the statement, the commit and the closing of the connection) is the database's refusal or the sentence above, never an
-  answer that is asked again: a batch may have run in part, and may even have committed (it can say `COMMIT`), so running it again is his choice, not the page's. The words of an error
-  do not decide this: they can carry his own, a column named `is not currently available` or a `RAISERROR`, and a database that says so mid-statement (error 40613) is shown as it said it.
+  safely). What goes wrong after (`SqlRunner.run` wraps the statement, the commit and the closing of the connection) is the database's refusal or one of two sentences, never an
+  answer that is asked again: a batch may have run in part, and may even have committed (it can say `COMMIT`), so running it again is his choice, not the page's. The sentence above
+  is for a failure of the statement itself; when the statement ran to its end and the commit that saves its changes is what failed without a message of the database, the page says:
+  "No message came back from the database. Your SQL ran, but Dojo cannot tell whether its changes were saved. Look at your tables before you run it again, or press Reset this lab to
+  start from the beginning." (`UNSAVED`); a commit that the database refuses is its own sentence and number, and is never "Your query ran longer than 20 seconds", which is for a
+  statement only. The words of an error do not decide this: they can carry his own, a column named `is not currently available` or a `RAISERROR`, and a database that says so
+  mid-statement (error 40613) is shown as it said it. Nor does anything that happens after the lab has answered: in team mode the budget settles when the action ends, and if that fails
+  (a data share that is not currently available, say) `lab_run` keeps what the lab answered, the result or the refusal, and logs the failure; it is never the 503 that the page asks again for.
 - **A second line only where it is true**: after a refusal by the database ("Read the message, then change the SQL or try again, or press Reset this lab to
   start from the beginning."; the database may as well say that it is busy; for 2714, which does not say that the object that is there is the right one, "It is
   already there. Check it, then go on, or press Reset this lab to start over.") and after a timeout ("Look at your tables, then try a smaller or simpler query.";
@@ -215,8 +220,9 @@ in node (`tests/test_lab_page.py` runs the real `viewLab`) and in `tests/test_la
 - **The summary line, the "Results" heading and the results are one block**, scrolled into view when a Run or a Reset is done; a Check scrolls to the Checker
   (a polite live region) when it starts and when it is done. The editor is as tall as its text (the lines he typed, then the lines the width wraps; 5 to 16
   rows). The buttons of a Run, a Check and a Reset are held (disabled) while one of them is on its way, and freed whatever happens inside the call. The button he pressed
-  gets its focus back when its call is done, unless he has put the focus somewhere else himself while he waited, in the editor for instance. The local demo keeps its own
-  message ("Demo only. No SQL was executed.").
+  gets its focus back when its call is done, unless he has put the focus somewhere else himself while he waited (in the editor, for instance) or has pressed another button of the
+  page since: the last press has the focus, so that with a Run and a hint on their way together the one that finishes first does not take it from the other and Enter does what he
+  meant. The local demo keeps its own message ("Demo only. No SQL was executed.").
 - **A hint speaks where it appears.** The hint goes in the hints area under the hint buttons (a polite live region, so that it is read out) and the button that was pressed
   goes. A hint never writes in the status line, in Results or in the Checker, which belong to a Run or a Reset and to a Check: it would wipe "Done. 3 rows.", the note that only the
   first 200 rows are shown, or "That did not work." beside the notice that explains it. A hint does not hold the buttons of a Run, a Check or a Reset either. The pressed hint's own

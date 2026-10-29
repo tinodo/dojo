@@ -221,6 +221,9 @@ NO_MESSAGE = "No message came back from the database."
 # After the learner's SQL was sent and nothing the database said came back (the connection broke, the driver failed): any of it may have run.
 UNCONFIRMED = (f"{NO_MESSAGE} Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, "
                "or press Reset this lab to start from the beginning.")
+# The same, when the batch did run to its end and the saving of its changes (the commit) is what failed.
+UNSAVED = (f"{NO_MESSAGE} Your SQL ran, but Dojo cannot tell whether its changes were saved. Look at your tables before you run it again, "
+           "or press Reset this lab to start from the beginning.")
 
 
 def said_in_words(said: tuple[str, int | None]) -> str:
@@ -334,7 +337,8 @@ class SqlRunner:
     def run(self, sql: str, runner: str):
         """Runs the learner's SQL as their own runner. What goes wrong before it is sent (no connection, no identity) is raised as it is: nothing of the learner's
         has run, so `lab_run` may let the page ask again. What goes wrong after it was sent never is: a batch may have run in part, and may even have committed
-        (it can say COMMIT), so it is answered with the database's own refusal (`SqlRefused`) or with `UNCONFIRMED`, and run again only when he presses Run."""
+        (it can say COMMIT), so it is answered with the database's own refusal (`SqlRefused`), with `UNCONFIRMED` (no message of the database: the batch itself may
+        have run in part) or with `UNSAVED` (no message of the database when the changes were committed: the batch ran), and run again only when he presses Run."""
         if not RUNNER.fullmatch(runner):
             raise ValueError("Not a lab runner.")
         conn = self.connect()
@@ -348,7 +352,6 @@ class SqlRunner:
                 cursor.close()
             try:
                 result = self.execute(conn, sql)
-                conn.commit()
             except Exception as exc:
                 # SQL errors are not failed checks. No answer or result is put in the Record.
                 log.warning("learner SQL failed: %s; %s", type(exc).__name__, sql_error_reason(exc))
@@ -358,6 +361,15 @@ class SqlRunner:
                 said = database_said(exc)
                 if said is None:
                     raise UserError(UNCONFIRMED) from None
+                raise SqlRefused(said) from None
+            try:
+                conn.commit()
+            except Exception as exc:
+                # The batch ran to its end: what is not known is whether its changes were saved. It is not "your query ran longer than 20 seconds", whatever the driver says.
+                log.warning("learner SQL commit failed: %s; %s", type(exc).__name__, sql_error_reason(exc))
+                said = database_said(exc)
+                if said is None:
+                    raise UserError(UNSAVED) from None
                 raise SqlRefused(said) from None
             return result
         finally:
