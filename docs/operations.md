@@ -311,7 +311,9 @@ numbers and plain words, never names or ids.
 
 The run fails, and GitHub emails whoever last changed the schedule, when the database is not online, when its tier is
 not the one the template declares, when storage is above 80%, when the load averaged over 50% for 24 hours, or when 25
-or more connections failed. A run that cannot read Azure fails too: no reading is not a good reading. The check is for
+or more connections failed. A run that cannot read Azure fails too: no reading is not a good reading. Right after the
+database changes tier, Azure Monitor can answer some metric reads with an error for hours, because it still serves the
+old tier's list of metrics; the check asks again up to eight times before it gives up. The check is for
 the one lab database of the app resource group; a fork that runs without labs deletes the workflow.
 
 GitHub switches scheduled workflows off in a public repository after 60 days without activity: **Enable workflow** in

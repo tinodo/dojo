@@ -29,6 +29,7 @@ METRICS_API = "2018-01-01"
 BICEP = Path(__file__).resolve().parent.parent / "infra" / "main.bicep"
 
 WINDOW_HOURS = 24
+METRICS_TRIES = 8             # Azure Monitor answers some metric calls with 400 for hours after a tier change (see read_metrics)
 STORAGE_MAX_PERCENT = 80      # of what the tier holds
 LOAD_MAX_PERCENT = 50         # the DTU percentage, averaged over the window
 FAILED_MAX = 25               # failed connections in the window: this many or more needs the owner
@@ -55,23 +56,28 @@ def token() -> str:
     return out.stdout.strip()
 
 
-def get(url: str, tok: str, tries: int = 3) -> dict:
-    """One GET to Resource Manager, tried again for a throttle or a hiccup. Whatever goes wrong, only a status leaves this function."""
+def pause(attempt: int) -> None:
+    time.sleep(min(2 ** (attempt + 1), 10))
+
+
+def get(url: str, tok: str, tries: int = 3, retry_also: tuple[int, ...] = ()) -> dict:
+    """One GET to Resource Manager, tried again for a throttle or a hiccup (and for the statuses in `retry_also`). Whatever goes wrong, only a
+    status leaves this function."""
     for attempt in range(tries):
         request = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok, "Accept": "application/json"})
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
-            if e.code in (429, 500, 502, 503, 504) and attempt < tries - 1:
-                time.sleep(2 ** (attempt + 1))
+            if (e.code in (429, 500, 502, 503, 504) or e.code in retry_also) and attempt < tries - 1:
+                pause(attempt)
                 continue
             raise Unreadable(f"Azure answered HTTP {e.code}") from None
         except ValueError:
             raise Unreadable("Azure's answer could not be read") from None
         except OSError:
             if attempt < tries - 1:
-                time.sleep(2 ** (attempt + 1))
+                pause(attempt)
                 continue
             raise Unreadable("Azure did not answer") from None
     raise Unreadable("Azure did not answer")
@@ -104,7 +110,9 @@ def read_metrics(tok: str, database_id: str, now: datetime) -> dict:
     query = urllib.parse.urlencode({
         "api-version": METRICS_API, "metricnames": ",".join(METRICS), "aggregation": "Average,Maximum,Total", "interval": "PT1H",
         "timespan": f"{now - timedelta(hours=WINDOW_HOURS):%Y-%m-%dT%H:%M:%SZ}/{now:%Y-%m-%dT%H:%M:%SZ}"})
-    return get(f"{ARM}{database_id}/providers/Microsoft.Insights/metrics?{query}", tok)
+    # Right after a tier change Azure Monitor serves some of these calls from the old tier's list of metrics and answers them with a 400
+    # ("Failed to find metric configuration"); the next call can be fine (seen on 29 Oct 2026, ADR 0028). So a 400 is asked again here, and only here.
+    return get(f"{ARM}{database_id}/providers/Microsoft.Insights/metrics?{query}", tok, tries=METRICS_TRIES, retry_also=(400,))
 
 
 def numbers(payload: dict) -> dict:
