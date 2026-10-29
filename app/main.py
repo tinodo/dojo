@@ -60,7 +60,7 @@ from .exam import blocker as exam_blocker
 from .exam import open_book as exam_open_book
 from .exam import spec as exam_spec
 from .learning import Dojo, dispute_review_refusal
-from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRunner, is_unavailable, sql_error_reason
+from .labs import LABS, NO_ANSWER, FakeRunner, LabRoom, LabUser, SqlRefused, SqlRunner, database_message, database_said, is_unavailable, said_in_words, sql_error_reason
 from .mirror import Mirror
 from .newexam import NewExams
 from .packages import Packages
@@ -260,7 +260,7 @@ class DeleteRequest(BaseModel):
     confirm: Literal["DELETE"]
 
 class LabSql(BaseModel):
-    sql: str = Field(min_length=1, max_length=8000)
+    sql: str   # no limit here: labs.validate() says the limits (8 KB, 20 statements) in words, and a validation dump of the framework would not
     confirm_destructive: bool = False
 
 class LabHint(BaseModel):
@@ -762,7 +762,10 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
 
     @app.exception_handler(UserError)
     async def user_error(request: Request, exc: UserError):
-        return JSONResponse({"detail": str(exc)}, status_code=422)
+        body = {"detail": str(exc)}
+        if isinstance(exc, SqlRefused):
+            body.update(kind="sql", number=exc.number)   # the lab page words a fault in the SQL differently from a refusal before it was sent
+        return JSONResponse(body, status_code=422)
 
     @app.exception_handler(Refused)
     async def refused(request: Request, exc: Refused):
@@ -1203,17 +1206,37 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         who = _lab(lab, learner)
         if re.search(r"\b(DROP|TRUNCATE|DELETE|ALTER)\b", body.sql, re.IGNORECASE) and not body.confirm_destructive:
             raise HTTPException(409, "This SQL may remove or change lab objects. Confirm the action before running it.")
+        answered: list = []   # what the lab said about the SQL, once it has said it: its result, its refusal, or the 503 for a failure from before the SQL was sent
         try:
             with budget.action(learner, "lab", "dp-800", amount=0.0):
-                result = labs.operation(lab, "run", who, body.sql)
-        except UserError:
-            raise
+                try:
+                    answered.append(labs.operation(lab, "run", who, body.sql))
+                except UserError as exc:
+                    answered.append(exc)
+                    raise
+                except Exception as exc:
+                    # Only the lab's own failure gets here, and from before the SQL was sent (no connection, no identity for the runner): SqlRunner.run answers every failure
+                    # after that with a UserError or a result. So the page may ask again.
+                    log.warning("lab run unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
+                    unavailable = HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.")
+                    answered.append(unavailable)
+                    raise unavailable from exc
         except Exception as exc:
-            log.warning("lab run unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
-        store.append_event(learner.key, "lab.ran", {"package": "dp-800", "skill": LABS[lab]["skill"],
-                           "lab": lab, "local_demo": lab_demo})
-        return result
+            if not answered:
+                raise   # the budget failed before the lab was asked: not a failure of the database, and it has its own answers (Refused is a 429, Abandoned a 409, anything else a 500)
+            if exc is not answered[0]:
+                # The lab had answered, and then the budget's bookkeeping failed (it settles when the action ends). That says nothing about the SQL, whatever the words of its
+                # error are, and is never a reason for the page to send the SQL again: the answer stands.
+                log.warning("lab run bookkeeping failed after the answer: %s", type(exc).__name__)
+        if isinstance(answered[0], Exception):
+            raise answered[0]
+        try:
+            store.append_event(learner.key, "lab.ran", {"package": "dp-800", "skill": LABS[lab]["skill"],
+                               "lab": lab, "local_demo": lab_demo})
+        except Exception as exc:
+            # The SQL ran: a Record that cannot be written now must not turn its result into an error that makes him run it again.
+            log.warning("lab run could not be recorded after the answer: %s", type(exc).__name__)
+        return answered[0]
 
     @app.post("/api/labs/{lab}/hint")
     def lab_hint(lab: str, body: LabHint, learner: Learner = Me) -> dict:
@@ -1233,7 +1256,14 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise
         except Exception as exc:
             log.warning("lab check unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-            raise HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.") from exc
+            if is_unavailable(exc):
+                raise HTTPException(503, f"{NO_ANSWER} Try again in a minute.") from exc
+            from mssql_python import Error as SqlDriverError
+            said = database_said(exc) if isinstance(exc, SqlDriverError) else None
+            if said:
+                # The check reads the learner's own table: a column of the wrong type makes the database refuse the check, which is not an outage and not a miss.
+                raise HTTPException(422, f"The check could not run: {said_in_words(said)}") from exc
+            raise HTTPException(503, "The database is unavailable. Try again.") from exc
         if not lab_demo:
             events = store.events(learner.key)
             previous = next((i for i in range(len(events) - 1, -1, -1) if events[i]["type"] == "lab.reset"
@@ -1268,7 +1298,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
                 raise HTTPException(503, f"{NO_ANSWER} No reset was recorded.") from exc
             from mssql_python import Error as SqlDriverError
             if isinstance(exc, SqlDriverError):
-                raise HTTPException(422, f"Reset failed: {str(exc)[:500]}") from exc
+                raise HTTPException(422, f"Reset failed: {database_message(exc)}") from exc
             raise HTTPException(503, "The database is unavailable. No reset was recorded.") from exc
         store.append_event(learner.key, "lab.reset", {"package": "dp-800", "skill": LABS[lab]["skill"], "lab": lab,
                            "local_demo": lab_demo})

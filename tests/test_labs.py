@@ -9,8 +9,9 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from tests.test_api import POST, settings
-from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRunner, LabRoom, LabUser, FakeRunner, UserError, is_unavailable, sql_error_reason, validate
-from app.core import Store, sha256
+from app.labs import LABS, MAX_ROWS, NO_ANSWER, SqlRefused, SqlRunner, LabRoom, LabUser, FakeRunner, UNCONFIRMED, UNSAVED, UserError, database_message, database_said, is_unavailable, sql_error_reason, validate
+from app.core import Abandoned, Store, sha256
+from app.budget import Refused
 from app.mirror import Mirror
 from app.evidence import derive
 from app.exam import HELP_EVENTS
@@ -159,6 +160,165 @@ class SqlBoundaryTests(unittest.TestCase):
                     self.runner.run(dangerous, "lr_0123456789ab_vector")
         self.assertIn("Column not found", "\n".join(captured.output))
         self.assertNotIn(dangerous, "\n".join(captured.output))
+
+    def test_a_refused_statement_says_what_the_database_said_and_nothing_of_the_driver(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        driver = "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        cases = [
+            (sqlstate_to_exception("42S01", driver + "There is already an object named 'Products' in the database. (2714) (SQLExecDirectW)"),
+             "There is already an object named 'Products' in the database. (error 2714)", 2714),
+            (sqlstate_to_exception("42000", driver + "Incorrect syntax near 'FORM'. (102) (SQLExecDirectW)"),
+             "Incorrect syntax near 'FORM'. (error 102)", 102),
+            (sqlstate_to_exception("23000", driver + "Violation of PRIMARY KEY constraint 'PK__Products__3214EC07'. Cannot insert duplicate key in object "
+                                   "'lab_vector.Products'. The duplicate key value is (1). (2627) (SQLExecDirectW); " + driver + "The statement has been terminated. (3621)"),
+             "Violation of PRIMARY KEY constraint 'PK__Products__3214EC07'. Cannot insert duplicate key in object 'lab_vector.Products'. "
+             "The duplicate key value is (1). The statement has been terminated. (error 2627)", 2627),
+            (sqlstate_to_exception("HY000", driver + "CREATE TABLE permission denied in\n  database 'sqldb'. (262)"),
+             "CREATE TABLE permission denied in database 'sqldb'. (error 262)", 262),
+            (sqlstate_to_exception("42000", driver + "A sentence of the database without a number."), "A sentence of the database without a number.", None),
+            (sqlstate_to_exception("42000", driver + "Incorrect syntax near '; [Products]'. (102) (SQLExecDirectW)"), "Incorrect syntax near '; [Products]'. (error 102)", 102),
+            (sqlstate_to_exception("42000", driver + "[Products] cannot be changed. (1234) (SQLExecDirectW)"), "[Products] cannot be changed. (error 1234)", 1234),
+            (sqlstate_to_exception("42S01", driver + "There is already an object named 'A  B' in the database. (2714) (SQLExecDirectW)"),
+             "There is already an object named 'A  B' in the database. (error 2714)", 2714),
+        ]
+        for error, said, number in cases:
+            with self.subTest(said=said):
+                self.assertEqual(database_message(error), said)
+                with mock.patch.object(self.runner, "execute", side_effect=error), self.assertLogs("dojo.labs", "WARNING"):
+                    with self.assertRaises(SqlRefused) as caught:
+                        self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+                self.assertEqual((str(caught.exception), caught.exception.number), (said, number))
+                for noise in ("Driver Error", "DDBC Error", "[Microsoft]", "SQLExecDirectW", "SQL error"):
+                    self.assertNotIn(noise, said)
+        self.assertLessEqual(len(database_message(sqlstate_to_exception("42000", driver + "x" * 900 + " (102)"))), 420)
+        long = database_message(sqlstate_to_exception("42000", driver + "word " * 200 + "(102) (SQLExecDirectW)"))
+        self.assertTrue(long.endswith("… (error 102)"), long[-40:])
+        self.assertLessEqual(len(long), 420)
+
+    def test_a_driver_text_that_only_mentions_the_database_is_not_a_message_of_the_database(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        for text in ("[Microsoft][ODBC Driver 18 for SQL Server]Login failed for [SQL Server] user. (18456) (SQLDriverConnect)",
+                     "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)"):
+            with self.subTest(text=text):
+                self.assertIsNone(database_said(sqlstate_to_exception("08001", text)))
+
+    def test_words_of_the_database_that_look_like_the_drivers_are_kept(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        driver = "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        quoted = sqlstate_to_exception("23000", driver + "The duplicate key value is (A; [Microsoft] B). (2627) (SQLExecDirectW)")
+        self.assertEqual(database_said(quoted), ("The duplicate key value is (A; [Microsoft] B).", 2627))
+        joined = sqlstate_to_exception("23000", driver + "First (A; [Microsoft] B). (2627) (SQLExecDirectW); " + driver + "Second. (3621)")
+        self.assertEqual(database_said(joined), ("First (A; [Microsoft] B). Second.", 2627), "the next diagnostic still starts at its own header")
+        for value in ("(A; [Microsoft][SKU] B)", "(A; [Microsoft][SQL Server] B)", "(A; [Microsoft][ODBC Driver] B)"):
+            with self.subTest(value=value):
+                said = sqlstate_to_exception("23000", driver + f"The duplicate key value is {value}. (2627) (SQLExecDirectW)")
+                self.assertEqual(database_said(said), (f"The duplicate key value is {value}.", 2627), "bracket groups inside a value are words, not a header")
+        later_by_the_driver = sqlstate_to_exception(
+            "23000", driver + "Msg A. (123) (SQLExecDirectW); [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")
+        self.assertEqual(database_said(later_by_the_driver), ("Msg A.", 123), "a diagnostic of the driver is not a sentence of the database")
+
+    def test_nothing_the_learner_sent_is_asked_again_by_itself_whatever_the_words_of_its_failure(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        driver = "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        outage = "Database 'sandbox' on server 'example' is not currently available. Please retry the connection later."
+        batch = "INSERT INTO Products VALUES (1); COMMIT; RAISERROR('x', 16, 1)"   # may have committed before it failed
+        for error, number in ((sqlstate_to_exception("42S22", driver + "Invalid column name 'is not currently available'. (207) (SQLExecDirectW)"), 207),
+                              (sqlstate_to_exception("42000", driver + "Inventory is not currently available. (50000) (SQLExecDirectW)"), 50000),
+                              (sqlstate_to_exception("HY000", driver + outage + " (40613) (SQLExecDirectW)"), 40613)):
+            with self.subTest(number=number):
+                self.assertTrue(is_unavailable(error), "its words would pass for an outage")
+                with mock.patch.object(self.runner, "execute", side_effect=error), self.assertLogs("dojo.labs", "WARNING"):
+                    with self.assertRaises(SqlRefused) as caught:
+                        self.runner.run(batch, "lr_0123456789ab_vector")
+                self.assertEqual(caught.exception.number, number)
+                self.assertTrue(self.connections[-1].closed)
+
+    def test_a_failure_after_the_sql_was_sent_that_carries_no_message_of_the_database_says_it_cannot_tell_whether_it_ran(self):
+        from mssql_python import InterfaceError
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        for error in (InterfaceError("Cursor is closed", ""), paused_error(),
+                      sqlstate_to_exception("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")):
+            with self.subTest(error=type(error).__name__):
+                self.assertIsNone(database_said(error))
+                self.assertEqual(database_message(error), "No message came back from the database.")
+                with mock.patch.object(self.runner, "execute", side_effect=error), self.assertLogs("dojo.labs", "WARNING"):
+                    with self.assertRaises(UserError) as caught:
+                        self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+                self.assertNotIsInstance(caught.exception, SqlRefused)
+                self.assertEqual(str(caught.exception), UNCONFIRMED)
+        self.assertIn("cannot tell whether your SQL ran", UNCONFIRMED)
+        self.assertNotIn("did not run", UNCONFIRMED)
+
+    def test_a_commit_that_fails_or_a_connection_that_will_not_close_changes_nothing_of_what_the_run_said(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        broken = sqlstate_to_exception("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)")
+        refused = sqlstate_to_exception("40001", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Transaction was deadlocked. Rerun the transaction. (1205) (SQLExecDirectW)")
+        timeout = sqlstate_to_exception("HYT00", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Timeout expired (SQLExecDirectW)")
+
+        class Commit(Connection):
+            def __init__(self, error=None, closing=None):
+                super().__init__()
+                self.error, self.closing = error, closing
+
+            def commit(self):
+                if self.error:
+                    raise self.error
+
+            def close(self):
+                super().close()
+                if self.closing:
+                    raise self.closing
+
+        for error, outcome, said in ((broken, UserError, UNSAVED),
+                                     (refused, SqlRefused, "Transaction was deadlocked. Rerun the transaction. (error 1205)"),
+                                     (timeout, SqlRefused, "Timeout expired")):
+            with self.subTest(commit=type(error).__name__, said=said[:30]):
+                conn = Commit(error)
+                self.runner.connect = lambda conn=conn: conn
+                with self.assertLogs("dojo.labs", "WARNING") as captured, self.assertRaises(outcome) as caught:
+                    self.runner.run("INSERT INTO Products VALUES (1)", "lr_0123456789ab_vector")
+                self.assertIs(type(caught.exception), outcome, "a commit that could not be confirmed is never a failure that the page asks again for")
+                self.assertEqual(str(caught.exception), said, "the batch ran to its end: it is neither 'your query ran longer than 20 seconds' nor 'cannot tell whether your SQL ran'")
+                self.assertIn("commit failed", "\n".join(captured.output))
+                self.assertTrue(conn.closed)
+        self.assertIn("Your SQL ran, but Dojo cannot tell whether any changes were saved", UNSAVED)
+        self.assertNotEqual(UNSAVED, UNCONFIRMED)
+        with self.subTest("close after a result"):
+            conn = Commit(closing=broken)
+            self.runner.connect = lambda: conn
+            self.assertEqual(self.runner.run("SELECT 1", "lr_0123456789ab_vector")["message"], "SQL completed.")
+        with self.subTest("close after a refusal"):
+            conn = Commit(closing=broken)
+            self.runner.connect = lambda: conn
+            with mock.patch.object(self.runner, "execute", side_effect=refused), self.assertLogs("dojo.labs", "WARNING"), self.assertRaises(SqlRefused):
+                self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+
+    def test_a_failure_before_the_sql_is_sent_is_raised_as_it_is_so_that_the_page_may_ask_again(self):
+        error = paused_error()
+        self.runner.connect = mock.Mock(side_effect=error)
+        with self.assertRaises(type(error)) as caught:
+            self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+        self.assertIs(caught.exception, error)
+
+        class NoIdentity(Cursor):
+            def execute(self, sql):
+                self.conn.statements.append(sql)
+                raise error
+
+        conn = Connection()
+        conn.cursor = lambda: NoIdentity(conn)
+        self.runner.connect = lambda: conn
+        with self.assertRaises(type(error)) as caught:
+            self.runner.run("SELECT 1", "lr_0123456789ab_vector")
+        self.assertIs(caught.exception, error)
+        self.assertEqual(conn.statements, ["EXECUTE AS USER = N'lr_0123456789ab_vector' WITH NO REVERT;"], "the learner's SQL was never sent")
+        self.assertTrue(conn.closed)
 
     def test_log_reason_prefers_valid_sqlstate_and_never_includes_query_text(self):
         from types import SimpleNamespace
@@ -532,6 +692,120 @@ class LabRoutesTests(unittest.TestCase):
         self.assertEqual(timed.status_code, 200)
         self.assertTrue(timed.json()["timed_out"])
 
+    def test_a_refusal_by_the_database_says_so_and_a_refusal_before_the_sql_was_sent_does_not(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        refused = SqlRefused(database_said(sqlstate_to_exception(
+            "42S01", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]There is already an object named 'Products' in the database. (2714) (SQLExecDirectW)")))
+        with mock.patch.object(self.app.state.labs, "operation", side_effect=refused):
+            run = self.client.post("/api/labs/vector/run", json={"sql": "CREATE TABLE Products (Id int)"}, headers=POST)
+        self.assertEqual(run.status_code, 422)
+        self.assertEqual(run.json(), {"detail": "There is already an object named 'Products' in the database. (error 2714)", "kind": "sql", "number": 2714})
+        with mock.patch.object(self.app.state.labs, "operation", side_effect=UserError("A lab query is already running. Wait for it to finish.")):
+            busy = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        self.assertEqual((busy.status_code, busy.json()), (422, {"detail": "A lab query is already running. Wait for it to finish."}))
+        looks_like_an_outage = SqlRefused(database_said(sqlstate_to_exception(
+            "42S22", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'is not currently available'. (207) (SQLExecDirectW)")))
+        for error, answer in ((looks_like_an_outage, {"detail": "Invalid column name 'is not currently available'. (error 207)", "kind": "sql", "number": 207}),
+                              (UserError(UNCONFIRMED), {"detail": UNCONFIRMED})):
+            with self.subTest(detail=answer["detail"][:30]), mock.patch.object(self.app.state.labs, "operation", side_effect=error):
+                after_sending = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+            self.assertEqual((after_sending.status_code, after_sending.json()), (422, answer), "after the SQL was sent it is never the 503 that the page asks again for")
+
+    def test_what_the_budget_does_after_the_lab_has_answered_is_not_an_answer_about_the_sql(self):
+        from contextlib import contextmanager
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        outage = "The data share is not currently available. Please retry the connection later."
+
+        @contextmanager
+        def settles_badly(*args, **kwargs):
+            try:
+                yield None
+            finally:
+                raise OSError(outage)   # the bookkeeping at the end of the action, which replaces whatever was in flight
+
+        @contextmanager
+        def refuses_to_start(*args, **kwargs):
+            raise OSError(outage)
+            yield None
+
+        store, learner = self.app.state.dojo.store, self.app.state.preparer.owner
+        ran = lambda: sum(e["type"] == "lab.ran" for e in store.events(learner.key))
+        result = {"columns": [], "rows": [], "truncated": False, "message": "SQL completed."}
+        refused = SqlRefused(database_said(sqlstate_to_exception(
+            "42S22", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Nme'. (207) (SQLExecDirectW)")))
+        before = ran()
+        with mock.patch.object(self.app.state.budget, "action", settles_badly):
+            with mock.patch.object(self.app.state.labs, "operation", return_value=result) as operation, self.assertLogs("dojo", "WARNING") as captured:
+                ok = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+            self.assertEqual((ok.status_code, ok.json()), (200, result), "the SQL ran: its result is the answer, not an outage")
+            self.assertEqual(operation.call_count, 1)
+            self.assertIn("bookkeeping failed after the answer", "\n".join(captured.output))
+            self.assertEqual(ran(), before + 1, "the run is recorded")
+            with mock.patch.object(self.app.state.labs, "operation", side_effect=refused) as operation, self.assertLogs("dojo", "WARNING"):
+                no = self.client.post("/api/labs/vector/run", json={"sql": "SELECT Nme FROM Products"}, headers=POST)
+            self.assertEqual((no.status_code, no.json()), (422, {"detail": "Invalid column name 'Nme'. (error 207)", "kind": "sql", "number": 207}),
+                             "the refusal stands, whatever the bookkeeping did when the action ended")
+            self.assertEqual((operation.call_count, ran()), (1, before + 1), "a refused run is not recorded")
+        with mock.patch.object(self.app.state.labs, "operation", return_value=result) as operation, \
+                mock.patch.object(store, "append_event", side_effect=OSError(outage)) as record, self.assertLogs("dojo", "WARNING") as captured:
+            unrecorded = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        self.assertEqual((unrecorded.status_code, unrecorded.json()), (200, result), "the SQL ran: a Record that cannot be written is not an error for him to run it again")
+        self.assertEqual((operation.call_count, record.call_count), (1, 1))
+        self.assertIn("could not be recorded after the answer", "\n".join(captured.output))
+        with mock.patch.object(self.app.state.budget, "action", refuses_to_start), mock.patch.object(self.app.state.labs, "operation") as operation:
+            with self.assertRaises(OSError, msg="a store that is not there is Dojo's own failure (a 500), not the database's: it is not called the database"):
+                self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        operation.assert_not_called()
+        for error, status, answer in ((Abandoned("the learner's data was deleted"), 409, {"detail": {"code": "deleted", "message": "Your data was deleted while this ran."}}),
+                                      (Refused("You have used today's allowance."), 429, {"detail": "You have used today's allowance."})):
+            @contextmanager
+            def refuses(*args, error=error, **kwargs):
+                raise error
+                yield None
+
+            with self.subTest(error=type(error).__name__), mock.patch.object(self.app.state.budget, "action", refuses), \
+                    mock.patch.object(self.app.state.labs, "operation") as operation:
+                early = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+            self.assertEqual((early.status_code, early.json()), (status, answer), "the budget's own answers, not 'the database did not answer'")
+            operation.assert_not_called()
+        with mock.patch.object(self.app.state.labs, "operation", side_effect=paused_error()) as operation, self.assertLogs("dojo", "WARNING"):
+            before_the_sql = self.client.post("/api/labs/vector/run", json={"sql": "SELECT 1"}, headers=POST)
+        self.assertEqual((before_the_sql.status_code, before_the_sql.json()["detail"]), (503, "The lab database did not answer. Try again in a minute."),
+                         "a failure of the lab from before the SQL was sent is the one that the page asks again for")
+        self.assertEqual(operation.call_count, 1)
+
+    def test_sql_the_page_cannot_send_is_refused_in_plain_words_not_as_a_validation_dump(self):
+        for sql, said in (("", "Enter some SQL to run."), ("  \n ", "Enter some SQL to run."), ("a" * 8001, "Enter SQL up to 8 KB."),
+                          ("é" * 4001, "Enter SQL up to 8 KB."), ("a" * 100_001, "Enter SQL up to 8 KB."), ("a" * 500_000, "Enter SQL up to 8 KB."),
+                          ("SELECT 1;" * 21, "Use one SQL batch, up to 20 statements. GO is not supported.")):
+            with self.subTest(said=said, size=len(sql)):
+                answer = self.client.post("/api/labs/vector/run", json={"sql": sql}, headers=POST)
+                self.assertEqual((answer.status_code, answer.json()), (422, {"detail": said}))
+
+    def test_a_check_the_database_refuses_is_not_an_outage_and_not_a_miss(self):
+        from mssql_python.exceptions import sqlstate_to_exception
+
+        store, learner = self.app.state.dojo.store, self.app.state.preparer.owner
+        before = len(store.events(learner.key))
+        error = sqlstate_to_exception("22018", "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Error converting data type nvarchar to float. (8114) (SQLExecDirectW)")
+        with mock.patch.object(self.app.state.labs, "operation", side_effect=error), self.assertLogs("dojo", "WARNING"):
+            refused = self.client.post("/api/labs/vector/check", headers=POST)
+        self.assertEqual((refused.status_code, refused.json()),
+                         (422, {"detail": "The check could not run: Error converting data type nvarchar to float. (error 8114)"}))
+        self.assertEqual(len(store.events(learner.key)), before, "a check that could not run records nothing")
+        with mock.patch.object(self.app.state.labs, "operation", side_effect=RuntimeError("something of our own")), self.assertLogs("dojo", "WARNING"):
+            ours = self.client.post("/api/labs/vector/check", headers=POST)
+        self.assertEqual((ours.status_code, ours.json()["detail"]), (503, "The database is unavailable. Try again."))
+        for state, text, what in (("08S01", "[Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (SQLExecDirectW)", "a connection that broke"),
+                                  ("HY000", "[Microsoft][ODBC Driver 18 for SQL Server]Unexpected token in the stream (SQLExecDirectW)", "a fault of the driver")):
+            with self.subTest(what=what), mock.patch.object(self.app.state.labs, "operation", side_effect=sqlstate_to_exception(state, text)), self.assertLogs("dojo", "WARNING"):
+                lost = self.client.post("/api/labs/vector/check", headers=POST)
+            self.assertEqual((lost.status_code, lost.json()["detail"]), (503, "The database is unavailable. Try again."),
+                             "no message of the database: not a refusal of the learner's table")
+        self.assertEqual(len(store.events(learner.key)), before)
+
     def test_reset_reports_sql_error_and_fixture_collision_requests_reset(self):
         from mssql_python import ProgrammingError
 
@@ -541,7 +815,7 @@ class LabRoutesTests(unittest.TestCase):
             with self.assertLogs("dojo", "WARNING") as captured:
                 reset = self.client.post("/api/labs/vector/reset", headers=POST)
         self.assertEqual(reset.status_code, 422)
-        self.assertIn("Cannot drop a system-versioned table", reset.json()["detail"])
+        self.assertEqual(reset.json()["detail"], "Reset failed: Cannot drop a system-versioned table (error 13552)")
         self.assertIn("ProgrammingError; General error", "\n".join(captured.output))
         self.assertNotIn("Cannot drop a system-versioned table", "\n".join(captured.output))
 

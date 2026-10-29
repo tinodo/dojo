@@ -201,12 +201,13 @@ class NoAccentBars(unittest.TestCase):
 class BoxesOfOneSize(unittest.TestCase):
     def test_the_inset_boxes_share_one_padding_and_radius(self):
         css = by_selector(CSS)
-        for sel in (".rec", ".skill", ".status-sage", ".status-slate", ".drift-note", ".team-banner", ".pl-shared"):
+        for sel in (".rec", ".skill", ".status-sage", ".status-slate", ".drift-note", ".team-banner", ".pl-shared", ".lab-notice"):
             self.assertIn("padding: 9px 12px", css[sel], sel)
-        for sel in (".rec", ".skill", ".status-sage", ".status-slate", ".drift-note", ".team-banner", ".pl-shared", "blockquote.quote"):
+        for sel in (".rec", ".skill", ".status-sage", ".status-slate", ".drift-note", ".team-banner", ".pl-shared", "blockquote.quote", ".lab-notice"):
             self.assertRegex(css[sel], r"border-radius:\s*8px", sel)
         self.assertIn("font-size: 13px", css[".rec .rn"])
         self.assertIn("font-size: 13px", css[".status-sage"])
+        self.assertIn("font-size: 13px", css[".lab-notice"])
 
     def test_a_card_heading_has_the_same_gap_whatever_follows_it(self):
         self.assertRegex(CSS, r"\.panel > \.eyebrow \+ :is\([^)]*\.rec-list[^)]*div:not\(\[class\]\)[^)]*\)\s*\{\s*margin-top:\s*7px")

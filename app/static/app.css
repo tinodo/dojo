@@ -150,7 +150,7 @@ p + p { margin-top: 7px; }
 .panel-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-h.tight { margin-bottom: 8px; }
 /* The heading of a card and what follows it: 7px whatever the next element is (a paragraph gets its 7px from p + p). Each follower is named on purpose: rows with their own padding are left alone. */
-.panel > .eyebrow + :is(.rec-list, .tips, .jrow, .table-scroll, label.field, select, div:not([class])) { margin-top: 7px; }
+.panel > .eyebrow + :is(.rec-list, .tips, .jrow, .table-scroll, label.field, select, div:not([class]), .lab-check) { margin-top: 7px; }
 .panel > p + .datefield { margin-top: 8px; }
 .seal { position: relative; }
 .divider { height: 1px; background: var(--line-2); margin: 10px 0; }
@@ -1255,7 +1255,7 @@ details.how[open] summary { margin-bottom: 6px; }
   box-sizing: border-box;
   display: block;
   width: 100%;
-  min-height: 18rem;
+  min-height: 6rem;
   font: 15px/1.5 Consolas, "Courier New", monospace;
   color: #eee7db;
   background: #28231f;
@@ -1266,6 +1266,13 @@ details.how[open] summary { margin-bottom: 6px; }
 }
 .lab-sql:focus-visible { outline: 3px solid #d39c32; }
 .lab-message { min-height: 2.5rem; }
+.lab-message.bad { color: var(--rose-ink); font-weight: 500; }
+.lab-notice { background: var(--rose-t); border: 1px solid var(--rose-2); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--rose-ink); }
+.lab-notice p { margin: 0; overflow-wrap: anywhere; }
+.lab-notice p.advice { margin-top: 6px; font-size: 12px; }
+.lab-hint-failed .lab-notice { margin: 8px 0; }
+.lab-scroll + p { margin-top: 7px; }
+.lab-check + p { margin-top: 7px; }
 .lab-scroll { overflow-x: auto; max-height: 18rem; overflow-y: auto; }
 .lab-table { border-collapse: collapse; width: 100%; text-align: left; font-size: .9rem; }
 .lab-table th, .lab-table td { padding: .5rem .7rem; border: 1px solid #ded5c9; white-space: pre-wrap; overflow-wrap: anywhere; }
