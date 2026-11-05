@@ -153,6 +153,11 @@ Only for Microsoft associate and expert exams, because only those allow it. The 
 certification name on its certification page. GitHub, fundamentals, Office specialist and unknown levels
 are always closed-book, and the page says why in one sentence.
 
+**Amended 5 Nov 2026:** an exam added before its certification page could be found (a newer exam's address
+no longer leads to its certification, as AI-901's) has no level and no time, so no practice exam. When the
+page is found later its level, its time and the typical duration that follows from the level are recorded in
+the package: ADR 0005, "Finding the certification page".
+
 With "Microsoft Learn allowed", a button opens learn.microsoft.com in a separate window (Dojo cannot embed
 it). The clock keeps running, as in the real exam. Dojo counts each lookup (a press of the button) and
 the time the exam page is out of view (Page Visibility API), and the results say so: "6 minutes in Learn

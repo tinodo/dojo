@@ -73,6 +73,15 @@ class LinkTests(unittest.TestCase):
         self.assertIsNone(sg.cert_slug("https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/az-104"))
         self.assertIsNone(sg.cert_slug("https://learn.microsoft.com/en-us/credentials/certifications/exam-scoring-reports"))
 
+    def test_the_certifications_an_exam_page_names(self):
+        base, html = sg.exam_url("XY-110"), page("exam-xy-110.html")
+        self.assertEqual(sg.cert_links(html, base),
+                         [CERT_URL, "https://learn.microsoft.com/en-us/credentials/certifications/contoso-widget-expert/"],
+                         "in page order, once each, without the fragment or the query; the exams, renewal and study guide links are no certification")
+        self.assertEqual(sg.cert_links(html, base, limit=1), [CERT_URL])
+        self.assertEqual(sg.cert_links("<main><p>No links here.</p></main>", base), [])
+        self.assertEqual(sg.cert_links(page("cert-xy-110.html"), CERT_URL), [], "a certification page names no certification")
+
     def test_a_practice_link_must_name_this_exam_or_its_certification(self):
         own = "https://learn.microsoft.com/en-us/credentials/certifications/exams/xy-110/practice/assessment?assessmentId=1"
         other = "https://learn.microsoft.com/en-us/credentials/certifications/exams/az-104/practice/assessment?assessmentId=21"

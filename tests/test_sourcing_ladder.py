@@ -23,13 +23,16 @@ import app.sourcing.ladder as ladder  # noqa: E402
 from app import readiness  # noqa: E402
 from app.ai import AIError, StubAI  # noqa: E402
 from app.core import iso, utcnow, current_spend  # noqa: E402
+from app.exam import blocker  # noqa: E402
 from app.learning import LESSON_TEMPLATE  # noqa: E402
-from app.prepare import Preparer  # noqa: E402
+from app.prepare import Preparer  # noqa: E402
 from app.sourcing.inventory import Inventory  # noqa: E402
 from app.sourcing.state import Books, LeaseLost, new_skill, skill_key  # noqa: E402
 from app.sourcing.verify import VERIFIER_VERSION, Verifier  # noqa: E402
 from tests.test_api import POST  # noqa: E402
-from tests.test_newexam import DOCS_AT, LEARN, Web, done, html, make_app, post, skills_of  # noqa: E402
+from tests.test_newexam import (CERT_AT, DOCS_AT, EXAM_AT, HOW_TO_EARN, LEARN, Web, done, html, make_app, post,  # noqa: E402
+                                skills_of, variant)
+from tests.test_newexam import guide as guide_page  # noqa: E402
 
 UNSOURCED = "Compare widget sizes for a workload"   # the mock's search finds nothing for a skill with "sizes" in it
 
@@ -1547,6 +1550,82 @@ class StudioTests(SourcingCase):
         self.sourcer.step()
         self.assertTrue(self.c.get("/api/studio/sourcing").json()["web_search"]["ok"])
         self.assertEqual(self.c.get("/api/diag").json()["source_search"]["web_search"]["ok"], True)
+
+
+class LateFactsWeb(TocWeb):
+    """Learn before and after it publishes the page of a newer exam (app/newexam.py): the study guide links no certification, and
+    the exam's address is a page of its own, that names the certification, only once `open` is set."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.guides["xy-110"] = variant("XY-110", (HOW_TO_EARN, ""))
+        self.open = False
+
+    def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+        if path == EXAM_AT and self.open:
+            return html(guide_page("exam-xy-110.html"))
+        return super().learn(path, params)
+
+
+class FactsTests(SourcingCase):
+    """An exam added before Learn's page for it named its certification records no certification page, no level and no time
+    allowed, so it has no practice exam and no question pool. When the page is found later, the search for the pages of the exam
+    writes the facts in, and the exam's pool gets its turn (ADR 0012)."""
+
+    def facts(self) -> tuple:
+        raw = self.raw()
+        return raw["exam_page"], raw["exam_format"]["level"], raw["exam_format"]["duration_minutes"]
+
+    def nudges(self) -> list:
+        nudged: list = []
+        self.nx.pool_keeper.nudge = lambda learner=None: nudged.append(learner)
+        return nudged
+
+    def test_the_facts_are_written_when_the_certification_page_is_found_later(self):
+        web = LateFactsWeb()
+        self.build(web)
+        nudged = self.nudges()
+        self.assertEqual(self.facts(), (None, None, None))
+        self.assertIn("does not record a duration", blocker(self.dojo.packages.get("xy-110")))
+        self.assertTrue([n for n in self.raw()["notes"] if "no certification page" in n])
+        self.steps()
+        self.assertEqual((self.facts(), nudged), ((None, None, None), []), "nothing is written while Learn names no certification")
+        skills = [(s["id"], s["text"]) for s in skills_of(self.raw())]
+        web.open = True
+        self.nx._lookups.clear()   # the lookup is kept for 15 minutes
+        self.sourcer.step()
+        raw = self.raw()
+        self.assertEqual(self.facts(), (LEARN + CERT_AT, "associate", 100))
+        self.assertEqual((raw["exam_format"]["level_source"], raw["exam_format"]["duration_source"]), (LEARN + CERT_AT, LEARN + CERT_AT))
+        self.assertFalse([n for n in raw["notes"] if "no certification page" in n])
+        self.assertEqual([(s["id"], s["text"]) for s in skills_of(raw)], skills)
+        pkg = self.dojo.packages.get("xy-110")
+        self.assertEqual((pkg["meta"]["exam_page"], blocker(pkg)), (LEARN + CERT_AT, None), "the practice exam and the pool are possible now")
+        self.assertEqual(len(nudged), 1)
+        self.steps()
+        self.assertEqual((self.facts(), len(nudged)), ((LEARN + CERT_AT, "associate", 100), 1), "written once")
+
+    def test_an_exam_that_records_its_facts_is_left_alone(self):
+        self.build()
+        nudged = self.nudges()
+        kept = {k: self.raw()[k] for k in ("exam_page", "exam_format", "official_practice_assessment", "notes")}
+        self.assertEqual(kept["exam_page"], LEARN + CERT_AT)
+        self.steps()
+        self.assertEqual({k: self.raw()[k] for k in kept}, kept)
+        self.assertEqual(nudged, [])
+
+    def test_a_failure_to_write_the_facts_never_stops_the_search(self):
+        web = LateFactsWeb()
+        self.build(web)
+        web.open = True
+        self.nx._lookups.clear()
+        with mock.patch.object(self.nx, "with_facts", side_effect=RuntimeError("the facts could not be put together")), \
+                self.assertLogs("dojo.sourcing", "WARNING") as log:
+            self.assertTrue(self.sourcer.step(), "the search for the pages went on")
+        self.assertIn("could not record what Learn states about the exam xy-110", "\n".join(log.output))
+        self.assertEqual(self.facts(), (None, None, None))
+        self.steps()
+        self.assertEqual(self.facts(), (LEARN + CERT_AT, "associate", 100), "the next step writes them")
 
 
 if __name__ == "__main__":

@@ -282,6 +282,18 @@ def cert_slug(url: str) -> str | None:
     return m.group(1)
 
 
+def cert_links(page: str, base: str, limit: int = 4) -> list[str]:
+    """The certification pages an exam page links to ("Part of the requirements for"), in page order. A newer
+    exam's address no longer leads to its certification, but its page still names it."""
+    out: list[str] = []
+    for href, _ in read(page)[1]:
+        url = resolve(href, base)
+        url = url.split("#")[0].split("?")[0] if url else ""
+        if url and cert_slug(url) and url not in out:
+            out.append(url)
+    return out[:limit]
+
+
 def parse_guide(page: str, code: str, url: str, today: date) -> dict:
     """The blueprint on a study guide page. `problems` lists what makes the page unusable: when it is
     not empty, nothing from the page may be built into a package."""

@@ -1219,7 +1219,7 @@ class PoolKeeper:
         self._luck: dict[str, dict] = {}   # a member's wait and misses; the owner's are in self.state
         self._due: dict[str, float] = {}   # a member's next turn (monotonic seconds)
         self._turn = 0                     # round-robin position over the learners
-        self.wake = threading.Event()      # team mode: tells the BackgroundScheduler to give the pool a turn now
+        self.wake = threading.Event()      # a nudge: the scheduler of team mode gives the pool a turn now, and so does the keeper's own loop
 
     def start(self, delay: int = 300) -> None:
         if self._started:
@@ -1229,13 +1229,20 @@ class PoolKeeper:
 
     def _loop(self, delay: int) -> None:
         time.sleep(delay)
+        self.wake.clear()   # what asked for a turn during the first wait is served by the first step
         while True:
             try:
                 wait = self.step()
             except Exception:  # noqa: BLE001 - never let the background loop die
                 log.exception("topping up the question pool failed")
                 wait = self._back_off("the keeper itself failed")
-            time.sleep(max(5, wait))
+            self._rest(max(5, wait))
+
+    def _rest(self, seconds: float) -> None:
+        """Wait for the next turn. A nudge (an exam added, the facts of one found later, an enrollment) ends the wait at once,
+        as it does under the scheduler of team mode (ADR 0009)."""
+        self.wake.wait(seconds)
+        self.wake.clear()
 
     def _gen(self, learner: Learner) -> int:
         return self._gens.get(learner.key, 0)
@@ -1412,8 +1419,8 @@ class PoolKeeper:
                     luck[k] = values[k]
 
     def nudge(self, learner: Learner | None = None) -> None:
-        """Something changed what a pool should hold (enrollment, an added exam): the learner's turn comes
-        now instead of after a long wait (ADR 0009, team mode). Without a learner, everyone's turn comes now."""
+        """Something changed what a pool should hold (enrollment, an added exam, the facts of an exam found later): the
+        learner's turn comes now instead of after a long wait (ADR 0009). Without a learner, everyone's turn comes now."""
         if learner is None:
             self._due.clear()
         else:
