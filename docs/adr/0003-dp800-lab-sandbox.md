@@ -179,6 +179,61 @@ delete the billable endpoint and DNS zone.** Incremental deployment **does not d
 resources automatically. Verify all three charges stop; do not delete the existing
 app, identity, AI resource, or learner Record. Export the Record before deleting it if desired.
 
+## Amendment: what the lab page says back (29 October 2026)
+
+After he ran the vector lab's starter twice, the owner said: "I don't like the way the feedback from the database is handled." The second run was refused
+(error 2714, the table was already there). The page showed the driver's whole text in a small line, left the result of the first run beside it, and, with an
+editor at least 18 rem tall, had both below the fold on a laptop. The rules since, read as a spec by two reviewers of different model families and tested
+in node (`tests/test_lab_page.py` runs the real `viewLab`) and in `tests/test_labs.py`:
+
+- **One label for a Run or a Reset that failed: "That did not work."** (the status line under the buttons). It claims nothing about whether part of the SQL ran (a batch
+  that fails half way, or a query stopped after 20 seconds, did run); a Check that failed says why in the Checker, in its own sentence. **Each area holds the answer to
+  the last press of its own buttons and replaces the one before**: the status line under the buttons and Results belong to a Run or a Reset, the Checker to a Check. A Run
+  or a Reset empties Results when it starts and sets the Checker back, because a check from before no longer describes the lab. A Check changes only the Checker, except
+  that the failure of the last Run or Reset is cleared when it starts: a failure is news only until the next press.
+- **The database's own sentence and its error number**: "The database said: There is already an object named 'Products' in the database. (error 2714)", never the
+  driver's wrapping. It counts as the database's only when the driver's text starts with the database's header (`[Microsoft][...][SQL Server]`, `labs.database_said`); its words
+  are kept as written, line breaks become spaces, more than 400 characters end in "…". The next diagnostic starts only where the driver joins it (`; [Microsoft][ODBC Driver ...`),
+  so brackets inside a value, `(A; [Microsoft][SKU] B)`, stay in the sentence. Without a message of the database after the SQL was sent (the connection broke, the driver failed)
+  the page says: "No message came back from the database. Dojo cannot tell whether your SQL ran. Look at your tables before you run it again, or press Reset this lab to
+  start from the beginning." The 422 answer of a refused run carries `kind: "sql"` and `number` (`SqlRefused`).
+- **A Run is never sent again by itself once its SQL was sent.** What goes wrong in the lab before the SQL is sent (no connection, no identity) is the lab's own failure: `lab_run` answers
+  503 "The lab database did not answer. Try again in a minute.", and the page asks again every 10 seconds for about two minutes (it does the same for a Check and a Reset, which can be
+  repeated safely). What goes wrong after (`SqlRunner.run` wraps the statement, the commit and the closing of the connection) is the database's refusal or one of two sentences, never an
+  answer that is asked again: a batch may have run in part, and may even have committed (it can say `COMMIT`), so running it again is his choice, not the page's. The sentence above
+  is for a failure of the statement itself; when the statement ran to its end and the commit that saves its changes is what failed without a message of the database, the page says:
+  "No message came back from the database. Your SQL ran, but Dojo cannot tell whether any changes were saved. Look at your tables before you run it again, or press Reset this lab to
+  start from the beginning." (`UNSAVED`; "any", because a batch that only reads has none); a commit that the database refuses is its own sentence and number, and is never "Your query ran
+  longer than 20 seconds", which is for a statement only. The words of an error do not decide this: they can carry his own, a column named `is not currently available` or a `RAISERROR`,
+  and a database that says so mid-statement (error 40613) is shown as it said it. Nor does anything that happens after the lab has answered: in team mode the budget settles when the
+  action ends, and if that fails (a data share that is not currently available, say) `lab_run` keeps what the lab answered, the result or the refusal, and logs the failure; and a Record that
+  cannot be written after a run that worked (`lab.ran`) is logged and does not turn the result into an error. None of it is the 503 that the page asks again for. A failure of the budget
+  *before* the lab is called is not the database's either, and is not called that: `Refused` is a 429, `Abandoned` (the learner's data was deleted) a 409, and a store that is not there a plain
+  500, as for every other action.
+- **A second line only where it is true**: after a refusal by the database ("Read the message, then change the SQL or try again, or press Reset this lab to
+  start from the beginning."; the database may as well say that it is busy; for 2714, which does not say that the object that is there is the right one, "It is
+  already there. Check it, then go on, or press Reset this lab to start over.") and after a timeout ("Look at your tables, then try a smaller or simpler query.";
+  no claim about what ran). Not after a refusal before the SQL was sent, a database that was not reached, or a Check or Reset: their sentence says what to do.
+- **A Check that the database refuses** (a column of the wrong type in his own table) is a 422 "The check could not run: ..." and is not recorded, no longer a
+  503 "The database is unavailable". Only when the database itself said something about it: a connection that broke or a driver fault stays a 503 "The database is
+  unavailable. Try again." (which the page does not ask again for). A database that says it is not currently available is a 503 too, with the sentence "The lab database
+  did not answer.", which the page does ask again for. A Reset that fails says the database's sentence too. An empty editor, or more than 8 KB, reaches `validate()` and gets
+  a plain sentence ("Enter some SQL to run.", "Enter SQL up to 8 KB."): the request (`LabSql`) has no limit of its own, so the framework's validation text never
+  reaches the page.
+- **The summary line, the "Results" heading and the results are one block**, scrolled into view when a Run or a Reset is done; a Check scrolls to the Checker
+  (a polite live region) when it starts and when it is done. The editor is as tall as its text (the lines he typed, then the lines the width wraps; 5 to 16
+  rows). The buttons of a Run, a Check and a Reset are held (disabled) while one of them is on its way, and freed whatever happens inside the call. The button he pressed
+  gets its focus back when its call is done, unless he has put the focus somewhere else himself while he waited (in the editor, for instance) or has pressed another button of the
+  page since: the last press has the focus, so that with a Run and a hint on their way together the one that finishes first does not take it from the other and Enter does what he
+  meant. The local demo keeps its own message ("Demo only. No SQL was executed.").
+- **A hint speaks where it appears.** The hint goes in the hints area under the hint buttons (a polite live region, so that it is read out) and the button that was pressed
+  goes. A hint never writes in the status line, in Results or in the Checker, which belong to a Run or a Reset and to a Check: it would wipe "Done. 3 rows.", the note that only the
+  first 200 rows are shown, or "That did not work." beside the notice that explains it. A hint does not hold the buttons of a Run, a Check or a Reset either. The pressed hint's own
+  button is disabled while its call is on its way (a second press would record a second `lab.hint` and show the hint twice). A hint that cannot be shown says why in a notice under
+  the hints, replaced by the next press, and its button can be pressed again, with its focus back. The words "Hint shown. This is practice with help." are gone: the hint is the
+  answer, and the sentence above the hint buttons ("Opening a hint counts as help.") says the rest.
+- The guard that says "up to 20 statements" counts semicolons, including those inside a string. Its sentence is unchanged: a known imprecision, not part of this change.
+
 Sources: [SQL free offer](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer),
 [free offer FAQ](https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer-faq),
 [serverless auto-pause](https://learn.microsoft.com/en-us/azure/azure-sql/database/serverless-tier-overview),
