@@ -1024,6 +1024,32 @@ class PoolKeeperTests(unittest.TestCase):
         self.assertEqual(room.dojo.quality_lines, [], "nothing is written under a record that was deleted")
         self.assertFalse(room.store.path("learners", _LEARNER.key).exists())
 
+    def test_a_nudge_ends_the_keepers_wait_for_one_learner_too(self):
+        """An exam added, or the facts of one found later (app/sourcing/ladder.py), bring the pool's turn forward: under the scheduler of team
+        mode, and in the keeper's own loop, which used to sleep out its wait (up to six hours) whatever was nudged."""
+        keeper, _ = self.keeper(_adds_one)
+        keeper.nudge(_LEARNER)
+        started = time.monotonic()
+        keeper._rest(3600)
+        self.assertLess(time.monotonic() - started, 5, "the nudge ended an hour's wait at once")
+        self.assertFalse(keeper.wake.is_set(), "and it is used up: the next wait is a wait again")
+
+        class Stop(BaseException):
+            pass
+        rests: list[float] = []
+
+        def rest(seconds: float) -> None:
+            rests.append(seconds)
+            if len(rests) == 2:
+                raise Stop()
+        keeper._rest = rest
+        keeper.step = lambda: 7
+        keeper.nudge()
+        with mock.patch.object(exam.time, "sleep") as slept, self.assertRaises(Stop):
+            keeper._loop(300)
+        self.assertEqual((slept.call_args_list, rests), ([mock.call(300)], [7, 7]), "the first wait is the start's grace period, the others end on a nudge")
+        self.assertFalse(keeper.wake.is_set(), "a nudge that came during the first wait is served by the first step")
+
 
 class TeachingClockTests(unittest.TestCase):
     """A rationale teaches when it is read. In a timed exam that is at the end, not at answer time."""
