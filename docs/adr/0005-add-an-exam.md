@@ -42,6 +42,22 @@ for the exam length and the official practice assessment. Every skill is the stu
 anything does not parse cleanly, Dojo builds nothing. A retired exam is refused. A blueprint that starts
 in the future is used, and labelled as such.
 
+**Finding the certification page** (amended 5 Nov 2026). The certification page gives an exam its level, its
+stated time and its official practice assessment (ADR 0012); without it Dojo gives no practice exam and keeps
+no question pool for the exam. `NewExams._cert` looks for it in this order: the study guide's own "How to earn
+the certification" link; the exam's address (`exams/<code>/`), which Learn used to redirect to the certification;
+the certification pages that exam page links to, up to four, in page order (a newer exam, AI-901 in October
+2026, keeps a page of its own that only links its certification, and its study guide links none); and Learn's
+search for credentials, by the code and the name and then by the code alone (the name did not find AI-901's
+certification, the code did). A page counts only when it names the exam's code, and only the page of this exam
+is followed for its links. An exam added before its certification page could be found gets the facts later: at
+every step of the background search for its pages (`Sourcer._facts`, app/sourcing/ladder.py) Dojo reads the
+lookup again (it is kept for 15 minutes), and when the package records no exam page, no level and no time and
+the lookup now names the certification, `NewExams.with_facts` writes them into the package under the package
+lock, replaces the notes about the certification page and the practice assessment (`FACT_NOTES`), never drops a
+practice assessment the package records, and wakes the question pool. A package that records any of the facts,
+and a built-in one, is never touched. Nothing is spent: it reads two or three public pages.
+
 **Finding teaching pages.** For each skill, candidates come from the study guide's own documentation
 links and from the sites' own search (Microsoft Learn and GitHub Docs). They are fetched only through
 `app/sources.py`, whose host list stays closed. The author model picks up to three candidates by number;

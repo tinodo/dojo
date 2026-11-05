@@ -41,7 +41,7 @@ from .sourcing.ladder import Sourcer
 from .sourcing.state import skill_key  # noqa: F401 - the key of a skill in the build document and in the search's books
 from .sourcing.verify import VERIFIER_VERSION
 from .sources import normalize
-from .studyguide import (LEARN, after, cert_slug, exam_url, guide_url, issuer, normalize_code, parse_cert_page,
+from .studyguide import (LEARN, after, cert_links, cert_slug, exam_url, guide_url, issuer, normalize_code, parse_cert_page,
                          parse_guide, practice_for, resolve)
 
 log = logging.getLogger("dojo.newexam")
@@ -50,6 +50,11 @@ LOOKUP_CACHE_S = 900
 SUPPORT_URL = LEARN + "/en-us/credentials/support/exam-duration-exam-experience"
 COUNT_NOTE = ("Microsoft Learn does not publish how many questions {code} has. Its support page says only that most "
               "Microsoft exams contain between 40 and 60 questions and that the number varies per exam.")
+# The notes the lookup writes about the certification page and the practice assessment: when the facts are
+# recorded again (Sourcer._facts) these are replaced, and nothing else in a package's notes is touched.
+FACT_NOTES = ("Dojo found no certification page on Microsoft Learn", "The practice assessment ",
+              "Neither the study guide nor the certification page links")
+CERT_PAGES = 10        # pages read to find the certification page of one exam
 GUIDE_LINKS = 12       # documentation links from the study guide offered to every group
 ERROR_SHARE = 0.1      # more skills than this whose check could not run stop the build, to be resumed
 BUILD = "exam-build"
@@ -198,16 +203,18 @@ class NewExams:
             "practice": {"title": practice["title"], "url": practice["url"]} if practice else None,
             "training": [{"url": x["url"], "title": label(x["title"], 120)} for x in training],
             "notes": guide["notes"] + cert_notes + practice_notes,
-            "_guide": guide, "_cert": cert, "_practice": practice,
+            "_guide": guide, "_cert": cert, "_practice": practice, "_fact_notes": cert_notes + practice_notes,
         }
 
     def _cert(self, code: str, guide: dict) -> tuple[dict | None, list[str]]:
-        """The certification page that names the exam: the study guide's own link, then the exam's
-        address (Learn redirects it to the certification), then Learn's search for credentials."""
+        """The certification page that names the exam: the study guide's own link, then the exam's page (Learn
+        redirects an older exam's address to the certification; a newer exam keeps a page of its own, which links
+        the certification it is part of), then Learn's search for credentials, by the exam's name and by its code alone."""
         tried: list[str] = []
+        queue = guide["cert_links"][:3] + [exam_url(code)]
 
         def read(link: str) -> dict | None:
-            if link in tried or len(tried) >= 6:
+            if link in tried or len(tried) >= CERT_PAGES:
                 return None
             tried.append(link)
             try:
@@ -216,24 +223,27 @@ class NewExams:
                 return None
             final = final.split("#")[0].split("?")[0]
             if not cert_slug(final):
+                if urlparse(final).path.rstrip("/").lower() == urlparse(exam_url(code)).path.rstrip("/").lower():
+                    queue.extend(cert_links(page, final))
                 return None
             cert = parse_cert_page(page, final, code)
             return cert if cert["mentions_code"] else None
 
-        for link in guide["cert_links"][:3] + [exam_url(code)]:
-            cert = read(link)
+        while queue:
+            cert = read(queue.pop(0))
             if cert:
                 return cert, []
-        try:
-            answer = self.sources.data(learn_search(f"{code} {guide['title']}", 5, "Credential"))
-        except (httpx.HTTPError, UserError):
-            answer = {}
-        for row in (answer.get("results") if isinstance(answer, dict) else None) or []:
-            link = resolve(str(row.get("url") or ""), LEARN) if isinstance(row, dict) else None
-            if link and cert_slug(link.split("?")[0]):
-                cert = read(link.split("?")[0])
-                if cert:
-                    return cert, []
+        for query in (f"{code} {guide['title']}", code):
+            try:
+                answer = self.sources.data(learn_search(query, 5, "Credential"))
+            except (httpx.HTTPError, UserError):
+                continue
+            for row in (answer.get("results") if isinstance(answer, dict) else None) or []:
+                link = resolve(str(row.get("url") or ""), LEARN) if isinstance(row, dict) else None
+                if link and cert_slug(link.split("?")[0]):
+                    cert = read(link.split("?")[0])
+                    if cert:
+                        return cert, []
         return None, [f"Dojo found no certification page on Microsoft Learn that names {code}, so it records no exam "
                       "duration and no practice assessment from one."]
 
@@ -386,8 +396,45 @@ class NewExams:
     def _verify(self, found: dict, domain: dict, group: dict, text: str, batch: list[dict], snaps: dict) -> list[dict]:
         return self.finder.verify(found, domain, group, text, batch, snaps)
 
+    @staticmethod
+    def exam_facts(found: dict) -> dict:
+        """What the lookup states about the exam itself, as a package keeps it: the certification page, the time
+        allowed, the certification level (it decides the open-book rule and the typical duration, ADR 0012) and the
+        official practice assessment. Sourcer._facts writes them into an exam added before they could be found."""
+        cert, code = found["_cert"], found["code"]
+        timed = bool(cert and cert["duration_minutes"])
+        microsoft = issuer(code) == "Microsoft"
+        return {
+            "official_practice_assessment": found["_practice"],
+            "exam_page": cert["url"] if cert else None,
+            "exam_format": {"duration_minutes": cert["duration_minutes"] if timed else None,
+                            "duration_quote": cert["duration_quote"] if timed else None,
+                            "duration_source": cert["url"] if timed else None, "question_count": None,
+                            "question_count_note": COUNT_NOTE.format(code=code), "question_count_source": SUPPORT_URL,
+                            "level": cert.get("level") if cert and microsoft else None,
+                            "level_quote": cert.get("level_quote") if cert and microsoft else None,
+                            "level_source": cert["url"] if cert and cert.get("level") and microsoft else None,
+                            "checked": utcnow().date().isoformat()},
+        }
+
+    @staticmethod
+    def has_facts(pkg: dict) -> bool:
+        """Whether a package records anything about the exam itself: a certification page, a level or a time allowed."""
+        fmt = pkg.get("exam_format") or {}
+        return bool(pkg.get("exam_page") or fmt.get("level") or fmt.get("duration_minutes"))
+
+    @classmethod
+    def with_facts(cls, pkg: dict, found: dict) -> dict:
+        """The package with the facts of a lookup (`exam_facts`) and the lookup's notes about the certification page and the
+        practice assessment in place of the ones written before. Its skills and its other notes stay, and a practice
+        assessment it records is never dropped."""
+        facts = cls.exam_facts(found)
+        notes = [n for n in pkg.get("notes") or [] if not str(n).startswith(FACT_NOTES)] + found["_fact_notes"]
+        return {**pkg, **facts, "official_practice_assessment": facts["official_practice_assessment"] or pkg.get("official_practice_assessment"),
+                "exam_format": {**(pkg.get("exam_format") or {}), **facts["exam_format"]}, "notes": notes}
+
     def _assemble(self, found: dict, matches: dict) -> dict:
-        guide, cert, practice = found["_guide"], found["_cert"], found["_practice"]
+        guide = found["_guide"]
         code, today = found["code"], utcnow().date().isoformat()
         domains = []
         for i, d in enumerate(guide["domains"], 1):
@@ -409,24 +456,13 @@ class NewExams:
                          "shows what changes.")
         if not guide["as_of"]:
             notes.append(f"The study guide does not say from which date these skills are measured. Dojo read it on {today}.")
-        timed = bool(cert and cert["duration_minutes"])
         return {
             "id": code.lower(), "exam": code, "title": guide["title"], "issuer": issuer(code), "kind": "certification",
             "version": guide["as_of"] or f"retrieved-{today}",
             "source": {"name": guide["name"], "url": guide["url"], "skills_as_of": guide["as_of"], "retrieved": today,
                        "git_commit_id": guide["meta"].get("git_commit_id")},
             "passing_score": guide["passing_score"],
-            "official_practice_assessment": practice,
-            "exam_page": cert["url"] if cert else None,
-            "exam_format": {"duration_minutes": cert["duration_minutes"] if timed else None,
-                            "duration_quote": cert["duration_quote"] if timed else None,
-                            "duration_source": cert["url"] if timed else None, "question_count": None,
-                            "question_count_note": COUNT_NOTE.format(code=code), "question_count_source": SUPPORT_URL,
-                            # The certification level decides the open-book rule and the typical duration (ADR 0012).
-                            "level": cert.get("level") if cert and issuer(code) == "Microsoft" else None,
-                            "level_quote": cert.get("level_quote") if cert and issuer(code) == "Microsoft" else None,
-                            "level_source": cert["url"] if cert and cert.get("level") and issuer(code) == "Microsoft" else None,
-                            "checked": today},
+            **self.exam_facts(found),
             "notes": notes,
             "added": iso(),
             "domains": domains,

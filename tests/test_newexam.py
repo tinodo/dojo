@@ -31,7 +31,7 @@ from app.checks import pick  # noqa: E402
 from app.core import APP_DIR, Store, UserError, iso, new_id, parse_iso, sha256, utcnow  # noqa: E402
 from app.costs import SOURCING_CALLS  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.newexam import github_hits, groundable, learn_hits  # noqa: E402
+from app.newexam import FACT_NOTES, NewExams, github_hits, groundable, learn_hits  # noqa: E402
 from app.packages import Packages, validate  # noqa: E402
 from app.pagefinder import hub_pages, learn_search, product_ids  # noqa: E402
 from app.sources import Sources, html_to_text, normalize, own_copy, verified  # noqa: E402
@@ -41,6 +41,10 @@ from tests.test_api import web as docs_web  # noqa: E402
 LEARN = "https://learn.microsoft.com"
 GUIDES_AT = "/en-us/credentials/certifications/resources/study-guides/"
 CERT_AT = "/en-us/credentials/certifications/contoso-widget-operator/"
+EXPERT_AT = "/en-us/credentials/certifications/contoso-widget-expert/"
+EXAM_AT = "/en-us/credentials/certifications/exams/xy-110/"
+HOW_TO_EARN = ('<tr><td><a href="/credentials/certifications/contoso-widget-operator/">How to earn the certification</a></td>'
+               "<td>Some certifications only require passing one exam.</td></tr>")
 DOCS_AT = "/en-us/contoso/widgets/"
 DATA = Path(__file__).parent / "data"
 GUIDES = DATA / "studyguides"
@@ -1742,6 +1746,157 @@ class GitHubExamTests(unittest.TestCase):
         self.assertIn(keeper._next_package(), ("gh-300", "dp-800"))
         self.assertEqual(room.top_up(keeper.owner, "gh-990"), {"added": 0, "blocked": 0, "state": "no-exam"})
         self.assertEqual(room.pool(keeper.owner, "gh-990"), [])
+
+
+class NewExamPageWeb(Web):
+    """Learn as it is for an exam newer than the redirect from its address to its certification: the address stays a page of its
+    own that names the certification it is part of, and the study guide links no certification. `exam_page` is that page (None:
+    Learn has none); `search_by_code` lets a search for credentials find the certification when it is given the code alone."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.guides["xy-110"] = variant("XY-110", (HOW_TO_EARN, ""))
+        self.exam_page: str | None = guide("exam-xy-110.html")
+        self.search_by_code = False
+        self.credential_queries: list[str] = []
+
+    def learn(self, path: str, params: httpx.QueryParams) -> httpx.Response:
+        if path == EXAM_AT and self.exam_page is not None:
+            return html(self.exam_page)
+        if path == "/en-us/credentials/certifications/exams/xy-999/":
+            return html(guide("exam-xy-110.html"))   # the page of another exam, which names the certification of XY-110
+        if path == EXPERT_AT:
+            return html("<html><body><main><h1>Microsoft Certified: Contoso Widget Expert</h1>"
+                        "<p>Another certification: it names other exams only.</p></main></body></html>")
+        return super().learn(path, params)
+
+    def learn_search(self, query: str, where: str) -> httpx.Response:
+        if "Credential" not in where:
+            return super().learn_search(query, where)
+        with self._lock:
+            self.credential_queries.append(query)
+        hits = [{"title": "Microsoft Certified: Contoso Widget Operator Associate", "url": LEARN + CERT_AT,
+                 "description": "Run Contoso widgets."}] if self.search_by_code and query == "XY-110" else []
+        return httpx.Response(200, json={"results": hits})
+
+
+class NewExamPageTests(unittest.TestCase):
+    """An exam newer than the redirect from its address to its certification (AI-901 in October 2026). Dojo looked for the
+    certification page by the study guide's link and by the exam's address, which for such an exam is a page of its own, and
+    found none: no level and no time allowed, so no practice exam and no question pool. That page names the certification."""
+
+    def lookup(self, web: Web, code: str = "XY-110") -> dict:
+        c = TestClient(make_app(tempfile.mkdtemp(prefix="dojo-exam-page-"), web))
+        r = c.get("/api/exam-lookup", params={"code": code})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_the_exam_page_names_the_certification(self):
+        web = NewExamPageWeb()
+        out = self.lookup(web)
+        self.assertEqual((out["cert"]["url"], out["cert"]["duration_minutes"]), (LEARN + CERT_AT, 100))
+        self.assertFalse([n for n in out["notes"] if "no certification page" in n])
+        self.assertEqual(web.fetched(EXAM_AT), 1)
+        self.assertEqual(web.credential_queries, [], "the exam page was enough: no search for credentials was needed")
+
+    def test_a_search_for_the_code_alone_finds_it_when_the_name_does_not(self):
+        web = NewExamPageWeb()
+        web.exam_page, web.search_by_code = None, True
+        out = self.lookup(web)
+        self.assertEqual(out["cert"]["url"], LEARN + CERT_AT)
+        self.assertEqual(web.credential_queries, ["XY-110 Contoso Widget Operations", "XY-110"])
+
+    def test_a_certification_the_exam_page_names_must_name_the_exam_too(self):
+        web = NewExamPageWeb()
+        web.exam_page = guide("exam-xy-110.html").replace("../../contoso-widget-operator/", "../../contoso-widget-expert/")
+        out = self.lookup(web)
+        self.assertIsNone(out["cert"])
+        self.assertEqual((web.fetched(EXPERT_AT), web.fetched(CERT_AT)), (1, 0), "its page was read once and refused: it names other exams only")
+        self.assertEqual([n for n in out["notes"] if n.startswith(FACT_NOTES[0])],
+                         ["Dojo found no certification page on Microsoft Learn that names XY-110, so it records no exam duration "
+                          "and no practice assessment from one."])
+
+    def test_only_the_page_of_this_exam_is_followed(self):
+        web = NewExamPageWeb()
+        other = "/credentials/certifications/exams/xy-999/"
+        web.guides["xy-110"] = variant("XY-110", (HOW_TO_EARN, HOW_TO_EARN.replace("/credentials/certifications/contoso-widget-operator/", other)))
+        web.exam_page = None
+        out = self.lookup(web)
+        self.assertIsNone(out["cert"])
+        self.assertEqual((web.fetched("/en-us" + other), web.fetched(CERT_AT)), (1, 0), "the page of another exam is read, and its links are not followed")
+
+    def test_every_note_about_the_certification_and_the_practice_assessment_is_one_the_facts_replace(self):
+        wrong = ('<tr><td><a href="/en-us/credentials/certifications/exams/az-104/practice/assessment?assessmentId=21">Practice assessment</a></td>'
+                 "<td>Another exam.</td></tr>")
+        closed = ('<tr><td><a href="/en-us/credentials/certifications/exams/gh-990/practice/assessment/closed">Practice assessment</a></td>'
+                  "<td>This exam.</td></tr>")
+        anchor = '<tr><td><a href="/en-us/credentials/certifications/exam-scoring-reports">'
+        for rows in ("", wrong + closed):
+            web = Web()
+            web.guides["gh-990"] = guide("gh-990.html").replace(anchor, rows + anchor, 1)
+            app = make_app(tempfile.mkdtemp(prefix="dojo-fact-notes-"), web)
+            notes = app.state.newexams._found("GH-990")["_fact_notes"]
+            self.assertEqual(len(notes), 3 if rows else 2, notes)
+            for note in notes:
+                self.assertTrue(note.startswith(FACT_NOTES), note)
+
+
+class FactsTests(unittest.TestCase):
+    """What an exam added without its facts gets when they are found (NewExams.with_facts), and what stays as it was."""
+
+    CERT = {"url": LEARN + CERT_AT, "name": "Microsoft Certified: Contoso Widget Operator Associate", "slug": "contoso-widget-operator",
+            "duration_minutes": 100, "duration_quote": "You will have 100 minutes to complete this assessment.", "level": "associate",
+            "level_quote": "Microsoft Certified: Contoso Widget Operator Associate"}
+    PRACTICE = {"title": "Practice Assessment for XY-110: Contoso Widget Operations", "url": LEARN + CERT_AT + "practice/assessment?assessmentId=4242",
+                "assessment_id": "4242", "found_on": LEARN + CERT_AT, "checked": "2026-11-05"}
+
+    def package(self) -> dict:
+        return {"id": "xy-110", "exam": "XY-110", "exam_page": None, "official_practice_assessment": None,
+                "exam_format": {"duration_minutes": None, "level": None, "question_count": None, "other": "kept",
+                                "checked": "2026-10-01"},
+                "notes": ["The study guide lists the skills measured as of 2099-01-01, which is after 2026-10-01.",
+                          "Dojo found no certification page on Microsoft Learn that names XY-110, so it records no exam duration "
+                          "and no practice assessment from one.",
+                          "The practice assessment linked on a page does not name XY-110 or its certification, so Dojo does not link it: x",
+                          "Neither the study guide nor the certification page links an official practice assessment for XY-110."],
+                "domains": [{"id": "d1", "groups": []}]}
+
+    def found(self, **over) -> dict:
+        return {"code": "XY-110", "_cert": dict(self.CERT), "_practice": dict(self.PRACTICE), "_fact_notes": [], **over}
+
+    def test_the_facts_are_written_and_the_notes_about_them_replaced(self):
+        pkg = self.package()
+        before = json.dumps(pkg, sort_keys=True)
+        out = NewExams.with_facts(pkg, self.found())
+        self.assertEqual(json.dumps(pkg, sort_keys=True), before, "the package that was read is not changed")
+        self.assertEqual((out["exam_page"], out["official_practice_assessment"]), (LEARN + CERT_AT, self.PRACTICE))
+        fmt = out["exam_format"]
+        self.assertEqual((fmt["level"], fmt["level_source"], fmt["duration_minutes"], fmt["duration_source"]),
+                         ("associate", LEARN + CERT_AT, 100, LEARN + CERT_AT))
+        self.assertEqual((fmt["other"], fmt["checked"]), ("kept", utcnow().date().isoformat()))
+        self.assertEqual(out["notes"], ["The study guide lists the skills measured as of 2099-01-01, which is after 2026-10-01."])
+        self.assertEqual(out["domains"], pkg["domains"])
+
+    def test_the_notes_of_the_new_lookup_come_in_their_place(self):
+        notes = ["Neither the study guide nor the certification page links an official practice assessment for XY-110."]
+        out = NewExams.with_facts(self.package(), self.found(_practice=None, _fact_notes=notes))
+        self.assertEqual(out["notes"][1:], notes)
+
+    def test_a_recorded_practice_assessment_is_never_dropped(self):
+        pkg = self.package()
+        pkg["official_practice_assessment"] = {"url": LEARN + "/en-us/credentials/certifications/exams/xy-110/practice/assessment?assessmentId=1"}
+        out = NewExams.with_facts(pkg, self.found(_practice=None))
+        self.assertEqual(out["official_practice_assessment"], pkg["official_practice_assessment"])
+
+    def test_a_github_exam_has_no_level(self):
+        facts = NewExams.exam_facts(self.found(code="GH-990"))
+        self.assertEqual((facts["exam_page"], facts["exam_format"]["level"], facts["exam_format"]["level_source"]), (LEARN + CERT_AT, None, None))
+
+    def test_which_packages_record_facts(self):
+        self.assertFalse(NewExams.has_facts(self.package()))
+        self.assertFalse(NewExams.has_facts({}))
+        for change in ({"exam_page": LEARN + CERT_AT}, {"exam_format": {"level": "fundamentals"}}, {"exam_format": {"duration_minutes": 45}}):
+            self.assertTrue(NewExams.has_facts({**self.package(), **change}), change)
 
 
 def sourcing_prices(skills: int) -> dict[str, tuple[int, int, float]]:

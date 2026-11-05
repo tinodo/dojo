@@ -386,6 +386,28 @@ class Sourcer:
             self.dojo.packages.add(fresh)
             return fresh
 
+    def _facts(self, run: Run, raw: dict) -> dict:
+        """An exam added while Learn's page for it did not lead to its certification (a newer exam keeps a page of its own)
+        records no certification page, no level and no time allowed, so Dojo gives no practice exam for it (ADR 0012). The
+        lookup is read again at every step (it is kept for 15 minutes, app/newexam.py): once it finds the certification
+        page, what it states is written into the package, and the exam's question pool gets its turn at once. A package
+        that records any of these facts is left as it is."""
+        if self.nx.has_facts(raw) or not run.found.get("_cert"):
+            return raw
+        try:
+            with self._package:
+                fresh = self.store.read("packages", run.pid, default=None)
+                if not isinstance(fresh, dict) or self.nx.has_facts(fresh):
+                    return raw
+                fresh = self.nx.with_facts(fresh, run.found)
+                self.dojo.packages.add(fresh)
+        except Exception:  # noqa: BLE001 - the facts are a gain: the search for the pages goes on without them
+            log.warning("could not record what Learn states about the exam %s", run.pid, exc_info=True)
+            return raw
+        log.info("recorded what Learn states about %s: %s, level %s", run.pid, fresh["exam_page"], fresh["exam_format"]["level"])
+        self.nx.pool_keeper.nudge(self.nx.owner)
+        return fresh
+
     @property
     def package_lock(self) -> Any:
         """Held while a package is read, changed and written here, and by the removal of an exam, so a skill is
@@ -411,7 +433,7 @@ class Sourcer:
             log.info("could not remove the sourcing lease of a removed exam")
 
     def _work(self, run: Run, raw: dict) -> bool:
-        raw = self._tidy(run, raw)
+        raw = self._facts(run, self._tidy(run, raw))
         if self._resume_replacements(run, raw):
             return True
         if self._follow(run, raw):
