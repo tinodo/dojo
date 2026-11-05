@@ -1206,37 +1206,38 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         who = _lab(lab, learner)
         if re.search(r"\b(DROP|TRUNCATE|DELETE|ALTER)\b", body.sql, re.IGNORECASE) and not body.confirm_destructive:
             raise HTTPException(409, "This SQL may remove or change lab objects. Confirm the action before running it.")
-        answered: list = []   # what the lab said about the SQL, once it has said it: its result, its refusal, or the 503 for a failure from before the SQL was sent
+        # What the lab said about the SQL, once it has said it: its result, or its refusal, or the 503 for a failure from before the SQL was sent.
+        result: dict | None = None
+        refusal: Exception | None = None
         try:
             with budget.action(learner, "lab", "dp-800", amount=0.0):
                 try:
-                    answered.append(labs.operation(lab, "run", who, body.sql))
+                    result = labs.operation(lab, "run", who, body.sql)
                 except UserError as exc:
-                    answered.append(exc)
+                    refusal = exc
                     raise
                 except Exception as exc:
                     # Only the lab's own failure gets here, and from before the SQL was sent (no connection, no identity for the runner): SqlRunner.run answers every failure
                     # after that with a UserError or a result. So the page may ask again.
                     log.warning("lab run unavailable: %s; %s", type(exc).__name__, sql_error_reason(exc))
-                    unavailable = HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.")
-                    answered.append(unavailable)
-                    raise unavailable from exc
+                    refusal = HTTPException(503, f"{NO_ANSWER} Try again in a minute." if is_unavailable(exc) else "The database is unavailable. Try again.")
+                    raise refusal from exc
         except Exception as exc:
-            if not answered:
+            if result is None and refusal is None:
                 raise   # the budget failed before the lab was asked: not a failure of the database, and it has its own answers (Refused is a 429, Abandoned a 409, anything else a 500)
-            if exc is not answered[0]:
+            if exc is not refusal:
                 # The lab had answered, and then the budget's bookkeeping failed (it settles when the action ends). That says nothing about the SQL, whatever the words of its
                 # error are, and is never a reason for the page to send the SQL again: the answer stands.
                 log.warning("lab run bookkeeping failed after the answer: %s", type(exc).__name__)
-        if isinstance(answered[0], Exception):
-            raise answered[0]
+        if refusal is not None:
+            raise refusal
         try:
             store.append_event(learner.key, "lab.ran", {"package": "dp-800", "skill": LABS[lab]["skill"],
                                "lab": lab, "local_demo": lab_demo})
         except Exception as exc:
             # The SQL ran: a Record that cannot be written now must not turn its result into an error that makes him run it again.
             log.warning("lab run could not be recorded after the answer: %s", type(exc).__name__)
-        return answered[0]
+        return result
 
     @app.post("/api/labs/{lab}/hint")
     def lab_hint(lab: str, body: LabHint, learner: Learner = Me) -> dict:
