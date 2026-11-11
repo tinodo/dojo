@@ -8,6 +8,6 @@ azure-identity==1.26.0
 segno==1.6.6
 mssql-python==1.15.0
 pywebpush==2.5.0
-py-vapid==1.9.4
+py-vapid==1.9.6
 http-ece==1.2.1
 av==19.0.1
