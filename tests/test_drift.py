@@ -11,6 +11,7 @@ import time
 import types
 import unittest
 from copy import deepcopy
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from unittest import mock
@@ -976,6 +977,19 @@ class OfferTests(DriftCase):
         self.assertEqual(self.drift._doc()["films"][lesson]["state"], "approved", "it stays approved, and is forgotten when the new lesson is written")
         self.drift._file_films()
         self.assertEqual(len(self.video_jobs()), 1, "no longer scheduled: it is filmed")
+
+    def test_with_the_ai_switch_off_an_approved_film_does_not_wait_for_a_rewrite_that_will_not_come(self):
+        """ADR 0029: nothing writes a lesson again while Dojo's own AI work is off, so no film waits for that."""
+        lesson = self.lesson()
+        self.approve_quietly(self.drift.offer_token(self.drift.film_offer(PID)))
+        writer = mock.Mock()
+        writer.to_write_again.return_value = {lesson}
+        with mock.patch.object(self.dojo, "deeper", writer, create=True):
+            self.assertTrue(self.drift._file_films())
+            self.assertEqual(self.video_jobs(), [], "on, it waits for the new lesson")
+            with mock.patch.object(self.dojo, "settings", replace(self.dojo.settings, background=False)):
+                self.drift._file_films()
+        self.assertEqual(len(self.video_jobs()), 1, "off, the lesson is filmed as it is")
 
     def test_when_the_lessons_about_to_be_rewritten_cannot_be_read_no_film_is_filed(self):
         lesson = self.lesson()

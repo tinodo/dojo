@@ -99,7 +99,7 @@ class ThePreparer(unittest.TestCase):
         lessons.assert_called_once_with()
         film.assert_not_called()
 
-    def test_off_it_rests_half_an_hour_between_steps_and_an_approval_wakes_it(self):
+    def test_off_it_rests_half_an_hour_between_steps(self):
         self.assertEqual(self.make(False).wait_after(False), 1800)
         self.assertEqual(self.make(False).wait_after(True), 15)
         self.assertEqual(self.make(True).wait_after(False), 120, "on, the search for pages says when it is next due")
@@ -152,6 +152,15 @@ class TheSelfTest(unittest.TestCase):
             test._loop()   # on is the default
         sleep.assert_called_once_with(6 * 3600)
 
+    def test_start_hands_the_choice_to_the_loop(self):
+        for repeat in (True, False):
+            with self.subTest(repeat=repeat):
+                test = SelfTest(SimpleNamespace(build="b"), None, None, None, None, None)
+                with mock.patch("app.selftest.threading.Thread") as thread:
+                    test.start(repeat=repeat)
+                self.assertEqual(thread.call_args.kwargs["args"], (repeat,))
+                self.assertEqual(thread.call_args.kwargs["target"], test._loop)
+
 
 class TheDeploy(unittest.TestCase):
     def setUp(self):
@@ -180,7 +189,7 @@ class TheDeploy(unittest.TestCase):
         script = self.step.split("run: |\n", 1)[1]
         for value, on in ((None, "true"), ("", "true"), ("on", "true"), ("On", "true"), ("true", "true"), ("TRUE", "true"),
                           ("off", "false"), ("Off", "false"), ("OFF", "false"), ("false", "false"), ("0", "false"), ("no", "false"),
-                          ("of", "false"), ("on ", "false")):
+                          ("of", "false"), ("on ", "false"), ("on\n", "false"), ("\n", "false"), ("true\r\n", "false")):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "github-output"
                 env = {k: v for k, v in os.environ.items() if k != "SWITCH"}

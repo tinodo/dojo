@@ -373,14 +373,16 @@ The variable is read when the deploy runs, so setting it changes nothing until t
 that deploy should already carry it. The deploy log prints `background AI: false` or `background AI: true`. Unset, empty, `on` and `true`
 (any case) mean on. Any other value means off, so a typo stops the spending and does not keep it.
 
-- **What stops:** the search for pages, lessons and rewrites, narration, Deeper Listen, diagrams drawn ahead of time, the refill of the question
-  pool, the deeper lessons search, the delivered-meaning check and the self-test's repeat every 6 hours.
-- **What goes on:** filming the lessons you approved at a price (the Preparer's thread stays, and files only those); the daily read of the official
-  pages, which uses no model; nudges, the sweepers and the daily lab check; and everything a person asks for: Ask, practice exams, checks, judging,
+- **What stops:** the later rounds of the search for an added exam's pages, lessons written ahead of time and rewrites, narration, Deeper Listen,
+  diagrams drawn ahead of time, the refill of the question pool, the deeper lessons search, the delivered-meaning check and the self-test's repeat every 6 hours.
+- **What goes on:** filming the lessons you approved at a price (the Preparer's thread stays, and files only those; a film does not wait for a rewrite
+  to the deeper template, because none will come); the daily read of the official pages, which uses no model; nudges, the sweepers and the daily lab
+  check; and everything a person asks for: adding an exam (the build checks its pages once), writing a lesson, Ask, practice exams, checks, judging,
   Listen when it is played, and a lesson's deck when it is first opened in Present.
-- **What you will notice:** a lesson that a changed page holds back stays held back until the switch is on again. An added exam gets no pages and no
-  lessons. A practice exam takes longer to build, because the pool is not refilled and the questions it lacks are written when the exam is built. Studio's
-  To do and Diagrams cards still talk about background work as if it ran.
+- **What you will notice:** a lesson that a changed page holds back stays held back, and is not written again by itself, until someone writes a new
+  one or the switch is on again. An added exam is built, but its lessons are not written ahead of time. A practice exam takes longer to build, because
+  the pool is not refilled and the questions it lacks are written when the exam is built. Studio's To do and Diagrams cards still talk about
+  background work as if it ran.
 - **How to see that it took:** `/healthz` shows the new build; the web app's setting `DOJO_BACKGROUND` is `0`; the log holds one warning at start,
   "Dojo's own AI work is switched off"; `/api/diag` shows `"automatic": false` under the preparation; the data share gets no new lesson, narration,
   Deeper Listen, deck or pool batch.

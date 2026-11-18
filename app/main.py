@@ -485,7 +485,7 @@ def _check_id(value: str, pattern: str = ID) -> str:
 def background_plan(settings: Settings, env: Mapping[str, str]) -> dict[str, bool]:
     """Which of Dojo's own services start, and whether the Preparer works by itself (ADR 0029).
 
-    With DOJO_BACKGROUND=0 nothing that calls a model starts on its own: no search for pages, no lessons, narration,
+    With DOJO_BACKGROUND=0 nothing that calls a model or Speech starts on its own: no search for pages, no lessons, narration,
     Deeper Listen or decks, no top-up of the question pool, no delivered-meaning check, and the self-test runs once.
     The Preparer thread still starts, because it files the films the owner approved. Reading the official pages
     again needs no model, so Drift keeps running."""

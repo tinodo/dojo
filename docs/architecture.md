@@ -184,7 +184,7 @@ Daily counters are written to the share before the work is paid for, so a restar
 a fresh allowance. In team mode the services stop running their own loops, and `background.py` runs one
 batch at a time, only while two slots stay free for learners.
 
-One switch, `DOJO_BACKGROUND` (ADR 0029, set by the Bicep parameter `backgroundAi`), stops everything in this table that calls a model on its own.
+One switch, `DOJO_BACKGROUND` (ADR 0029, set by the Bicep parameter `backgroundAi`), stops everything in this table that calls a model or Speech on its own.
 With it off the preparation thread only files the films the owner approved (`Preparer.automatic` is false), the question pool, the deeper lessons
 search and the delivered-meaning check are not started, the self-test runs once, and the source-drift check goes on because it makes no model call.
 `background_plan` in `app/main.py` decides which services start. What a person asks for is not in this table and does not stop.

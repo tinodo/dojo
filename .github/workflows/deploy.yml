@@ -73,8 +73,7 @@ jobs:
         env:
           SWITCH: ${{ vars.DOJO_BACKGROUND_AI }}
         run: |
-          value=$(printf %s "$SWITCH" | tr '[:upper:]' '[:lower:]')
-          case "$value" in
+          case "${SWITCH,,}" in
             ""|on|true) on=true ;;
             *) on=false ;;
           esac

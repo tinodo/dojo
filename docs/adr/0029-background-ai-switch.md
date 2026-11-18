@@ -20,10 +20,10 @@ with the same one move, without taking Dojo apart. Until now every service had i
 
 | Service | Spends on | With the switch off |
 |---|---|---|
-| Preparation (`prepare.py`): the search for an added exam's pages, lessons, rewrites, deeper-lesson upgrades, narration, Deeper Listen, decks drawn ahead of time | models, speech | Stops. Only the filming of lessons the owner approved goes on |
+| Preparation (`prepare.py`): the search for an added exam's pages, lessons, rewrites, deeper-lesson upgrades, narration, Deeper Listen, decks drawn ahead of time | models, speech, web search | Stops. Only the filming of lessons the owner approved goes on (avatar video, at the price he saw) |
 | Question pool (`exam.py`, `PoolKeeper`) | models | Does not start |
 | Deeper lessons search (`deeper.py`) | models, web search | Does not start |
-| Delivered-meaning check (`delivery.py`) | models | Does not start |
+| Delivered-meaning check (`delivery.py`) | speech (it transcribes Dojo's own audio and compares the words) | Does not start |
 | Self-test (`selftest.py`) | three models and Speech, under a cent | Runs once at start, which `/healthz` and the deploy check need, and no longer every 6 hours |
 | Source-drift check (`drift.py`) | no model | Keeps running |
 | Price lookup, nudges, the sweepers, the lab database mirror | no model | Unchanged |
@@ -63,9 +63,13 @@ on again: delete the variable, or set it to `on`, and deploy.
 
 - **Cost:** the spend that nobody pressed for goes to zero. The self-test is the one exception: under a cent each time the app starts. Nothing else is paid for unless the owner or a
   member asks, or the owner approved films. The daily limits stay in the code for the day the switch is on again.
-- **A lesson that a changed page holds back is not written again** while the switch is off. Drift still reads the pages (no model) and still holds a lesson back
-  when its page no longer supports it (ADR 0006); nothing replaces it until the switch is on. A held-back lesson stays held back.
-- **An exam added while it is off** gets no pages searched and no lessons written. Its approved films, once it has lessons, are still made.
+- **A lesson that a changed page holds back is not written again by itself** while the switch is off. Drift still reads the pages (no model) and still holds a lesson back
+  when its page no longer supports it (ADR 0006); nothing replaces it until someone writes a new lesson for the skill or the switch is on. A held-back lesson stays held back.
+- **An exam added while it is off** is still built when the owner adds it: that is his action, and the build checks the official pages once, with two models. Its lessons are
+  not written ahead of time and the later rounds of the page search do not run; a lesson is written when someone asks for that skill. Its approved films, once it has lessons, are still made.
+- **No film waits for a rewrite that will not come.** A lesson that is waiting to be written again on the deeper template is left out of the offer, and an approved film for it waits
+  (ADR 0020, 0025). While the switch is off `Dojo.scheduled_rewrites()` is empty, so such a lesson is offered like any other and an approved film is made for the lesson as it
+  is. A lesson that a changed page holds back, one written again in the last week, and one whose pages may still be replaced wait as before.
 - **Practice exams still work.** Questions waiting in the pool are used first and the rest are written and checked when the exam is built (ADR 0009, "Money"), so a
   build with an empty pool takes longer. Nothing refills the pool by itself.
 - **Studio says things that are not true while it is off.** The To do page says lessons, Listen and Deeper Listen make themselves, and the Diagrams card says
@@ -81,4 +85,4 @@ share receives no new lesson, narration, Deeper Listen, deck, search result or p
 ## Review triggers
 
 The owner wants part of it back (the likely shape is one switch per service, or a monthly cap that stops everything at once); Studio is redesigned to say what is on and what is off;
-the owner approves films of an added exam while the switch is off and they do not start.
+the owner approves films while the switch is off and they do not start.
