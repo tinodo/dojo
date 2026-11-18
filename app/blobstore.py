@@ -917,7 +917,11 @@ class BlobMirror:
                 if have and have.size == len(data) and have.md5 == md5:
                     with self._state:
                         self._known[rel] = (st.st_size, st.st_mtime_ns)
-                        self._sent.setdefault(rel, md5)
+                        # Storage holds exactly the folder's bytes: that is the baseline, whatever this process sent last. Another
+                        # writer may have put the same bytes (the platform runs the old and the new container side by side for
+                        # minutes while it replaces one with the other), and an older sum kept here would be found "different"
+                        # at every comparison, for good, and make storage "degraded" for a file that is right.
+                        self._sent[rel] = md5
                     continue
                 try:
                     self._put(rel, data, st.st_mtime_ns, fast=True)
