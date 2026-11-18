@@ -22,7 +22,6 @@ far more, so it never starts from here on its own: the owner approves a priced s
 from __future__ import annotations
 
 import logging
-import os
 import re
 import threading
 import time
@@ -471,10 +470,7 @@ class NewExams:
     # ------------------------------------------------------------ progress, filming and cost
 
     def _media(self) -> set[str]:
-        try:
-            return set(os.listdir(self.store.path("media")))
-        except OSError:
-            return set()
+        return self.store.listing("media")
 
     def _lessons(self, pid: str, media: set[str], quiet: dict | None = None, scheduled: set | None = None) -> dict:
         """How far the course is: lessons written, narrated and filmed, and the lessons that could be filmed. `later` names the

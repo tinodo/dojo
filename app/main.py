@@ -45,6 +45,8 @@ from .avatar import MEDIA_ID as VIDEO_ID
 from .avatar import SUFFIX as AVATAR_SUFFIX
 from .avatar import Avatar, StubAvatar
 from .background import BackgroundScheduler
+from .blobstore import SCOPE as BLOB_SCOPE
+from .blobstore import BlobClient, BlobError
 from .budget import Budget, Refused
 from .checks import LIMIT as CHECK_LIMIT
 from .checks import CheckRoom
@@ -504,14 +506,19 @@ def background_plan(settings: Settings, env: Mapping[str, str]) -> dict[str, boo
 
 
 def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = None, http: Any = None,
-               avatar: Any = None) -> FastAPI:
+               avatar: Any = None, blob: Any = None) -> FastAPI:
     """Builds the app with every part wired together. `ai`, `speech`, `avatar` and `http` (the client
-    used to fetch sources and list prices) can be replaced in tests."""
+    used to fetch sources and list prices) can be replaced in tests, and so can `blob` (the storage client)."""
     settings = settings or load_settings()
     if settings.in_azure:
         quiet_logs()
     store = Store(settings.data_dir)
     tokens = Tokens(_credential(settings)) if settings.real_ai else None
+    if blob is None and settings.blob_account:
+        tokens = tokens or Tokens(_credential(settings))
+        blob = BlobClient(settings.blob_account, settings.blob_container, lambda: tokens.get(BLOB_SCOPE))
+    if blob is not None:
+        store.attach(blob)   # the data lives in storage; an empty folder is filled from it before anything reads it (ADR 0030)
     if ai is None:
         ai = Foundry(settings, tokens) if settings.real_ai else StubAI()
     if speech is None:
@@ -654,6 +661,7 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
         yield
         nudges.stop()
         podcast.close()
+        store.close()
 
     app = FastAPI(title="Dojo", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.settings = settings
@@ -809,8 +817,15 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @app.get("/healthz")
     def healthz() -> dict:
         """Open to anyone, so it says only whether the self-test passed and which build runs; the
-        per-check results and their time are for the signed-in owner at /api/diag."""
-        return selftest.public()
+        per-check results and their time are for the signed-in owner at /api/diag. With the data in storage
+        it also says whether storage answers: a Dojo that cannot reach it is "degraded", not "ok"."""
+        out = selftest.public()
+        stored = store.storage_status()
+        if stored is not None:
+            out["storage"] = stored["state"]
+            if stored["state"] == "degraded":
+                out["status"] = "degraded"
+        return out
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
@@ -1425,10 +1440,13 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             name, media_type = media_id + AVATAR_SUFFIX, AVATAR_CONTENT_TYPE
         else:
             raise HTTPException(404, "Not found.")
-        # A learner's own check-question audio first (ADR 0009), then the shared narration and video.
-        own = dojo.store.path("learners", learner.key, "media", name)
-        path = own if own.is_file() else dojo.store.path("media", name)
-        if not path.is_file():
+        # A learner's own check-question audio first (ADR 0009), then the shared narration and video. With the data in
+        # storage the file may be only there: it is fetched onto the disk now (ADR 0030).
+        try:
+            path = dojo.store.fetch("learners", learner.key, "media", name) or dojo.store.fetch("media", name)
+        except BlobError:
+            raise HTTPException(503, "The storage that holds this file is not answering. Try again in a minute.") from None
+        if path is None:
             raise HTTPException(404, "Not found.")
         if media_type == AVATAR_CONTENT_TYPE:
             dojo.avatar.touch(media_id)  # videos are evicted least-recently-served first
@@ -1917,7 +1935,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @app.get("/api/diag")
     def diag(learner: Learner = Admin) -> dict:
         return {"selftest": selftest.result, "build": settings.build, "models": dojo.models("author", "gate", "grader"),
-                "preparation": preparer.status(), "video_storage": dojo.avatar.usage(), "question_pool": pool.status(),
+                "preparation": preparer.status(), "video_storage": dojo.avatar.usage(), "data_storage": store.storage_status(),
+                "question_pool": pool.status(),
                 "delivery_check": checker.status(), "drift_check": drift.status(), "exam_builds": newexams.diag(),
                 "source_search": newexams.sourcer.diag(), "deeper_lessons": deeper.diag(),
                 "labs": {"on": True, "mode": "local demo" if lab_demo else "private Azure SQL",
@@ -1986,7 +2005,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
 
     @app.get("/api/about")
     def about(seat: Seat = Who) -> dict:
-        storage = f"Your record is stored on this web app's own persistent storage {where_stored()}, in the operator's Azure subscription."
+        storage = (f"Your record is stored in a private storage account {where_stored()}, in the operator's Azure subscription. "
+                   "The web app's own disk only holds a working copy.")
         if settings.team:
             od = team.owner_doc()
             operator = od.get("display_name") or od.get("entra_name") or "the owner of this Dojo"

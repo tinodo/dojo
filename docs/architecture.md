@@ -17,7 +17,7 @@ your own copy, see [operations.md](operations.md). For what is stored about a pe
  |   Dojo core (app/learning.py) + rooms: exam, checks, plan, labs, podcast, play, team  |
  |   Background services: preparation, question pool, drift check, deeper lessons,     |
  |   delivered-meaning check, nudges, sweepers                                          |
- |   Store (app/core.py): JSON files on the persistent /home share                      |
+ |   Store (app/core.py): files on /home, a copy of the Blob Storage account (ADR 0030) |
  +--------------------------------------------------------------------------------------+
         |  managed identity (no keys)          |  managed identity       |  HTTPS, allow-listed
         v                                      v                         v
@@ -29,9 +29,11 @@ your own copy, see [operations.md](operations.md). For what is stored about a pe
 - One web app serves the page, the API and the two token feeds.
 - All AI runs in one Azure AI Foundry resource in the operator's subscription. Dojo calls it with the
   app's user-assigned managed identity. Local (key) authentication is off.
-- Everything Dojo keeps is a file on the web app's persistent `/home` share. There is no other database
-  for learner data. The only database is the lab sandbox, which holds the tables learners create in
-  labs and a small mirror of the deletion list.
+- Everything Dojo keeps is a file, and the files live in a private Azure storage account (Blob Storage, reached through
+  a private endpoint with the app's managed identity, no keys). The web app's persistent `/home` share holds a working
+  copy of them, so the Store and every other part keep working on plain paths, and an empty share is filled again
+  from the storage account (ADR 0030). There is no other database for learner data. The only database is the lab
+  sandbox, which holds the tables learners create in labs and a small mirror of the deletion list.
 - Dojo reads the web only from Microsoft Learn and GitHub Docs, and only pages it is allowed to read
   (see `app/sources.py`).
 
@@ -262,7 +264,8 @@ Switching it on needs a privacy review first; see [operations.md](operations.md#
 
 The data folder is `DOJO_DATA_DIR`: `/home/dojo-data` in Azure, `.dojo-data/` in the repository folder
 locally. Names are checked against a safe pattern before any file is touched. JSON documents are written
-to a temporary file and renamed, so a reader never sees half a document.
+to a temporary file and renamed, so a reader never sees half a document. In Azure the same names are the names of
+the blobs in the container `dojo-data`: the folder is a copy of the container (below).
 
 ```
 learners/<key>/            one folder per learner; <key> is a one-way hash of tenant id + object id
@@ -289,8 +292,32 @@ play/                      circles/, board.json, duels/ (team mode, social layer
 ```
 
 The B1 plan's `/home` share is 10 GB. Presenter videos are capped at 6 GB of it; the rest of the data folder
-(lessons, audio, sources) was 3.4 GB with 1.95 GB of videos when the cap was raised. App Service takes
-automatic backups of `/home` (see [operations.md](operations.md#backups-and-restore)).
+(lessons, audio, sources) was 3.4 GB with 1.95 GB of videos when the cap was raised.
+
+### The folder is a copy of the storage account (ADR 0030, `app/blobstore.py`)
+
+- **Writes go to both.** Every write the Store makes is put into the container too, before the call returns: documents,
+  logs (the whole file again after each line), lessons, narration, video. A write storage cannot take is not lost and
+  does not fail the request: the folder has it, and a background thread puts it again until storage takes it.
+  `/healthz` says `degraded` meanwhile.
+- **Three kinds of file.** Small files (`hot`) are always all on the folder and are put under the Store's lock. Audio
+  and video (`cold`: `.mp3`, `.webm`) are written once and never changed, so they are put after the lock is released and are
+  fetched from storage when first used (`Store.fetch`, `read_bytes`; the media route). The sourcing leases, temporary files
+  and the podcast's joined episodes are not kept in storage (a lease only means something on one machine; an episode
+  is built again from the narration).
+- **The folder wins.** A folder that has data is never overwritten from storage: storage is made to match it. Only an
+  empty folder (a new web app, a lost disk) or one with a `.blob-restoring` marker is filled from storage, and then
+  Dojo refuses to start if storage cannot be reached, because starting with nothing would begin a second Record.
+- **Deletes are remembered.** A delete is written to `.blob-deletes.json` before the folder's copy goes, and repeated
+  until storage has done it, so a restore never brings back what was deleted. Storage keeps deleted and overwritten files
+  recoverable for 7 days.
+- **Checked, not trusted.** Every file is sent with its MD5, and each pass ends by listing the container and comparing it
+  with the folder (`.blob-report.json`). Videos over the disk's 6 GB budget are freed from the folder only when storage holds
+  a copy of the same size; they stay in storage and play again from there.
+
+Presenter-video budget and automatic backups: the 6 GB budget is the disk's now (going over it frees the disk's copy of the
+coldest video; the video stays in storage). A B1 plan has no automatic backups of `/home`, and needs none (see
+[operations.md](operations.md#backups-and-restore)).
 
 ## Concurrency limits
 

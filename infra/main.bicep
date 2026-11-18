@@ -60,6 +60,8 @@ var tenantId = subscription().tenantId
 var aiName = '${name}-ai'
 var sqlName = '${name}-sql-${uniqueString(resourceGroup().id)}'
 var sqlDatabaseName = 'sqldb-lab-${name}'
+var storageName = 'stdojo${uniqueString(resourceGroup().id)}'
+var blobContainerName = 'dojo-data'
 
 resource appIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
   name: appIdentityName
@@ -162,9 +164,63 @@ resource graderDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025
 }
 
 // ---------- Learner records, generated content and narration ----------
-// Stored on the web app's persistent /home file share (DOJO_DATA_DIR). The tenant's policies switch
-// public network access off on new storage and database accounts, and a single learner does not need
-// a separate database, so there is no Cosmos DB or storage account to protect or reach privately.
+// Everything Dojo stores (ADR 0030) lives in a private blob container. The web app's /home share keeps a copy, so a web
+// app, or its plan, can be deleted and made again without losing anything: an empty share is filled from the container.
+// The tenant's policies switch public network access off on every new storage account, so the account is reached the
+// same way as the lab database below: a private endpoint in the lab VNet and the account's own private DNS zone.
+// There are no keys: the app's managed identity is the credential (role Storage Blob Data Contributor, made once by the
+// owner in infra/bootstrap/app-roles.bicep, so the pipeline never needs permission to assign roles).
+resource dataStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: storageName
+  location: location
+  tags: tags
+  kind: 'StorageV2'
+  sku: {
+    // Zone redundant: three copies in three datacenters of the one region the privacy notice names. Geo-redundant
+    // storage would also keep a copy in a second region; that is a one-word change and a sentence in the notice.
+    name: 'Standard_ZRS'
+  }
+  properties: {
+    accessTier: 'Hot'
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    allowCrossTenantReplication: false
+    defaultToOAuthAuthentication: true
+    publicNetworkAccess: 'Disabled'
+    networkAcls: {
+      defaultAction: 'Deny'
+      bypass: 'None'
+    }
+  }
+}
+
+resource dataBlobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: dataStorage
+  name: 'default'
+  properties: {
+    // A file or a container deleted by mistake can be undeleted for a week. The same week is how long deleted data (a
+    // learner's Record after "Delete my data") stays recoverable in storage before it is gone for good.
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 7
+    }
+    containerDeleteRetentionPolicy: {
+      enabled: true
+      days: 7
+    }
+  }
+}
+
+resource dataContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: dataBlobService
+  name: blobContainerName
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
 // ---------- Web app ----------
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: 'plan-${name}'
@@ -313,11 +369,81 @@ resource sqlDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@20
   }
 }
 
+// The data storage account is reached the same way. Each of these waits for its twin above: Azure answers
+// AnotherOperationInProgress when two links, or two endpoints, are written to one VNet or subnet at the same moment.
+resource blobDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+  tags: tags
+}
+
+resource blobDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: blobDns
+  name: 'link-${name}-lab'
+  location: 'global'
+  tags: tags
+  dependsOn: [
+    sqlDnsLink
+  ]
+  properties: {
+    registrationEnabled: false
+    virtualNetwork: {
+      id: labVnet.id
+    }
+  }
+}
+
+resource blobEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+  name: 'pe-${name}-blob'
+  location: location
+  tags: tags
+  dependsOn: [
+    sqlEndpoint
+  ]
+  properties: {
+    subnet: {
+      id: endpointSubnet.id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'blob'
+        properties: {
+          privateLinkServiceId: dataStorage.id
+          groupIds: ['blob']
+        }
+      }
+    ]
+  }
+}
+
+resource blobDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+  parent: blobEndpoint
+  name: 'default'
+  dependsOn: [
+    blobDnsLink
+  ]
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'blob'
+        properties: {
+          privateDnsZoneId: blobDns.id
+        }
+      }
+    ]
+  }
+}
+
 resource site 'Microsoft.Web/sites@2024-04-01' = {
   name: name
   location: location
   tags: tags
   kind: 'app,linux'
+  // The data storage and the private way to it exist before the app is told about them.
+  dependsOn: [
+    dataContainer
+    blobDnsGroup
+  ]
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
@@ -374,6 +500,14 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'DOJO_DATA_DIR'
           value: '/home/dojo-data'
+        }
+        {
+          name: 'DOJO_BLOB_ACCOUNT'
+          value: dataStorage.name
+        }
+        {
+          name: 'DOJO_BLOB_CONTAINER'
+          value: blobContainerName
         }
         {
           name: 'DOJO_LAB_SERVER'

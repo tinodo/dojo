@@ -29,8 +29,9 @@ never written to the log.
 Size, measured: an 18.35 second clip with these settings is 2,503,286 bytes, about 8.2 MB per minute
 (VP9 with an alpha channel runs at roughly double its nominal bitrate). A seven-slide lesson with
 about a minute of narration per slide is therefore roughly 57 MB, and the BUDGET_BYTES cap holds
-about twelve hours of film. Videos are capped at BUDGET_BYTES in total and the least recently served
-one is deleted first, with its timing sidecar; audio and lessons are never touched.
+about twelve hours of film. Videos on the disk are capped at BUDGET_BYTES in total and the least recently served
+one goes first. With the data in storage (ADR 0030) only the disk's copy goes, and the video stays in storage;
+without it the video is deleted, with its timing sidecar. Audio and lessons are never touched.
 """
 from __future__ import annotations
 
@@ -346,30 +347,34 @@ class Avatar:
             self.store.touch("media", media_id + SUFFIX)
             self.store.touch("media", media_id + ".json")
 
-    def videos(self) -> list[tuple[str, int, float]]:
-        return self.store.file_stats("media", suffix=SUFFIX)
+    def videos(self, cached_only: bool = False) -> list[tuple[str, int, float]]:
+        """Every video that is stored. With the data in storage that includes the videos only storage holds;
+        `cached_only` asks for the ones on this disk."""
+        return self.store.file_stats("media", suffix=SUFFIX, cached_only=cached_only)
 
     def usage(self) -> dict:
         files = self.videos()
         return {"videos": len(files), "bytes": sum(size for _, size, _ in files), "budget_bytes": BUDGET_BYTES}
 
     def evict(self, incoming: int = 0) -> list[str]:
-        """Delete the least recently served videos until the incoming one fits in the budget.
+        """Make room on the disk for the incoming video: free the least recently served videos until it fits in the budget.
 
-        Only files ending in .webm under "media" are considered, so narration audio and lessons can
-        never be removed by this. A video's timing sidecar goes with it."""
-        files = sorted(self.videos(), key=lambda f: f[2])
+        Only files ending in .webm under "media" are considered, so narration audio and lessons can never be
+        removed by this. With the data in storage this only frees the disk's copy, the video stays in storage and
+        plays again from there (ADR 0030); without storage the video is deleted, with its timing sidecar."""
+        files = sorted(self.videos(cached_only=True), key=lambda f: f[2])
         total = sum(size for _, size, _ in files)
         removed = []
         while files and total + incoming > BUDGET_BYTES:
             name, size, _ = files.pop(0)
-            media_id = name[: -len(SUFFIX)]
-            self.store.delete_file("media", name)
-            self.store.delete_file("media", media_id + ".json")
+            if not self.store.evict("media", name):
+                continue   # storage does not hold it (yet): the only copy stays
+            if self.store.mirror is None:
+                self.store.delete_file("media", name[: -len(SUFFIX)] + ".json")
             total -= size
-            removed.append(media_id)
+            removed.append(name[: -len(SUFFIX)])
         if removed:
-            log.info("evicted %d video(s) to stay inside the %d MB budget", len(removed), BUDGET_BYTES // (1024 * 1024))
+            log.info("freed %d video(s) on the disk to stay inside the %d MB budget", len(removed), BUDGET_BYTES // (1024 * 1024))
         return removed
 
     # ------------------------------------------------------------ rendering

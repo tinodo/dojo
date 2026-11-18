@@ -1,8 +1,9 @@
 """The foundations every other module uses: settings, storage, sign-in and background jobs.
 
 - Settings come from environment variables only (`load_settings`); docs/operations.md lists each one.
-- Store keeps all data as files on one share: JSON documents written atomically, append-only JSON-lines
-  logs, and each learner's Record as a hash-chained event log. One lock serialises all access, so Dojo
+- Store keeps all data as files in one folder: JSON documents written atomically, append-only JSON-lines
+  logs, and each learner's Record as a hash-chained event log. In Azure that folder is only a copy of a blob
+  container, where the data lives (ADR 0030). One lock serialises all access, so Dojo
   must run as one process with one worker.
 - Sign-in trusts only the identity App Service authentication passes in, and checks the owner's tenant and
   object id again. A learner's data is filed under a one-way key, never under their ids.
@@ -29,6 +30,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import HTTPException, Request
+
+from .blobstore import COLD, BlobClient, BlobMirror
 
 log = logging.getLogger("dojo")
 APP_DIR = Path(__file__).resolve().parent
@@ -115,6 +118,8 @@ class Settings:
     team: bool = False                  # team mode (ADR 0009): members besides the owner
     background: bool = True             # Dojo's own AI work (ADR 0029): False when DOJO_BACKGROUND=0
     owner_key: str = ""                 # the owner's learner key after a lost account; empty = derived
+    blob_account: str = ""              # the storage account that holds Dojo's data (ADR 0030); empty = the web app's disk alone
+    blob_container: str = "dojo-data"
 
 
 def load_settings() -> Settings:
@@ -139,6 +144,13 @@ def load_settings() -> Settings:
     if owner_key and not re.fullmatch(r"l[0-9a-f]{31}", owner_key):
         log.warning("DOJO_OWNER_KEY is not a learner key and is ignored")
         owner_key = ""
+    blob_account, blob_container = env("DOJO_BLOB_ACCOUNT"), env("DOJO_BLOB_CONTAINER") or "dojo-data"
+    if blob_account and not local:
+        # Storage is where the data lives, so a wrong name must stop the start, not quietly leave the data on the disk.
+        if not re.fullmatch(r"[a-z0-9]{3,24}", blob_account) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?", blob_container):
+            raise ValueError("DOJO_BLOB_ACCOUNT or DOJO_BLOB_CONTAINER is not a valid storage name")
+    else:
+        blob_account = ""
     return Settings(
         local=local,
         real_ai=(not local) or env("DOJO_LOCAL_AI") == "real",
@@ -159,6 +171,8 @@ def load_settings() -> Settings:
         team=team,
         background=env("DOJO_BACKGROUND") != "0",   # only exactly "0" switches it off: a stray value never stops Dojo's work
         owner_key=owner_key,
+        blob_account=blob_account,
+        blob_container=blob_container,
     )
 
 
@@ -191,7 +205,9 @@ _WRITER: contextvars.ContextVar[tuple[str, int] | None] = contextvars.ContextVar
 class Store:
     """JSON documents, byte files and append-only logs under one folder.
 
-    In Azure the folder is the web app's persistent /home share. Documents are written to a temporary
+    In Azure the folder is the web app's persistent /home share, and it is only a copy: when `attach` was
+    called, every file written here is also put into a blob container, which is where the data lives, and an
+    empty folder is filled again from it (ADR 0030, app/blobstore.py). Documents are written to a temporary
     file and then renamed, so a reader never sees half a document. One lock serialises all access
     inside the single app process.
 
@@ -203,6 +219,7 @@ class Store:
     def __init__(self, root: Path):
         self.root = root
         self.lock = threading.RLock()
+        self.mirror: BlobMirror | None = None
         self._heads: dict[str, str] = {}
         self._gens: dict[str, int] = {}
         self._tombs: set[str] = set()   # sha256 of deleted learner keys
@@ -210,6 +227,68 @@ class Store:
         # from a Record elsewhere and must change with it (Play's shared moments, ADR 0010).
         self.on_event: list[Callable[[str, dict], None]] = []
         root.mkdir(parents=True, exist_ok=True)
+
+    # ---- the data in Azure Blob Storage (ADR 0030)
+
+    def attach(self, client: BlobClient, thread: bool = True, **options: Any) -> BlobMirror:
+        """Makes a blob container the place the data lives, and this folder a copy of it. An empty folder is filled
+        from the container first. Raises BlobError when that is needed and the container cannot be reached."""
+        with self.lock:
+            mirror = BlobMirror(self.root, client, self.lock, **options)
+            mirror.start(thread=thread)
+            self.mirror = mirror
+        return mirror
+
+    def close(self) -> None:
+        if self.mirror is not None:
+            self.mirror.close()
+
+    def storage_status(self) -> dict | None:
+        return self.mirror.status() if self.mirror is not None else None
+
+    def publish(self, *parts: str) -> None:
+        """A file was written here by something other than the Store (the push key): put it into storage too."""
+        if self.mirror is not None:
+            with self.lock:
+                self.mirror.wrote(self.path(*parts))
+
+    def fetch(self, *parts: str) -> Path | None:
+        """The file for these name parts on this disk, brought from storage first if it is only there (audio and
+        video are kept off the disk until used). None when it is nowhere. Raises BlobError when storage has it and
+        cannot be reached."""
+        p = self.path(*parts)
+        if p.is_file():
+            return p
+        if self.mirror is not None and self.mirror.fetch(p):
+            return p
+        return None
+
+    def listing(self, *parts: str) -> set[str]:
+        """The names of every file in a folder: those on this disk and the audio and video files only storage holds."""
+        folder = self.path(*parts) if parts else self.root
+        try:
+            names = set(os.listdir(folder))
+        except OSError:
+            names = set()
+        if self.mirror is not None:
+            names |= self.mirror.names_in("/".join(parts))
+        return names
+
+    def evict(self, *parts: str) -> bool:
+        """Frees this disk's copy of an audio or video file that storage also holds, which stays there. Without
+        storage there is no other copy, so the file is deleted. False: storage does not hold it, so it is kept."""
+        p = self.path(*parts)
+        with self.lock:
+            if self.mirror is None:
+                self.delete_file(*parts)
+                return True
+            if not self.mirror.safe_to_evict(p):
+                return False
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+            return True
 
     # ---- deletion that stays deleted ----
 
@@ -298,13 +377,19 @@ class Store:
         data = json.dumps(value, ensure_ascii=False, indent=1).encode("utf-8")
         with self.lock:
             self._guard(parts)
-            self._write_raw(self._doc(parts), data)
+            p = self._doc(parts)
+            self._write_raw(p, data)
+            if self.mirror is not None:
+                self.mirror.wrote(p, data)
 
     def delete(self, *parts: str) -> None:
         p = self._doc(parts)
         with self.lock:
+            owed = self.mirror.begin_delete(p) if self.mirror is not None else None
             if p.exists():
                 p.unlink()
+            if owed is not None:
+                self.mirror.finish_delete(owed)
 
     def names(self, *parts: str) -> list[str]:
         """The names of the JSON documents in a folder, without `.json`, sorted."""
@@ -320,6 +405,8 @@ class Store:
                 return []
 
     def read_bytes(self, *parts: str) -> bytes | None:
+        if self.mirror is not None:
+            self.fetch(*parts)   # audio and video may be only in storage
         p = self.path(*parts)
         with self.lock:
             try:
@@ -330,28 +417,40 @@ class Store:
     def write_bytes(self, *parts: str, data: bytes) -> None:
         with self.lock:
             self._guard(parts)
-            self._write_raw(self.path(*parts), data)
+            p = self.path(*parts)
+            self._write_raw(p, data)
+            cold = self.mirror is not None and self.mirror.kind(p) == COLD
+            if self.mirror is not None and not cold:
+                self.mirror.wrote(p, data)
+        if cold:
+            # Audio and video are written once and never changed: put after the lock is released, so a long upload
+            # does not hold up everything else.
+            self.mirror.wrote(p, data)   # type: ignore[union-attr]
 
     def exists(self, *parts: str) -> bool:
-        return self.path(*parts).exists()
+        p = self.path(*parts)
+        return p.exists() or (self.mirror is not None and self.mirror.has(p))
 
-    def file_stats(self, *parts: str, suffix: str) -> list[tuple[str, int, float]]:
-        """Name, size in bytes and last-used time of every file with this ending in one folder."""
+    def file_stats(self, *parts: str, suffix: str, cached_only: bool = False) -> list[tuple[str, int, float]]:
+        """Name, size in bytes and last-used time of every file with this ending in one folder. With storage, audio
+        and video that are only there are listed too, unless `cached_only` asks for what is on this disk."""
         folder = self.path(*parts) if parts else self.root
+        out: list[tuple[str, int, float]] = []
         with self.lock:
-            if not folder.is_dir():
-                return []
-            out = []
-            for x in folder.iterdir():
-                # the name first: the media folder holds thousands of audio files, and only the few videos are asked about
-                if not (x.name.endswith(suffix) and not x.name.startswith(".") and x.is_file()):
-                    continue
-                try:
-                    st = x.stat()
-                except OSError:
-                    continue
-                out.append((x.name, st.st_size, st.st_mtime))
-            return out
+            if folder.is_dir():
+                for x in folder.iterdir():
+                    # the name first: the media folder holds thousands of audio files, and only the few videos are asked about
+                    if not (x.name.endswith(suffix) and not x.name.startswith(".") and x.is_file()):
+                        continue
+                    try:
+                        st = x.stat()
+                    except OSError:
+                        continue
+                    out.append((x.name, st.st_size, st.st_mtime))
+        if self.mirror is not None and not cached_only:
+            here = {name for name, _, _ in out}
+            out.extend(s for s in self.mirror.stats_in("/".join(parts), suffix) if s[0] not in here)
+        return out
 
     def touch(self, *parts: str) -> None:
         """Mark a file as used now, which is what least-recently-used clean-up sorts on."""
@@ -365,17 +464,23 @@ class Store:
     def delete_file(self, *parts: str) -> None:
         p = self.path(*parts)
         with self.lock:
+            owed = self.mirror.begin_delete(p) if self.mirror is not None else None
             try:
                 p.unlink()
             except FileNotFoundError:
                 pass
+            if owed is not None:
+                self.mirror.finish_delete(owed)
 
     def remove_tree(self, *parts: str) -> None:
         p = self.path(*parts)
         with self.lock:
+            owed = self.mirror.begin_delete(p, tree=True) if self.mirror is not None else None
             if p.is_dir():
                 shutil.rmtree(p)
             self._heads.clear()
+            if owed is not None:
+                self.mirror.finish_delete(owed)
 
     def _write_raw(self, p: Path, data: bytes) -> None:
         with self.lock:
@@ -403,6 +508,8 @@ class Store:
                 f.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+            if self.mirror is not None:
+                self.mirror.wrote(p)
 
     def read_lines(self, *parts: str) -> list[Any]:
         """Every readable line of a log file. A damaged line is skipped and logged, not fatal."""

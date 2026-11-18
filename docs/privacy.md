@@ -15,7 +15,8 @@ below in writing (a decision taken by the build lead under the owner's standing 
   Microsoft Entra tenant (the sign-in tenant). The operator has administrator rights over that tenant and
   that subscription. Either set of rights gives full access to the stored data.
 - **What that means:** the operator can technically read everything Dojo stores about every learner: the
-  /home file share (through Kudu, SSH or a backup download) and the lab database. **Members cannot see
+  storage account that holds the data, the web app's /home share with its working copy (through Kudu or SSH) and
+  the lab database. **Members cannot see
   when the operator does.** Dojo cannot log or show that access, and members cannot see the platform's
   activity log. The operator can also change the code that runs. This is operator access. It is not
   learner ownership, and Dojo does not call it that.
@@ -46,9 +47,14 @@ below in writing (a decision taken by the build lead under the owner's standing 
 
 ## What is stored, and where
 
+Dojo's own files are kept in a private Azure storage account in the operator's region, and the web app's `/home`
+share holds a working copy of them (ADR 0030). Where a row below says `/home`, it means the same file under the
+same path in the storage account, and on the share. The storage account has no public network access, no keys (only
+the app's own identity can read or write it), and keeps a deleted or overwritten file recoverable for 7 days.
+
 | Data | Where | Kept until |
 |---|---|---|
-| Learner record: answers, how sure you were, your own marks on lesson self-checks, the recall log, hints used, grades and findings, disputes, rehearsals, spoken checks, practice exams, labs results, coach questions and answers, plan, exam dates, settings. The record is hash-chained per learner; no chain spans two learners | App Service /home file share in the operator's Azure region (Sweden Central by default), under the learner's own folder | The learner deletes it or leaves. A removed or expired member's data is deleted 30 days after removal. When team mode ends, on the announced date |
+| Learner record: answers, how sure you were, your own marks on lesson self-checks, the recall log, hints used, grades and findings, disputes, rehearsals, spoken checks, practice exams, labs results, coach questions and answers, plan, exam dates, settings. The record is hash-chained per learner; no chain spans two learners | A private storage account in the operator's Azure region (Sweden Central by default), under the learner's own folder, and a working copy on the App Service /home file share | The learner deletes it or leaves. A removed or expired member's data is deleted 30 days after removal. When team mode ends, on the announced date. Deleted from the web app and the storage account at once; the storage account keeps a deleted file recoverable for 7 days more, and it is gone after that |
 | Background job results (may contain a coach answer or feedback) | /home, `jobs/` | Removed at the first restart after 14 days; deleted at once on delete or leave. A job still running at that moment cannot write anything back |
 | Podcast and calendar links (a hash of the secret, not the secret) and "on air" notes | The learner's folder | Delete or leave |
 | Audio of spoken check questions | The learner's folder (team mode) | Delete or leave |
@@ -73,10 +79,12 @@ below in writing (a decision taken by the build lead under the owner's standing 
 | Shared content: lessons, deep lessons, questions' sources, narration, films, podcast episodes, exam packages, and a frozen summary (title, skills, scoring) of a removed exam so old attempts still show | /home | Not personal; kept |
 | The search for the official pages of an added exam's skills (ADR 0018): per skill the phrases tried, the pages found, each model's grade and the sentence it quoted, the steps made and the day's count of model calls; the exam's table-of-contents inventory; a lease file; the last web search self-test. Public pages and public exam wording only | /home, `sourcing/` and `inventory/` | Not personal. Removed with the exam; the inventory is read again after a day |
 | Application logs | /home/LogFiles | 7 days or 35 MB. In Azure, Dojo logs only warnings and errors, in both modes. It writes **no line per request**. An unexpected error writes one line with the method, the route pattern (for example `POST /api/items/{item_id}/grade`) and the error type, never the concrete path, a learner key, an item, attempt, job or session id, a token, a name or an email. A filter removes any such id that slips through. The web server (gunicorn) is started without an access log |
-| App Service automatic backups of /home | Taken hourly by the platform (Basic plan and higher); they include all of /home: every record, membership, request and meter file | 30 days. A backup larger than 30 GB cannot be restored |
+| App Service automatic backups of /home | None. The Basic plan has no automatic backups, and Dojo needs none: the storage account holds every file | |
+| The storage account's own protection | The storage account: zone redundant in the one region, and a deleted or overwritten file can be undeleted for 7 days (blob soft delete). It holds the same files as the data folder, so it is part of every row above | 7 days after a delete or an overwrite, then the file is gone for good |
 
-The first sign-in notice says where data is stored in these words: "On this web app's own storage in the
-operator's Azure region, in your own folder. Lab tables live in one Azure SQL database in the same region. If the
+The first sign-in notice says where data is stored in these words: "In a private storage account in the
+operator's Azure region, in your own folder. The web app's own disk holds a working copy. Lab tables live in one Azure
+SQL database in the same region. If the
 operator turns on Microsoft's performance monitoring for it, Microsoft records the database's CPU, memory, storage, waits and
 session numbers in the same geography, not queries or table contents."
 In Azure, App Service reports the region, and the notice and the About page name it, for example "in Azure

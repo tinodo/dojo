@@ -28,7 +28,6 @@ the lesson's own narration, so it costs no speech."""
 from __future__ import annotations
 
 import logging
-import os
 import re
 import threading
 import time
@@ -377,8 +376,7 @@ class Costs:
     def usage(self) -> dict:
         if self._usage and time.monotonic() - self._usage[0] < USAGE_CACHE_S:
             return self._usage[1]
-        folder = self.dojo.store.path("media")
-        stored = set(os.listdir(folder)) if folder.is_dir() else set()   # one listing: the share is slow per file
+        stored = self.dojo.store.listing("media")   # one listing: the share is slow per file
         filmed = {name[:-len(".webm")] for name in stored if name.endswith(".webm")}
         video_s = 0.0
         for media_id in filmed:

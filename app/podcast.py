@@ -453,6 +453,8 @@ class Podcast:
                     if self.store.read("learners", owner.key, AIRED) != target:
                         raise OSError("the copy reads back differently")
                 old.replace(old.with_name(AIRED + ".json.migrated"))
+                self.store.publish("podcast", AIRED + ".json.migrated")   # a rename outside the Store: storage follows (ADR 0030)
+                self.store.delete_file("podcast", AIRED + ".json")
             except (OSError, ValueError, Abandoned) as e:
                 log.warning("the podcast notes stay in podcast/aired.json for now: %s", type(e).__name__)
                 self._legacy = True

@@ -172,10 +172,7 @@ class Studio:
         return out
 
     def _media_set(self) -> set[str]:
-        try:
-            return set(os.listdir(self.dojo.store.path("media")))
-        except OSError:
-            return set()
+        return self.dojo.store.listing("media")
 
     def _watch(self, lesson_id: str) -> str:
         """What Watch plays for a lesson that has no film of its own: "earlier" or "none" (what `film_kind` says, kept five minutes)."""
