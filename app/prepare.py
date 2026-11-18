@@ -70,6 +70,8 @@ DECK_ATTEMPTS = 2               # at most this many times in all
 class Preparer:
     """Background preparation for the owner's exams: lessons, rewrites, narration, Deeper Listen, visual
     decks and approved filming, one lesson at a time and never while the learner has work running."""
+    automatic = True   # False: the owner switched Dojo's own AI work off (ADR 0029): only the films he approved are made
+
     def __init__(self, dojo: Any, owner: Learner):
         self.dojo = dojo
         self.owner = owner
@@ -84,7 +86,6 @@ class Preparer:
         self._last_pid: str | None = None  # the exam the last new lesson or narration was for
         self._wake = threading.Event()
         self.scheduled = False             # team mode: the BackgroundScheduler runs step() in a spare slot (ADR 0009)
-        self.automatic = True              # False: the owner switched Dojo's own AI work off (ADR 0029): only the films he approved are made
 
     def start(self, delay: int = 120) -> None:
         if self._started:
