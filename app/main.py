@@ -516,7 +516,8 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     tokens = Tokens(_credential(settings)) if settings.real_ai else None
     if blob is None and settings.blob_account:
         tokens = tokens or Tokens(_credential(settings))
-        blob = BlobClient(settings.blob_account, settings.blob_container, lambda: tokens.get(BLOB_SCOPE))
+        blob = BlobClient(settings.blob_account, settings.blob_container, lambda: tokens.get(BLOB_SCOPE, margin=900),
+                          peek=lambda: tokens.peek(BLOB_SCOPE))
     if blob is not None:
         store.attach(blob)   # the data lives in storage; an empty folder is filled from it before anything reads it (ADR 0030)
     if ai is None:

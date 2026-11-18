@@ -308,16 +308,21 @@ The B1 plan's `/home` share is 10 GB. Presenter videos are capped at 6 GB of it;
 - **The folder wins.** A folder that has data is never overwritten from storage: storage is made to match it. Only an
   empty folder (a new web app, a lost disk) or one with a `.blob-restoring` marker is filled from storage, and then
   Dojo refuses to start if storage cannot be reached, because starting with nothing would begin a second Record.
-- **Deletes are remembered.** A delete is written to `.blob-deletes.json` before the folder's copy goes, and repeated
-  until storage has done it, so a restore never brings back what was deleted. Storage keeps deleted and overwritten files
-  recoverable for 7 days.
+- **Deletes are remembered.** A delete is written to `.blob-deletes.json` before the folder's copy goes (and nothing is
+  deleted when that note cannot be written), and repeated until storage has done it, so a restore never brings back what
+  was deleted. A folder deleted while storage had never been listed in this run is written down as a folder, and what
+  storage holds under it is deleted once it can be listed. Storage keeps deleted and overwritten files recoverable for 7 days.
 - **Checked, not trusted.** Every file is sent with its MD5, and each pass ends by listing the container and comparing it
-  with the folder (`.blob-report.json`). Videos over the disk's 6 GB budget are freed from the folder only when storage holds
-  a copy of the same size; they stay in storage and play again from there.
+  with the folder (`.blob-report.json`; a difference found twice in a row makes `/healthz` say `degraded`). Videos over the
+  disk's 6 GB budget are freed from the folder only when storage holds exactly the same bytes (size and MD5); they stay in
+  storage and play again from there.
+- **Nothing waits for a credential under the lock.** A call made while the Store's lock is held takes the cached storage
+  token and never asks the managed identity for a new one; the background thread renews it at least every 10 minutes.
 
-Presenter-video budget and automatic backups: the 6 GB budget is the disk's now (going over it frees the disk's copy of the
-coldest video; the video stays in storage). A B1 plan has no automatic backups of `/home`, and needs none (see
-[operations.md](operations.md#backups-and-restore)).
+Presenter-video budget and automatic backups: eviction frees only the disk's copy of the coldest video; the video stays in
+storage. The gate that pauses approved filming (90% of the 6 GB) still counts every film Dojo holds, on the disk or only
+in storage, so it caps the total and the disk's share of films can never pass the budget. A B1 plan has no automatic
+backups of `/home`, and needs none (see [operations.md](operations.md#backups-and-restore)).
 
 ## Concurrency limits
 

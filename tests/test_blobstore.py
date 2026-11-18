@@ -41,6 +41,7 @@ class FakeBlobService:
         self.down = False
         self.flaky = 0
         self.refuse = 0
+        self.refuse_writes = 0   # answers every put and delete with this status, but lists and downloads as usual
         self.requests: list[tuple[str, str]] = []
         self.connect_timeouts: list[float | None] = []
 
@@ -72,6 +73,8 @@ class FakeBlobService:
         if self.refuse:
             return httpx.Response(self.refuse, headers={"x-ms-error-code": "AuthorizationPermissionMismatch"})
         assert request.headers["authorization"] == f"Bearer {TOKEN}" and request.headers["x-ms-version"]
+        if self.refuse_writes and request.method in ("PUT", "DELETE"):
+            return httpx.Response(self.refuse_writes, headers={"x-ms-error-code": "AuthorizationPermissionMismatch"})
         path = request.url.path
         if path == "/dojo-data":
             return self.listing(request)
@@ -211,6 +214,40 @@ class ClientTests(Base):
         svc.client().delete("docs/a.json", fast=True)
         self.assertEqual(svc.names(), [])
 
+    def test_a_fast_call_never_waits_for_a_credential(self):
+        svc, asked = FakeBlobService(), []
+        client = svc.client(token=lambda: asked.append("asked") or TOKEN, peek=lambda: None)
+        with self.assertRaises(BlobError) as caught:
+            client.put("docs/a.json", b"1", md5_b64(b"1"), fast=True)
+        self.assertEqual((caught.exception.status, asked, svc.requests), (401, [], []), "no token in hand: no wait, no request")
+        client.warm()
+        self.assertEqual(asked, ["asked"], "the background thread is the one that asks")
+        cached = svc.client(token=lambda: asked.append("again") or "unused", peek=lambda: TOKEN)
+        cached.put("docs/a.json", b"1", md5_b64(b"1"), fast=True)
+        self.assertEqual((svc.names(), asked), (["docs/a.json"], ["asked"]))
+
+    def test_a_cached_token_is_seen_without_asking_the_credential(self):
+        import time
+        from types import SimpleNamespace
+
+        from app.core import Tokens
+        expires = [time.time() + 30]
+        asked = []
+
+        class Credential:
+            def get_token(self, scope):
+                asked.append(scope)
+                return SimpleNamespace(token="t", expires_on=expires[0])
+
+        tokens = Tokens(Credential())
+        self.assertIsNone(tokens.peek("s"), "nothing cached yet")
+        self.assertEqual(tokens.get("s"), "t")
+        self.assertIsNone(tokens.peek("s"), "a token about to expire is not used by a call that cannot wait for a new one")
+        expires[0] = time.time() + 3600
+        self.assertEqual(tokens.get("s"), "t")
+        self.assertEqual(len(asked), 2, "the one about to expire was renewed")
+        self.assertEqual((tokens.peek("s"), len(asked)), ("t", 2), "peek never reaches for the credential")
+
     def test_a_credential_that_fails_is_storage_that_cannot_be_reached(self):
         def broken() -> str:
             raise RuntimeError("no managed identity here")
@@ -273,21 +310,56 @@ class WriteThroughTests(Base):
         self.assertEqual(svc.names(), [f"learners/{KEY}/events.jsonl", f"learners/{KEY}/x.json"])
         store.remove_tree("learners", KEY)
         self.assertEqual(svc.names(), [])
-        self.assertEqual(json.loads(Path(tmp, JOURNAL).read_text("utf-8")), {"names": {}})
+        self.assertEqual(json.loads(Path(tmp, JOURNAL).read_text("utf-8")), {"names": {}, "trees": {}})
 
-    def test_a_file_deleted_while_it_was_being_put_is_not_kept(self):
+    def test_a_file_deleted_through_the_store_while_it_was_being_put_is_not_kept(self):
         svc, tmp = FakeBlobService(), self.folder()
         store, mirror = connect(tmp, svc)
         put = mirror.client.put
 
-        def put_then_lose(name, data, md5, lm=0, fast=False):
+        def delete_then_put(name, data, md5, lm=0, fast=False):
+            store.delete_file("media", AUDIO)   # the delete is over before the put lands
             put(name, data, md5, lm, fast)
-            store.path("media", AUDIO).unlink()   # deleted by someone else, between the put and its bookkeeping
 
-        mirror.client.put = put_then_lose
+        mirror.client.put = delete_then_put
         store.write_bytes("media", AUDIO, data=b"x")
-        self.assertEqual(svc.names(), [])
+        self.assertEqual(svc.names(), [], "what was deleted is not kept by a put that began before it")
         self.assertFalse(store.exists("media", AUDIO))
+        self.assertEqual(mirror.status()["deleting"], 0)
+
+    def test_a_video_that_only_left_the_disk_is_not_deleted_by_its_own_put(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        store, mirror = connect(tmp, svc)
+        put = mirror.client.put
+
+        def put_then_evict(name, data, md5, lm=0, fast=False):
+            put(name, data, md5, lm, fast)
+            store.path("media", AUDIO).unlink()   # the video budget freed the disk's copy between the put and its bookkeeping
+
+        mirror.client.put = put_then_evict
+        store.write_bytes("media", AUDIO, data=b"x")
+        self.assertEqual(svc.names(), ["media/" + AUDIO], "absence from the folder is not a delete: the only copy stays")
+        self.assertTrue(store.exists("media", AUDIO))
+
+    def test_a_delete_that_began_during_a_put_is_still_owed_when_storage_cannot_do_it(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        store, mirror = connect(tmp, svc)
+        put = mirror.client.put
+        path = store.path("media", AUDIO)
+
+        def put_then_begin_delete(name, data, md5, lm=0, fast=False):
+            put(name, data, md5, lm, fast)
+            self.owed = mirror.begin_delete(path)   # the Store has written the delete down, and not yet removed the file
+
+        mirror.client.put = put_then_begin_delete
+        store.write_bytes("media", AUDIO, data=b"x")
+        self.assertEqual(mirror.status()["deleting"], 1, "the put must not erase a delete that began after it did")
+        svc.down = True
+        path.unlink()
+        mirror.finish_delete(self.owed)   # storage does not answer
+        svc.down = False
+        mirror.sync_once()
+        self.assertEqual(svc.names(), [])
         self.assertEqual(mirror.status()["deleting"], 0)
 
     def test_a_delete_storage_could_not_do_is_done_later_and_never_undone(self):
@@ -303,7 +375,7 @@ class WriteThroughTests(Base):
         svc.down = False
         mirror.sync_once()
         self.assertEqual(svc.names(), ["docs/keep.json"])
-        self.assertEqual(json.loads(Path(tmp, JOURNAL).read_text("utf-8")), {"names": {}})
+        self.assertEqual(json.loads(Path(tmp, JOURNAL).read_text("utf-8")), {"names": {}, "trees": {}})
 
     def test_a_restore_does_not_bring_back_what_was_deleted(self):
         svc, tmp = FakeBlobService(), self.folder()
@@ -575,6 +647,206 @@ class OutageTests(Base):
             _, mirror = connect(tmp, svc)
         self.assertEqual(mirror.status()["state"], "degraded")
         self.assertIn("403", mirror.status()["last_error"])
+
+
+class SafetyTests(Base):
+    """What the reviews of ADR 0030 found: races between a delete and a put or a download, a folder deleted while storage
+    had never been listed, a journal that cannot be written, a state that said "ok" while storage took no writes."""
+
+    def test_a_download_that_a_delete_overtook_does_not_stay_on_the_disk(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        svc.put(f"learners/{KEY}/media/{AUDIO}", b"private audio")
+        self.lay(tmp, {"docs/keep.json": b"{}"})
+        store, mirror = connect(tmp, svc)
+        get = mirror.client.get
+
+        def delete_begins_then_the_file_arrives(name, dest):
+            self.owed = mirror.begin_delete(store.path("learners", KEY), tree=True)   # "Delete my data" has been written down
+            get(name, dest)                                                           # and the download lands anyway
+
+        mirror.client.get = delete_begins_then_the_file_arrives
+        self.assertIsNone(store.fetch("learners", KEY, "media", AUDIO))
+        self.assertFalse(store.path("learners", KEY, "media", AUDIO).exists(), "what arrived after the delete began is dropped")
+        mirror.finish_delete(self.owed)
+        mirror.sync_once()
+        self.assertEqual(svc.names(), ["docs/keep.json"], "so nothing put it into storage again")
+
+    def test_a_folder_deleted_while_storage_was_never_listed_is_cleaned_up_in_storage_later(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        svc.put(f"learners/{KEY}/media/{AUDIO}", b"audio that only storage holds")
+        svc.put(f"learners/{KEY}/x.json", b"1")
+        self.lay(tmp, {f"learners/{KEY}/x.json": b"1", "docs/keep.json": b"{}"})
+        svc.down = True
+        with self.assertLogs("dojo.blob", "ERROR"):
+            store, mirror = connect(tmp, svc)   # the folder has data, so Dojo starts, and storage was never listed
+        store.remove_tree("learners", KEY)
+        self.assertIn(f"learners/{KEY}", json.loads(Path(tmp, JOURNAL).read_text("utf-8"))["trees"], "the folder itself is written down")
+        svc.down = False
+        mirror.sync_once()
+        self.assertEqual(svc.names(), ["docs/keep.json"], "the audio the folder never had is found and deleted too")
+        self.assertEqual(json.loads(Path(tmp, JOURNAL).read_text("utf-8")), {"names": {}, "trees": {}})
+
+    def test_a_restore_does_not_bring_back_a_folder_deleted_while_storage_was_never_listed(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        svc.put(f"learners/{KEY}/x.json", b"1")
+        svc.put("docs/keep.json", b"2")
+        Path(tmp, JOURNAL).write_text(json.dumps({"names": {}, "trees": {f"learners/{KEY}": "2026-11-18T12:00:00+00:00"}}), "utf-8")
+        store, _ = connect(tmp, svc)
+        self.assertEqual(store.read("docs", "keep"), 2)
+        self.assertFalse(store.path("learners", KEY, "x.json").exists())
+        self.assertEqual(svc.names(), ["docs/keep.json"])
+
+    def test_a_delete_that_cannot_be_written_down_does_not_happen(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        store, mirror = connect(tmp, svc)
+        store.write("docs", "a", value=1)
+        with mock.patch("app.blobstore.os.replace", side_effect=OSError("disk full")), self.assertLogs("dojo.blob", "ERROR"):
+            with self.assertRaises(BlobError):
+                store.delete("docs", "a")
+        self.assertEqual(store.read("docs", "a"), 1, "nothing was deleted without a note that storage owes a delete")
+        self.assertIn("docs/a.json", svc.blobs)
+        self.assertEqual(mirror.status()["deleting"], 0)
+        self.assertNotEqual(mirror.status()["state"], "degraded", "nothing is half done")
+        store.delete("docs", "a")
+        self.assertEqual(svc.names(), [])
+
+    def test_a_journal_that_cannot_be_read_is_not_taken_for_an_empty_one(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        self.lay(tmp, {"docs/a.json": b"{}", JOURNAL: b"{not json"})
+        with self.assertLogs("dojo.blob", "ERROR"):
+            _, mirror = connect(tmp, svc)
+        self.assertEqual(mirror.status()["state"], "degraded", "deletes may be owed that nobody knows of")
+        self.assertTrue(Path(tmp, JOURNAL + ".unreadable").is_file(), "moved aside, not destroyed")
+        empty = self.folder()
+        self.lay(empty, {JOURNAL: b""})
+        with self.assertRaises(BlobError):
+            connect(empty, svc)   # restoring without it could bring back what was deleted
+
+    def test_a_journal_that_could_not_be_written_is_degraded_until_it_can(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        store, mirror = connect(tmp, svc)
+        store.write("docs", "a", value=1)
+        with mock.patch("app.blobstore.os.replace", side_effect=OSError("disk full")), self.assertLogs("dojo.blob", "ERROR"):
+            mirror._save_journal()
+        self.assertEqual(mirror.status()["state"], "degraded")
+        mirror.sync_once()
+        self.assertNotEqual(mirror.status()["state"], "degraded")
+
+    def test_a_delete_that_stops_halfway_writes_down_what_was_done(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        store, mirror = connect(tmp, svc)
+        for n in (1, 2, 3):
+            store.write("learners", KEY, f"x{n}", value=n)
+        delete = mirror.client.delete
+
+        def everything_but_x2(name, fast=False):
+            if name.endswith("x2.json"):
+                raise BlobError("a blip", 500)
+            delete(name, fast=fast)
+
+        mirror.client.delete = everything_but_x2
+        store.remove_tree("learners", KEY)
+        owed = json.loads(Path(tmp, JOURNAL).read_text("utf-8"))["names"]
+        self.assertEqual(sorted(owed), [f"learners/{KEY}/x2.json", f"learners/{KEY}/x3.json"], "x1 is done and is not owed any more")
+
+    def test_storage_that_lists_but_takes_no_writes_is_degraded_until_it_does(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        self.lay(tmp, {"docs/a.json": b"{}", "media/" + AUDIO: b"audio"})
+        _, mirror = connect(tmp, svc)
+        svc.refuse_writes = 403
+        mirror.sync_once()
+        self.assertEqual(mirror.status()["state"], "degraded")
+        mirror.sync_once()   # the listing works every time: that must not make it look well
+        self.assertEqual(mirror.status()["state"], "degraded")
+        svc.refuse_writes = 0
+        mirror.sync_once()
+        self.assertEqual(mirror.status()["state"], "ok")
+        self.assertEqual(svc.names(), ["docs/a.json", "media/" + AUDIO])
+
+    def test_a_failed_put_in_the_middle_of_a_pass_is_not_hidden_by_the_listing_that_follows(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        self.lay(tmp, {"docs/a.json": b'{"a": 1}', "docs/b.json": b'{"b": 1}'})
+        _, mirror = connect(tmp, svc)
+        mirror.sync_once()
+        self.assertEqual(mirror.status()["state"], "ok")
+        self.lay(tmp, {"docs/a.json": b'{"a": 2}', "docs/b.json": b'{"b": 2}'})   # changed behind the Store's back
+        put, calls = mirror.client.put, []
+
+        def second_put_fails(name, data, md5, lm=0, fast=False):
+            calls.append(name)
+            if len(calls) == 2:
+                raise BlobError("a blip", 503)
+            put(name, data, md5, lm, fast)
+
+        mirror.client.put = second_put_fails
+        mirror.sync_once()
+        status = mirror.status()
+        self.assertNotEqual(status["state"], "ok")
+        self.assertEqual(status["waiting"], 1, "the file that could not be put is remembered")
+        mirror.sync_once()
+        self.assertEqual((mirror.status()["state"], svc.data("docs/b.json")), ("ok", b'{"b": 2}'))
+
+    def test_a_difference_between_the_folder_and_storage_is_degraded_once_found_twice(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        svc.put("media/" + AUDIO, b"the copy in storage")
+        self.lay(tmp, {"media/" + AUDIO: b"short", "docs/a.json": b"{}"})
+        _, mirror = connect(tmp, svc)
+        with self.assertLogs("dojo.blob", "ERROR"):
+            mirror.sync_once()
+        self.assertEqual((mirror.status()["state"], mirror.status()["differs"]), ("migrating", 1), "found once: it may be a file put just now")
+        with self.assertLogs("dojo.blob", "ERROR"):
+            mirror.sync_once()
+        self.assertEqual(mirror.status()["state"], "degraded")
+
+    def test_a_put_whose_answer_was_lost_does_not_wait_for_ever(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        store, mirror = connect(tmp, svc)
+        put = mirror.client.put
+
+        def put_but_lose_the_answer(name, data, md5, lm=0, fast=False):
+            put(name, data, md5, lm, fast)
+            raise BlobError("the answer was lost", 0)
+
+        mirror.client.put = put_but_lose_the_answer
+        store.write_bytes("media", AUDIO, data=b"audio")
+        self.assertEqual(mirror.status()["waiting"], 1)
+        mirror.client.put = put
+        mirror.sync_once()
+        self.assertEqual(mirror.status()["waiting"], 0, "the listing shows the audio is there")
+        self.assertEqual(svc.puts(), 1, "and it was not put a second time")
+
+    def test_a_blob_changed_from_outside_is_put_right_again(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        self.lay(tmp, {"docs/a.json": b'{"v": "mine"}'})
+        _, mirror = connect(tmp, svc)
+        mirror.sync_once()
+        mirror.index["docs/a.json"] = dataclasses.replace(mirror.index["docs/a.json"], modified=0.0)   # put long ago, not just now
+        svc.put("docs/a.json", b'{"v": "else"}', lm=1)   # the same size, other bytes
+        mirror.sync_once()
+        self.assertEqual(svc.data("docs/a.json"), b'{"v": "mine"}', "the folder wins")
+
+    def test_a_pass_that_keeps_failing_is_tried_less_and_less_often(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        self.lay(tmp, {"docs/a.json": b"{}"})
+        _, mirror = connect(tmp, svc)
+        svc.down = True
+        waits = []
+        for _ in range(6):
+            mirror.sync_once()
+            waits.append(mirror._next_wait())
+        self.assertEqual(waits, [15.0, 30.0, 60.0, 120.0, 240.0, 240.0])
+
+    def test_a_copy_that_is_not_the_disks_may_not_stand_in_for_it(self):
+        svc, tmp = FakeBlobService(), self.folder()
+        svc.put("media/" + AUDIO, b"OLD!")
+        self.lay(tmp, {"media/" + AUDIO: b"NEW!", "docs/a.json": b"{}"})
+        store, mirror = connect(tmp, svc)
+        mirror.sync_once()
+        self.assertFalse(store.evict("media", AUDIO), "the same size, but not the same bytes")
+        self.assertTrue(store.path("media", AUDIO).is_file())
+        svc.put("media/" + AUDIO, b"NEW!")
+        mirror.sync_once()
+        self.assertTrue(store.evict("media", AUDIO), "storage holds exactly the disk's copy now")
 
 
 class EvictionTests(Base):

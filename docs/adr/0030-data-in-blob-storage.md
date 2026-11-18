@@ -61,14 +61,25 @@ second, empty Record. A web app that has data and cannot reach storage starts an
 **A write that storage cannot take is not lost and does not fail the request.** The folder has it, the name waits, and a background thread puts it until storage takes it. After two failures in a row Dojo stops asking for 20
 seconds, so a storage that is down does not make every write wait for a timeout.
 
-**A delete is remembered.** `.blob-deletes.json` names every file whose delete storage still owes, and is written before the folder's copy goes. It is repeated until storage has done it, and a restore skips what is in it, so a
-delete (a learner's "Delete my data" above all) is not undone by a failure at the wrong moment.
+**A delete is remembered.** `.blob-deletes.json` names every file whose delete storage still owes. It is written before the folder's copy goes, and when it cannot be written nothing is deleted (the request fails): the note is all that stops a
+restore from bringing the data back. It is repeated until storage has done it, and a restore skips what is in it. A folder deleted while storage had never been listed in this run (Dojo restarted while storage was down) is written down as a
+folder, and once storage can be listed everything it holds under that folder, and the folder does not, is deleted too (audio that only storage holds is found that way). A journal that exists and cannot be read is moved aside, not
+treated as empty: storage says `degraded` until Dojo is started again, and an empty folder is not restored without it. A put or a download that began before a delete can never undo it (each name counts the deletes that began, and a
+put or download that finds the count changed leaves the delete in force), and a video that only left the disk, as eviction makes it, was not deleted, so its own put never deletes the copy in storage.
+
+**What `degraded` means.** Storage does not answer; or it lists but takes no writes while some wait; or the folder and storage were found different twice in a row; or the list of deletes owed could not be kept. `migrating` is all well with
+something still to put, delete or check, and it does not stop Dojo or a deploy. A pass stops at the first failure of storage and is never reported as done, and after each pass that does not end clean the next waits longer (15 seconds, doubling
+to 4 minutes). A call made while the Store's lock is held never waits: one try, short timeouts, and the token comes from a cache that the background thread renews at least every 10 minutes, so a managed identity that answers slowly cannot
+freeze the app.
 
 **Checked, not trusted.** Every file is sent with its MD5; the service refuses a body that does not match and keeps the sum it computed. Each pass ends by listing the container again and comparing every file with the folder (the
-size of each, and the service's MD5 with the one that was sent): `.blob-report.json` holds the result, `/api/diag` shows the counts, and the log says "storage matches the folder" or what does not.
+size of each, and the service's MD5 with the one that was sent): `.blob-report.json` holds the result, `/api/diag` shows the counts, and the log says "storage matches the folder" or what does not. The comparison also runs once an hour, so
+a blob changed from outside is found and made right again (the folder wins).
 
-- **What changed around it.** The video budget (6 GB) is the disk's now: going over it frees the disk's copy of the coldest video only when storage holds a copy of the same size, and the video stays in storage and plays again from there
-(`Store.evict`). A film is no longer lost to the budget, so nothing is filmed twice. `/healthz` says `"storage"`, and a Dojo that cannot reach its storage is `degraded`, so the deploy's smoke test does not pass for it. The notice and the About
+- **What changed around it.** Going over the video budget (6 GB) frees the disk's copy of the coldest video, and only when storage holds exactly the same bytes (the same size and MD5); the video stays in storage and plays again from there
+(`Store.evict`). The gate that pauses approved filming (at 90% of the budget) still counts every film Dojo holds, on the disk or only in storage, as it always counted what was kept: it caps the total, so the disk's share of films can
+never pass the budget even when playback fetches every film again. Letting storage hold more films than the disk budget would need that gate to count the disk's films only, and eviction to run when it is reached: a decision for when
+filming is switched on again, because filming costs AI money. `/healthz` says `"storage"`, and a Dojo that cannot reach its storage is `degraded`, so the deploy's smoke test does not pass for it. The notice and the About
 page say where the data is (notice version 3: every member is asked again, in team mode), and the privacy sheet, the architecture and the operations guide say so too, and no longer claim backups that did not exist.
 
 ## The first start with the data that is already there
@@ -86,7 +97,8 @@ The deploy that carries this finds a folder with about 12,100 files and an empty
 - **Disk:** the folder still holds everything (a copy), so nothing frees on the web app's disk by itself. The disk's copy of a video goes when the budget needs the room, and Dojo fetches it again from storage when it is played.
 - **Known limits.** A single file may be 256 MB at most (the biggest film is 23 MB). A log is put whole after every line, so a log of tens of megabytes would make each line slow: the answer then is an append blob. The folder is a
   copy of one process's state: running two workers or two instances is still not supported (ADR 0009). A file that something other than the Store writes is put by the hourly pass (and by `Store.publish` where the code
-  knows: the push key).
+  knows: the push key). If Dojo dies between the note of a delete and the folder's own delete, the folder is left as it was and the replay deletes only storage's copy, which the folder then puts back: the folder wins, the request was
+  never confirmed, and asking again deletes both (at start, team mode also deletes again the folder of any key on its deletion list). If the note cannot be written and storage cannot be reached either, a delete fails rather than go ahead without it.
 - **Not covered:** the loss of the whole region (zone redundancy only), and the loss of the storage account itself (a resource lock would help; the pipeline cannot make one, so the owner may).
 - **Studio's Money tab is not changed here, and one of its labels is now too narrow.** Its group "Private link to the database" will also hold the storage's private endpoint (about USD 7.30 a month more). Studio's wording is designed before it changes (AGENTS.md rule 13, ADR 0025), so the label goes in the next Studio change, together with the sentences ADR 0029 lists.
 - **The Record's rule is unchanged:** nothing here edits or removes an event; only deleting a whole Record removes them, as before.

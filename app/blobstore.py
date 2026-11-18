@@ -20,11 +20,18 @@ Rules that keep the data safe:
 - A folder that has data is the truth: the container is made to match it, never the other way round. Only a folder
   that is empty, or that a restore began and did not finish (`.blob-restoring`), is filled from the container, and
   then Dojo will not start without the container, because starting with nothing would begin a second Record.
-- A delete is written to `.blob-deletes.json` before anything is removed, and is repeated until the container has
-  done it, so a delete that storage could not do at the time is not undone by a later restore.
+- A delete is written to `.blob-deletes.json` before anything is removed (and nothing is removed when that note cannot
+  be written), and is repeated until the container has done it, so a delete that storage could not do at the time is
+  not undone by a later restore. A folder deleted while the container had never been listed in this run is written down
+  as a folder, and what the container holds under it is found and deleted as soon as it can be listed. A put or a
+  download that began before a delete never undoes it (`_gen`); a file that only left the disk, as eviction makes it,
+  is not a delete, and a copy leaves the disk only when the container holds exactly its bytes (`safe_to_evict`).
 - A write that storage cannot take is not lost and does not fail the request: the folder has it, and the background
   thread puts it again until storage takes it. `status()` says how many wait, and /healthz says "degraded" while
-  storage does not answer.
+  storage does not answer, takes no writes while some wait, was found different from the folder twice in a row, or
+  the list of deletes owed could not be written. A pass stops at the first failure and is never reported as done.
+- A call made while the Store's lock is held never waits: one try, short timeouts, and the token is only read from the
+  cache, which the background thread keeps fresh (a credential that answers slowly must not freeze the app).
 - Every file is sent with its MD5 (the service refuses a body that does not match it and keeps the sum), and a pass
   ends by listing the container again and comparing every file with the folder: `.blob-report.json` holds the result.
 """
@@ -62,6 +69,7 @@ REPORT = ".blob-report.json"
 HOT, COLD, SKIP = "hot", "cold", "skip"
 _PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")   # the Store's rule for a name part
 _TRANSIENT = (408, 429, 500, 502, 503, 504)
+TOKEN_EVERY_S = 600.0   # the background thread renews the token at least this often (it keeps 15 minutes in hand)
 _TYPES = {".json": "application/json", ".jsonl": "application/x-ndjson", ".mp3": "audio/mpeg", ".webm": "video/webm"}
 # For a call made while the Store's lock is held: short waits and no second try, so storage that hangs cannot freeze the
 # app. What fails is put again by the background thread.
@@ -114,9 +122,11 @@ class BlobClient:
     `token` returns a bearer token for SCOPE. Transient failures are tried again after a pause; the rest raise BlobError."""
 
     def __init__(self, account: str, container: str, token: Callable[[], str], http: httpx.Client | None = None,
-                 endpoint: str | None = None, sleep: Callable[[float], None] = time.sleep, retries: int = 2):
+                 endpoint: str | None = None, sleep: Callable[[float], None] = time.sleep, retries: int = 2,
+                 peek: Callable[[], str | None] | None = None):
         self.base = f"{(endpoint or f'https://{account}.blob.core.windows.net').rstrip('/')}/{container}"
         self._token = token
+        self._peek = peek       # the cached token without waiting for anything; None: a fast call may wait for `token`
         self._http = http or httpx.Client(timeout=httpx.Timeout(60.0, connect=5.0))
         self._sleep = sleep
         self._retries = retries
@@ -124,12 +134,28 @@ class BlobClient:
     def _url(self, name: str) -> str:
         return f"{self.base}/{quote(name, safe='/')}"
 
-    def _headers(self, extra: dict | None = None) -> dict:
+    def _bearer(self, fast: bool) -> str:
+        """The token for a request. A `fast` request is made while the Store's lock is held, so it never waits for a
+        credential (a managed identity that answers slowly would freeze the whole app): it uses the cached token, which
+        the background thread keeps fresh with `warm`, and fails at once when there is none."""
         try:
-            token = self._token()
+            if fast and self._peek is not None:
+                token = self._peek()
+                if not token:
+                    raise BlobError("no fresh token for storage yet", 401, "token")
+                return token
+            return self._token()
+        except BlobError:
+            raise
         except Exception as e:  # noqa: BLE001 - whatever the credential raises, storage cannot be reached
             raise BlobError(f"no token for storage: {type(e).__name__}", 401, "token") from e
-        headers = {"Authorization": f"Bearer {token}", "x-ms-version": API_VERSION, "x-ms-date": formatdate(usegmt=True)}
+
+    def warm(self) -> None:
+        """Gets or renews the token now, outside every lock of the Store, so that fast calls find one."""
+        self._bearer(False)
+
+    def _headers(self, extra: dict | None = None, fast: bool = False) -> dict:
+        headers = {"Authorization": f"Bearer {self._bearer(fast)}", "x-ms-version": API_VERSION, "x-ms-date": formatdate(usegmt=True)}
         headers.update(extra or {})
         return headers
 
@@ -144,7 +170,7 @@ class BlobClient:
         extra = {"timeout": FAST} if fast else {}
         for attempt in range(tries):
             try:
-                r = self._http.request(method, url, params=params, headers=self._headers(headers), content=content, **extra)
+                r = self._http.request(method, url, params=params, headers=self._headers(headers, fast), content=content, **extra)
             except httpx.HTTPError as e:
                 last = BlobError(f"{method}: {type(e).__name__}")
             else:
@@ -260,11 +286,22 @@ class BlobMirror:
         self._sent: dict[str, str] = {}                # name -> MD5 sent, to check against what the service lists
         self._pending: set[str] = set()                # names the folder has and storage has not taken yet
         self._dead: dict[str, str] = {}                # names a delete is owed for (name -> when it was asked)
+        self._trees: dict[str, str] = {}               # folders deleted while storage had never been listed (folder -> when)
+        self._gen: dict[str, int] = {}                 # name -> how many deletes began for it: a put or a download that began
+        #                                                before one must not undo it, and one that began after it may
+        self._listed = False                           # storage was listed at least once, so `index` is complete
         self._cold_todo = 0
         self._synced = False                           # the hot files were brought in line once
         self._sized = False                            # the sizes of audio and video files were compared once
         self._hot_done = False                         # the pass over the small files ran to its end
         self._verified = False
+        self._verified_at = 0.0
+        self._mismatch = 0                             # files the last comparison found different from the folder's
+        self._mismatch_streak = 0                      # comparisons in a row that found some
+        self._journal_dirty = False                    # the journal could not be written: what is owed lives in memory only
+        self._journal_bad = False                      # a journal was there and could not be read
+        self._write_ok = True                          # the last put or delete worked
+        self._bad_passes = 0                           # passes in a row that did not end clean (the pause between them grows)
         self._report: dict = {}
         self._healthy = False                          # the last thing asked of storage worked
         self._streak = 0
@@ -299,8 +336,14 @@ class BlobMirror:
     def start(self, thread: bool = True) -> None:
         """Connects, restores an empty folder from the container, and starts the background sync. Raises BlobError
         when the folder has nothing to stand on and storage cannot be reached."""
-        self._load_journal()
+        bad_journal = self._load_journal()
         needs_storage = (self.root / RESTORING).exists() or not self._has_local_hot()
+        if bad_journal and needs_storage:
+            raise BlobError(f"{JOURNAL}, the list of deletes still owed to storage, is there and cannot be read, and restoring "
+                            "from storage without it could bring back data that was deleted: Dojo does not start. Fix or "
+                            "remove that file.")
+        if bad_journal:
+            self._set_aside_journal()
         try:
             self._connect_with_retries()
         except BlobError as e:
@@ -322,33 +365,43 @@ class BlobMirror:
             self._thread.join(timeout=15)
 
     def status(self) -> dict:
-        """For /healthz ("state" only) and the owner's diagnostics."""
+        """For /healthz ("state" only) and the owner's diagnostics. "degraded": storage does not answer, or takes
+        no writes while some wait, or the folder and storage were found different twice in a row, or the list of
+        deletes owed could not be kept. "migrating": all well, but something still has to be put, deleted or checked."""
         with self._state:
             waiting, owed, todo = len(self._pending), len(self._dead), self._cold_todo
             synced, objects, healthy = self._synced, len(self.index), self._healthy
-        down = (not healthy) or time.monotonic() < self._down_until
-        state = "degraded" if down else ("ok" if synced and not (waiting or owed or todo) else "migrating")
+            stuck = (not self._write_ok) and bool(waiting or owed or todo or not synced)
+            trouble = self._journal_dirty or self._journal_bad or self._mismatch_streak >= 2
+            differs, trees = self._mismatch, len(self._trees)
+        down = (not healthy) or stuck or trouble or time.monotonic() < self._down_until
+        state = "degraded" if down else ("ok" if synced and not (waiting or owed or todo or differs or trees) else "migrating")
         return {"state": state, "objects": objects, "waiting": waiting, "deleting": owed, "audio_video_to_send": todo,
-                "errors": self.errors, "last_error": self.last_error}
+                "differs": differs, "errors": self.errors, "last_error": self.last_error}
 
     def _unsettled(self) -> bool:
         with self._state:
-            return (not self._healthy) or bool(self._pending or self._dead or self._cold_todo) or not self._synced
+            return ((not self._healthy) or (not self._write_ok) or self._journal_dirty or self._mismatch > 0
+                    or bool(self._pending or self._dead or self._trees or self._cold_todo) or not self._synced)
 
     # ------------------------------------------------------------ failures
 
-    def _failed(self, error: Exception) -> None:
+    def _failed(self, error: Exception, write: bool = False) -> None:
         with self._state:
             self.errors += 1
             self.last_error = f"{type(error).__name__}: {str(error)[:160]}"
             self._healthy = False
+            if write:
+                self._write_ok = False
             self._streak += 1
             if self._streak >= 2:
                 self._down_until = time.monotonic() + 20.0   # stop asking for a moment: every ask would wait for a timeout
 
-    def _ok(self) -> None:
+    def _ok(self, write: bool = False) -> None:
         with self._state:
             self._healthy = True
+            if write:
+                self._write_ok = True
             self._streak = 0
             self._down_until = 0.0
 
@@ -356,19 +409,21 @@ class BlobMirror:
         if time.monotonic() < self._down_until:
             raise BlobPaused("storage did not answer a moment ago; waiting before asking again")
 
-    def _call(self, fn: Callable, *args, **kwargs):
+    def _call(self, fn: Callable, *args, write: bool = False, **kwargs):
         """One request to storage, with the bookkeeping: any failure but "no such blob" counts against storage (and, twice
-        in a row, pauses asking for a moment); an answer that only says there is no such blob does not."""
+        in a row, pauses asking for a moment); an answer that only says there is no such blob does not. `write`: a put
+        or a delete, whose failures and successes are tracked apart from the listings (a listing that works must not hide
+        puts that do not)."""
         self._check_up()
         try:
             out = fn(*args, **kwargs)
         except BlobError as e:
             if e.status == 404:
-                self._ok()
+                self._ok(write)
             else:
-                self._failed(e)
+                self._failed(e, write)
             raise
-        self._ok()
+        self._ok(write)
         return out
 
     # ------------------------------------------------------------ the Store's calls
@@ -393,19 +448,23 @@ class BlobMirror:
             self._wake.set()
 
     def _put(self, rel: str, data: bytes, mtime_ns: int, path: Path | None = None, fast: bool = False) -> None:
+        with self._state:
+            gen = self._gen.get(rel, 0)
         md5 = md5_b64(data)
-        self._call(self.client.put, rel, data, md5, mtime_ns, fast=fast)
+        self._call(self.client.put, rel, data, md5, mtime_ns, fast=fast, write=True)
         with self._state:
             self.index[rel] = BlobInfo(len(data), md5, mtime_ns, time.time())
             self._known[rel] = (len(data), mtime_ns)
             self._sent[rel] = md5
             self._pending.discard(rel)
-            owed = self._dead.pop(rel, None) is not None
+            began = self._gen.get(rel, 0) != gen   # a delete of this name began while it was being put
+            owed = (not began) and self._dead.pop(rel, None) is not None
         if owed:
             self._save_journal()   # written again after this name: its old delete must not run now
-        if path is not None and not path.exists():
-            # An audio or video file is put outside the Store's lock, so it can be deleted while it is being put:
-            # storage must not keep what the folder no longer has.
+        if began and path is not None and not path.exists():
+            # An audio or video file is put outside the Store's lock, so it can be deleted while it is being put, and the
+            # delete can be over before the put is: storage must not keep what was deleted. (A file that only left the
+            # disk, as eviction makes it, was not deleted: its absence from the folder says nothing about storage.)
             with self._state:
                 self._dead.setdefault(rel, datetime.now(timezone.utc).isoformat(timespec="seconds"))
             self._save_journal()
@@ -413,40 +472,62 @@ class BlobMirror:
 
     def begin_delete(self, path: Path, tree: bool = False) -> list[str]:
         """Before a file (or a whole folder) leaves the data folder: write down that storage owes a delete.
-        Returns the names, for `finish_delete`."""
+        Returns the names, for `finish_delete`. Raises BlobError, having changed nothing, when the note cannot be written:
+        a delete must not go on without it, or a restore could bring the deleted data back."""
         rel = self._rel(path)
         names: set[str] = set()
         with self._state:
             names.update(n for n in self.index if (n.startswith(rel + "/") if tree else n == rel) and classify(n) != SKIP)
-            self._pending = {n for n in self._pending if not (n.startswith(rel + "/") if tree else n == rel)}
+            listed = self._listed
         if tree:
             names.update(r for r, _ in self._walk(HOT, COLD, top=path))
         elif classify(rel) != SKIP and valid(rel):
             names.add(rel)
-        if names:
-            when = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        # When storage was never listed in this run, `index` does not know every file under a folder (audio that only
+        # storage holds): the folder itself is written down, and what storage holds under it is found and deleted later.
+        write_tree = tree and not listed
+        if not names and not write_tree:
+            return []
+        when = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._state:
+            added = [n for n in names if n not in self._dead]
+            added_tree = write_tree and rel not in self._trees
+            for n in names:
+                self._dead.setdefault(n, when)
+                self._gen[n] = self._gen.get(n, 0) + 1
+            if write_tree:
+                self._trees.setdefault(rel, when)
+        if not self._save_journal(mark=False):
             with self._state:
-                for n in names:
-                    self._dead.setdefault(n, when)
-            self._save_journal()
+                for n in added:
+                    self._dead.pop(n, None)
+                if added_tree:
+                    self._trees.pop(rel, None)
+            raise BlobError(f"the note that storage owes a delete could not be written to {JOURNAL}, so nothing was deleted")
+        with self._state:
+            self._pending = {n for n in self._pending if not (n.startswith(rel + "/") if tree else n == rel)}
         return sorted(names)
 
     def finish_delete(self, names: list[str], fast: bool = True) -> None:
         """After the folder's copy is gone: have storage delete its own. What fails stays owed, and is repeated.
         Called with the Store's lock held, so by default each delete is tried once and quickly."""
-        for rel in names:
-            try:
-                self._call(self.client.delete, rel, fast=fast)
-            except BlobError:
-                self._wake.set()
-                return
-            with self._state:
-                self._dead.pop(rel, None)
-                self.index.pop(rel, None)
-                self._known.pop(rel, None)
-                self._sent.pop(rel, None)
-        if names:
-            self._save_journal()
+        progress = False
+        try:
+            for rel in names:
+                try:
+                    self._call(self.client.delete, rel, fast=fast, write=True)
+                except BlobError:
+                    self._wake.set()
+                    return
+                with self._state:
+                    self._dead.pop(rel, None)
+                    self.index.pop(rel, None)
+                    self._known.pop(rel, None)
+                    self._sent.pop(rel, None)
+                progress = True
+        finally:
+            if progress:
+                self._save_journal()   # also after a delete that stopped halfway: what was done is not owed any more
 
     # ------------------------------------------------------------ audio and video: listing, fetching, evicting
 
@@ -473,9 +554,10 @@ class BlobMirror:
         """Brings a cold file from the container into the folder. False when storage does not have it; BlobError when
         storage has it and cannot be reached."""
         rel = self._rel(path)
-        if not self.has(path):
-            return False
         with self._state:
+            if rel not in self.index or rel in self._dead or classify(rel) != COLD:
+                return False
+            gen = self._gen.get(rel, 0)
             lock = self._fetching.setdefault(rel, threading.Lock())
         with lock:
             if path.is_file():
@@ -489,13 +571,19 @@ class BlobMirror:
                         self.index.pop(rel, None)
                     return False
                 raise
+            with self._state:
+                deleted = self._gen.get(rel, 0) != gen or rel in self._dead or rel not in self.index
+            if deleted:
+                path.unlink(missing_ok=True)   # deleted while it was coming: what arrived must not stay, or it would be put again
+                return False
             st = path.stat()
             with self._state:
                 self._known[rel] = (st.st_size, st.st_mtime_ns)
         return True
 
     def safe_to_evict(self, path: Path) -> bool:
-        """The folder's copy of a cold file may go only when storage holds a copy of the same size."""
+        """The folder's copy of a cold file may go only when storage holds exactly it: the same size and the same MD5.
+        (The sum is known without reading the file when this run put it; otherwise the file is read once to compare.)"""
         rel = self._rel(path)
         try:
             size = path.stat().st_size
@@ -503,25 +591,56 @@ class BlobMirror:
             return False
         with self._state:
             have = self.index.get(rel)
-            return bool(have and classify(rel) == COLD and rel not in self._pending and rel not in self._dead
-                        and have.md5 and have.size == size)
+            if not (have and classify(rel) == COLD and rel not in self._pending and rel not in self._dead
+                    and have.md5 and have.size == size):
+                return False
+            if self._sent.get(rel) == have.md5:
+                return True
+        try:
+            return md5_b64(path.read_bytes()) == have.md5
+        except OSError:
+            return False
 
     # ------------------------------------------------------------ the journal of deletes owed
 
-    def _load_journal(self) -> None:
+    def _load_journal(self) -> bool:
+        """Reads the journal. True when there is one and it cannot be read."""
         try:
-            doc = json.loads((self.root / JOURNAL).read_text("utf-8"))
-        except (OSError, ValueError):
-            return
-        names = doc.get("names") if isinstance(doc, dict) else None
-        if isinstance(names, dict):
-            with self._state:
-                self._dead = {str(k): str(v) for k, v in names.items() if valid(str(k))}
+            text = (self.root / JOURNAL).read_text("utf-8")
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        try:
+            doc = json.loads(text)
+        except ValueError:
+            return True
+        names = doc.get("names", {}) if isinstance(doc, dict) else None
+        trees = doc.get("trees", {}) if isinstance(doc, dict) else None
+        if not isinstance(names, dict) or not isinstance(trees, dict):
+            return True
+        with self._state:
+            self._dead = {str(k): str(v) for k, v in names.items() if valid(str(k))}
+            self._trees = {str(k).strip("/"): str(v) for k, v in trees.items() if valid(str(k).strip("/"))}
+        return False
 
-    def _save_journal(self) -> None:
+    def _set_aside_journal(self) -> None:
+        """A journal that cannot be read is moved out of the way, not deleted (its owner may want to read it), and storage
+        reports "degraded" until Dojo is started again: some deletes may be owed that nobody knows of."""
+        try:
+            os.replace(self.root / JOURNAL, self.root / (JOURNAL + ".unreadable"))
+        except OSError:
+            pass
+        with self._state:
+            self._journal_bad = True
+        log.error("%s could not be read and was moved to %s.unreadable: deletes that storage still owed are not known", JOURNAL, JOURNAL)
+
+    def _save_journal(self, mark: bool = True) -> bool:
+        """Writes the journal. False when that failed: with `mark`, storage then reports "degraded" and every pass tries
+        again, because what is owed then lives in memory only."""
         with self._journal_lock:
             with self._state:
-                body = json.dumps({"names": dict(sorted(self._dead.items()))}, indent=0)
+                body = json.dumps({"names": dict(sorted(self._dead.items())), "trees": dict(sorted(self._trees.items()))}, indent=0)
             tmp = self.root / f".{JOURNAL}.{uuid.uuid4().hex[:8]}.tmp"
             try:
                 with tmp.open("w", encoding="utf-8") as f:
@@ -532,6 +651,13 @@ class BlobMirror:
             except OSError as e:
                 log.error("could not write %s: %s", JOURNAL, type(e).__name__)
                 tmp.unlink(missing_ok=True)
+                if mark:
+                    with self._state:
+                        self._journal_dirty = True
+                return False
+        with self._state:
+            self._journal_dirty = False
+        return True
 
     # ------------------------------------------------------------ connecting and restoring
 
@@ -550,6 +676,7 @@ class BlobMirror:
             if info.modified >= started - 1 and rel not in self._dead:
                 fresh[rel] = info
         self.index = fresh
+        self._listed = True
 
     def _connect_with_retries(self) -> None:
         last: BlobError | None = None
@@ -569,7 +696,10 @@ class BlobMirror:
         before the Record and the documents are back."""
         marker = self.root / RESTORING
         marker.write_text("A restore from storage began here and is not finished. Delete this file only once it is.\n", "utf-8")
-        self._apply_deletes()
+        try:
+            self._apply_deletes()   # what was deleted must not come back; if storage stops answering, the files below are skipped by name
+        except BlobError:
+            pass
         with self._state:
             want = [n for n in self.index if classify(n) == HOT and valid(n) and n not in self._dead]
         missing = [n for n in want if not (self.root / n).exists()]
@@ -596,60 +726,118 @@ class BlobMirror:
     # ------------------------------------------------------------ the background thread
 
     def _run(self) -> None:
+        due = 0.0   # when the next pass is
         while not self._stop.is_set():
             try:
-                self.sync_once()
-            except Exception:  # noqa: BLE001 - the thread must outlive any one failure
-                log.exception("storage sync failed")
-            self._wake.wait(self.retry_s if self._unsettled() else self.reconcile_s)
+                self.client.warm()   # the token the fast calls use: renewed here, never under the Store's lock
+            except BlobError as e:
+                self._failed(e)
+            if time.monotonic() >= due:
+                try:
+                    self.sync_once()
+                except Exception:  # noqa: BLE001 - the thread must outlive any one failure
+                    log.exception("storage sync failed")
+                due = time.monotonic() + self._next_wait()
+            woken = self._wake.wait(min(TOKEN_EVERY_S, max(0.0, due - time.monotonic())))
             self._wake.clear()
+            if woken:
+                due = 0.0   # asked for a pass: a write or a delete could not be done at once
+
+    def _next_wait(self) -> float:
+        """Until the next pass: soon while something is not settled (and longer after each pass that did not end clean,
+        so storage that keeps failing is not asked all day), otherwise the hour between two full comparisons."""
+        if not self._unsettled():
+            return self.reconcile_s
+        with self._state:
+            bad = max(0, min(self._bad_passes - 1, 4))
+        return min(self.retry_s * (2 ** bad), 300.0)
 
     def sync_once(self) -> None:
         """One pass: owed deletes, failed puts, then every file the folder has and storage lacks, the hot files first,
-        and at the end a comparison of storage with the folder."""
+        and at the end a comparison of storage with the folder. A pass stops at the first failure of storage: it goes on
+        in the next one, and what it could not do is never reported as done."""
         try:
             self._refresh()
         except BlobError as e:
             self._failed(e)
+            self._end_pass(False)
             return
-        self._apply_deletes()
-        put = self._retry_pending() + self._reconcile_hot() + self._migrate_cold()
-        if put or not self._verified:
-            self._verify()
+        try:
+            if self._journal_dirty:
+                self._save_journal()
+            self._apply_deletes()
+            put = self._retry_pending() + self._reconcile_hot() + self._migrate_cold()
+        except BlobError:
+            self._end_pass(False)   # already counted: every put and delete goes through `_call`
+            return
+        if put or not self._verified or self._mismatch or self._verify_due():
+            if not self._verify():
+                self._end_pass(False)
+                return
+        self._end_pass(self._mismatch == 0)
+
+    def _verify_due(self) -> bool:
+        return time.monotonic() - self._verified_at >= self.reconcile_s
+
+    def _end_pass(self, clean: bool) -> None:
+        with self._state:
+            self._bad_passes = 0 if clean else self._bad_passes + 1
+            if clean and not (self._pending or self._dead or self._cold_todo):
+                self._write_ok = True   # a pass that put and deleted everything it had to: the last failure is over
         self._write_report()
 
     def _apply_deletes(self) -> None:
+        """Does the deletes storage still owes. Raises BlobError when storage stops answering."""
+        self._expand_trees()
         with self._state:
             owed = sorted(self._dead)
-        for rel in owed:
-            with self.lock:
-                with self._state:
-                    if rel not in self._dead:
-                        continue   # written again since
-                try:
-                    self._call(self.client.delete, rel, fast=True)   # under the Store's lock: once, and quickly
-                except BlobError:
-                    return
-                with self._state:
-                    self._dead.pop(rel, None)
-                    self.index.pop(rel, None)
-                    self._known.pop(rel, None)
-                    self._sent.pop(rel, None)
-        if owed:
-            self._save_journal()
+        progress = False
+        try:
+            for rel in owed:
+                with self.lock:
+                    with self._state:
+                        if rel not in self._dead:
+                            continue   # written again since
+                    self._call(self.client.delete, rel, fast=True, write=True)   # under the Store's lock: once, and quickly
+                    with self._state:
+                        self._dead.pop(rel, None)
+                        self.index.pop(rel, None)
+                        self._known.pop(rel, None)
+                        self._sent.pop(rel, None)
+                    progress = True
+        finally:
+            if progress:
+                self._save_journal()
+
+    def _expand_trees(self) -> None:
+        """A folder deleted while storage had never been listed in this run: now that it has, what storage holds under the
+        folder and the folder does not is owed a delete like any other name. (What the folder has again, because the
+        learner started over, is the folder's and stays.)"""
+        with self._state:
+            trees = dict(self._trees) if self._listed else {}
+        if not trees:
+            return
+        for prefix, when in trees.items():
+            with self._state:
+                held = [n for n in self.index if n.startswith(prefix + "/") and classify(n) != SKIP and valid(n)]
+            gone = [n for n in held if not (self.root / n).exists()]
+            with self._state:
+                for n in gone:
+                    self._dead.setdefault(n, when)
+                    self._gen[n] = self._gen.get(n, 0) + 1
+                self._trees.pop(prefix, None)
+        self._save_journal()
 
     def _retry_pending(self) -> int:
-        """Puts the small files that failed to be put. (An audio or video file that failed is found by `_migrate_cold`,
-        which puts what the folder has and storage lacks.) Returns how many were put."""
+        """Puts the files that failed to be put, and settles the audio and video files whose put did go through after
+        all (its answer was lost). Returns how many small files were put; raises BlobError when storage fails."""
         with self._state:
             names = sorted(self._pending)
         put = 0
         for rel in names:
             path = self.root / rel
             if classify(rel) == COLD:
-                if not path.exists():
-                    with self._state:
-                        self._pending.discard(rel)
+                self._settle_cold(rel, path)   # a file storage lacks is found by `_migrate_cold`, which puts it
                 continue
             with self.lock:
                 try:
@@ -659,16 +847,26 @@ class BlobMirror:
                     with self._state:
                         self._pending.discard(rel)   # gone from the folder since: nothing to put
                     continue
-                try:
-                    self._put(rel, data, mtime_ns, fast=True)
-                except BlobError:
-                    return put
+                self._put(rel, data, mtime_ns, fast=True)
             put += 1
         return put
 
+    def _settle_cold(self, rel: str, path: Path) -> None:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            with self._state:
+                self._pending.discard(rel)   # gone from the folder since
+            return
+        with self._state:
+            have = self.index.get(rel)
+            if have and have.md5 and have.size == size:
+                self._pending.discard(rel)   # storage holds it: the put had gone through
+
     def _reconcile_hot(self) -> int:
         """Every hot file in the folder that storage does not hold (or holds differently) is put. The folder wins.
-        Returns how many were put."""
+        Returns how many were put; raises BlobError when storage fails."""
+        self._hot_done = False
         put = 0
         for rel, path in self._walk(HOT):
             try:
@@ -676,8 +874,12 @@ class BlobMirror:
             except OSError:
                 continue
             with self._state:
-                if rel in self._dead or (self._known.get(rel) == (st.st_size, st.st_mtime_ns) and rel in self.index):
+                have = self.index.get(rel)
+                if rel in self._dead:
                     continue
+                if (have is not None and self._known.get(rel) == (st.st_size, st.st_mtime_ns) and have.size == st.st_size
+                        and (not have.md5 or self._sent.get(rel, have.md5) == have.md5)):
+                    continue   # unchanged since it was put or confirmed, and storage still holds what was sent
             with self.lock:   # the lock every write takes: a write cannot slip in between the read and the put
                 try:
                     data = path.read_bytes()
@@ -695,7 +897,9 @@ class BlobMirror:
                 try:
                     self._put(rel, data, st.st_mtime_ns, fast=True)
                 except BlobError:
-                    return put
+                    with self._state:
+                        self._pending.add(rel)   # not forgotten: the next pass (and the status) knows it is owed
+                    raise
             put += 1
         self._hot_done = True
         return put
@@ -748,17 +952,20 @@ class BlobMirror:
 
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             list(pool.map(one, todo))
+        if halt.is_set():
+            raise BlobError("storage stopped taking audio and video files; the next pass goes on where this one stopped")
         return sent[0]
 
-    def _verify(self) -> None:
+    def _verify(self) -> bool:
         """Lists the container again and compares every file in the folder with it: the size always, and the MD5 the
-        service holds against the one that was sent."""
+        service holds against the one that was sent. False when the listing failed. A difference makes the state
+        "migrating" (it may only be a file put while the folder was read) and, found twice in a row, "degraded"."""
         started = time.time()
         try:
             fresh = self.client.list()
         except BlobError as e:
             self._failed(e)
-            return
+            return False
         self._ok()
         with self._state:
             self._take(fresh, started)
@@ -783,22 +990,29 @@ class BlobMirror:
                 size.append(rel)
             elif rel in sent and have.md5 and have.md5 != sent[rel]:
                 md5.append(rel)
+        differs = len(missing) + len(size) + len(md5)
+        with self._state:
+            self._mismatch = differs
+            self._mismatch_streak = self._mismatch_streak + 1 if differs else 0
         self._verified = True
+        self._verified_at = time.monotonic()
         self._report = {"checked": checked, "missing_count": len(missing), "missing": missing[:25],
                         "size_differs_count": len(size), "size_differs": size[:25],
                         "md5_differs_count": len(md5), "md5_differs": md5[:25]}
-        if missing or size or md5:
+        if differs:
             log.error("storage does not match the folder: %d missing, %d of another size, %d of another MD5",
                       len(missing), len(size), len(md5))
         else:
             log.warning("storage matches the folder: %d files checked (the size of each, the MD5 of each file sent)", checked)
+        return True
 
     def _write_report(self) -> None:
         with self._state:
             body = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "objects": len(self.index),
                     "bytes": sum(i.size for i in self.index.values()), "waiting": len(self._pending),
-                    "deleting": len(self._dead), "audio_video_to_send": self._cold_todo, "errors": self.errors,
-                    "last_error": self.last_error, "verification": self._report}
+                    "deleting": len(self._dead), "folders_deleted": len(self._trees), "audio_video_to_send": self._cold_todo,
+                    "errors": self.errors, "last_error": self.last_error, "journal_unwritten": self._journal_dirty,
+                    "verification": self._report}
         tmp = self.root / f".{REPORT}.{uuid.uuid4().hex[:8]}.tmp"
         try:
             tmp.write_text(json.dumps(body, indent=1), "utf-8")

@@ -444,12 +444,17 @@ re-run the workflow; before that, `/healthz` tells you which build runs.
 causes: a model deployment missing or out of quota; a role assignment not yet active (it can take a few
 minutes after the first deploy); Speech not reachable.
 
-**`/healthz` says `"storage": "degraded"`.** Dojo cannot reach its storage account, so it goes on with the files on the web
-app's disk and keeps trying (every 15 seconds; nothing written meanwhile is lost). Open `/api/diag`: `data_storage.last_error` says
-why. `403` means the app identity does not have the role Storage Blob Data Contributor yet (run the bootstrap again, then wait a
-few minutes); a connection error or a name that does not resolve means the private endpoint or its private DNS zone
-(`privatelink.blob.core.windows.net`, linked to the lab VNet) is missing or not ready. A Dojo whose data folder is empty
-and cannot reach storage does not start at all: its log says why (see [Backups and restore](#backups-and-restore)).
+**`/healthz` says `"storage": "degraded"`.** Storage is not doing what Dojo needs, so Dojo goes on with the files on the web
+app's disk and keeps trying (every 15 seconds at first, then every few minutes while it keeps failing; nothing written
+meanwhile is lost). Open `/api/diag`: `data_storage.last_error` says why. `403` means the app identity does not have the
+role Storage Blob Data Contributor yet, or only a reading role (run the bootstrap again, then wait a few minutes; storage
+that lists but refuses writes is `degraded` too, as long as something waits to be put); a connection error or a name that
+does not resolve means the private endpoint or its private DNS zone (`privatelink.blob.core.windows.net`, linked to the
+lab VNet) is missing or not ready. It also says `degraded` when the folder and storage were found different twice in a
+row (`data_storage.differs` and `.blob-report.json` name the files), and when the list of deletes owed could not be
+written or read (`.blob-deletes.json`; an unreadable one is moved to `.blob-deletes.json.unreadable`, and a Dojo that
+must restore from storage will not start without it). A Dojo whose data folder is empty and cannot reach storage does not
+start at all: its log says why (see [Backups and restore](#backups-and-restore)).
 
 **Sign-in loops on "Pick an account".** The account you chose is not allowed: it is not assigned to the
 sign-in app, or (with team mode off) it is not the owner. Sign out at `https://<app-name>.azurewebsites.net/.auth/logout`,

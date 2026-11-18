@@ -184,13 +184,19 @@ class Tokens:
         self._cache: dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    def get(self, scope: str) -> str:
+    def get(self, scope: str, margin: int = 300) -> str:
         with self._lock:
             token = self._cache.get(scope)
-            if token is None or token.expires_on - 300 < time.time():
+            if token is None or token.expires_on - margin < time.time():
                 token = self.credential.get_token(scope)
                 self._cache[scope] = token
             return token.token
+
+    def peek(self, scope: str, margin: int = 60) -> str | None:
+        """The cached token if it is good for at least `margin` more seconds, else None. Never asks the credential and
+        never waits for a refresh that another thread is making: for a caller that holds a lock and must not block."""
+        token = self._cache.get(scope)
+        return token.token if token is not None and token.expires_on - margin > time.time() else None
 
 
 # ---------------------------------------------------------------- storage
@@ -278,17 +284,18 @@ class Store:
         """Frees this disk's copy of an audio or video file that storage also holds, which stays there. Without
         storage there is no other copy, so the file is deleted. False: storage does not hold it, so it is kept."""
         p = self.path(*parts)
-        with self.lock:
-            if self.mirror is None:
+        if self.mirror is None:
+            with self.lock:
                 self.delete_file(*parts)
-                return True
-            if not self.mirror.safe_to_evict(p):
-                return False
+            return True
+        if not self.mirror.safe_to_evict(p):   # may read the file to compare its MD5 with storage's: not under the lock
+            return False
+        with self.lock:
             try:
                 p.unlink()
             except FileNotFoundError:
                 pass
-            return True
+        return True
 
     # ---- deletion that stays deleted ----
 
