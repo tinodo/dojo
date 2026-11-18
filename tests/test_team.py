@@ -850,8 +850,10 @@ class BicepTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr[-2000:])
         arm = json.loads(out.stdout)
         self.assertEqual(arm["parameters"]["teamMode"]["defaultValue"], False)
+        self.assertEqual(arm["parameters"]["backgroundAi"]["defaultValue"], True)
         compiled = json.dumps(arm)
         self.assertIn("parameters('teamMode')", compiled)
+        self.assertIn("parameters('backgroundAi')", compiled)
         self.assertIn("WEBSITE_AUTH_AAD_ALLOWED_TENANTS", compiled)
         self.assertNotIn("jwtClaimChecks", compiled)
 

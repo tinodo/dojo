@@ -38,6 +38,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0026](0026-course-packs.md) | Course packs: one exam's finished lessons, audio and films can be handed to another Dojo as a sealed pack from a static list. Every pack is checked at the door like a hostile file and waits, with nothing paid, until the owner presses one priced check. No uploads, accounts or payments. | Proposed (not built) |
 | [0027](0027-project-site.md) | The project site on GitHub Pages is built from the repository on every push to `main`, holds only what the repository already makes public, and is kept true by tests and a weekly link check. | Accepted |
 | [0028](0028-lab-database-basic-tier.md) | The lab database leaves the free serverless offer and moves to the Basic tier, about USD 5 a month, in two steps: a tenant policy wakes a paused serverless database every two hours, which empties the free amount before the month ends. A daily check on GitHub reads the database. | Accepted (built) |
+| [0029](0029-background-ai-switch.md) | One setting of the deployment switches off all the AI work Dojo does by itself: lessons, narration, Deeper Listen, diagrams ahead of time, the question pool and the daily checks. Films the owner approved and everything a person asks for still work. | Accepted (built) |
 ## Writing a new ADR
 
 1. Take the next free number (look in this folder; do not reuse one).

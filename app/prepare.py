@@ -84,6 +84,7 @@ class Preparer:
         self._last_pid: str | None = None  # the exam the last new lesson or narration was for
         self._wake = threading.Event()
         self.scheduled = False             # team mode: the BackgroundScheduler runs step() in a spare slot (ADR 0009)
+        self.automatic = True              # False: the owner switched Dojo's own AI work off (ADR 0029): only the films he approved are made
 
     def start(self, delay: int = 120) -> None:
         if self._started:
@@ -110,6 +111,8 @@ class Preparer:
         """Seconds until the next step: soon after work, else no later than the search for pages is due again."""
         if worked:
             return 15
+        if not self.automatic:
+            return 1800   # nothing is searched or written by itself: an approval of films wakes it
         try:
             return max(15.0, min(1800.0, float(self.sourcing.wait_s()))) if self.sourcing is not None else 1800
         except Exception:  # noqa: BLE001 - the pause is only a preference
@@ -231,6 +234,11 @@ class Preparer:
         has already found pages for are written between its steps, never after all of them."""
         if self._learner_busy():
             return True
+        if not self.automatic:
+            # Switched off (ADR 0029): no page search, lesson, narration, Deeper Listen or deck by itself. A film the
+            # owner approved is still made, because he asked for that one himself.
+            self.state.update(running=False, current=None)
+            return self._film()
         if self.sourcing is not None and not self._after_sourcing and self.sourcing.step():
             self._after_sourcing = True
             return True
@@ -607,4 +615,4 @@ class Preparer:
                 "rewriting": len(self.rewrites()), "upgraded": self.state["upgraded"],
                 "upgrading": len(self.deeper.upgrades()) if self.deeper is not None else 0,
                 "failed": len(self.state["failed"]), "last": self.state["last"], "packages": packages,
-                "filmed": self.state["filmed"], "film_note": self.state["film_note"]}
+                "filmed": self.state["filmed"], "film_note": self.state["film_note"], "automatic": self.automatic}

@@ -20,9 +20,10 @@ own values. Never commit real identifiers or secrets.
 8. [Costs and cost controls](#costs-and-cost-controls)
 9. [The daily lab check](#the-daily-lab-check)
 10. [Switching team mode on safely](#switching-team-mode-on-safely)
-11. [Upgrading](#upgrading)
-12. [Troubleshooting](#troubleshooting)
-13. [Local development and tests](#local-development-and-tests)
+11. [Switching Dojo's own AI work off and on](#switching-dojos-own-ai-work-off-and-on)
+12. [Upgrading](#upgrading)
+13. [Troubleshooting](#troubleshooting)
+14. [Local development and tests](#local-development-and-tests)
 
 ## What you need
 
@@ -129,12 +130,15 @@ To set one by hand: `gh secret set AZURE_TENANT_ID --repo <github-owner>/<repo>`
 | `DOJO_AUTH_CLIENT_ID` | `<sign-in-app-client-id>`: the sign-in app registration |
 | `DOJO_OWNER_OID` | `<owner-object-id>`: your user object ID in the tenant |
 
-The deploy workflow passes `authClientId` and `ownerObjectId` to Bicep from these secrets, and `teamMode` from
-one **repository variable** (Settings → Secrets and variables → Actions → Variables), `DOJO_TEAM_MODE`: exactly
+The deploy workflow passes `authClientId` and `ownerObjectId` to Bicep from these secrets, and two switches from
+**repository variables** (Settings → Secrets and variables → Actions → Variables). `DOJO_TEAM_MODE` sets `teamMode`: exactly
 `true` (lower case) switches team mode on at the next deploy; unset or any other value leaves it off, the
 template's default. It is a switch, not an identifier, so it is a variable, and the deploy log says whether team
 mode is on. Read
-[Switching team mode on safely](#switching-team-mode-on-safely) before you set it. Other Bicep parameters, such as
+[Switching team mode on safely](#switching-team-mode-on-safely) before you set it. `DOJO_BACKGROUND_AI` sets `backgroundAi`, the
+switch for the AI work Dojo does by itself: unset, empty, `on` or `true` (any case) leaves it on, the template's default; any
+other value, `off` above all, switches it off at the next deploy, and the deploy log prints `background AI: false`. See
+[Switching Dojo's own AI work off and on](#switching-dojos-own-ai-work-off-and-on). Other Bicep parameters, such as
 `ownerLearnerKey`, keep their defaults in `infra/main.bicep`. To change one, change its default in a reviewed
 pull request, or add it to both `--parameters` lines in `deploy.yml`.
 
@@ -166,8 +170,8 @@ The self-test (`app/selftest.py`) runs at startup. It checks the data share, eac
 anyone, so it shows only `{"status": "ok", "build": "<commit-sha>"}`. The status is `ok` only after a
 finished run in which every check passed; otherwise it is `degraded` (also while the first run is pending).
 It always answers HTTP 200, so App Service's health check sees a running app. Each check's result, details
-and time are at `/api/diag`, for the signed-in owner. After a pass it runs again every 6 hours;
-after a failure, every 5 minutes.
+and time are at `/api/diag`, for the signed-in owner. After a pass it runs again every 6 hours, unless Dojo's own AI work is
+switched off (then it ran once, which is all `/healthz` and the smoke test need); after a failure, every 5 minutes.
 
 ### When a deploy fails
 
@@ -203,6 +207,7 @@ few switches in `app/main.py`.
 | `DOJO_OWNER_OID` | The owner's user object ID. |
 | `DOJO_AUTH_CLIENT_ID` | The sign-in app registration's client ID. The self-test uses it to prove the credential exchange works. |
 | `DOJO_TEAM` | `1` switches team mode on (ADR 0009). Default off. See below before you use it. |
+| `DOJO_BACKGROUND` | `0` switches off the AI work Dojo does by itself (ADR 0029). Anything else, or unset, leaves it on. Bicep sets it from `backgroundAi`, so set the repository variable `DOJO_BACKGROUND_AI` and deploy instead of editing it in Azure: [Switching Dojo's own AI work off and on](#switching-dojos-own-ai-work-off-and-on). |
 | `DOJO_OWNER_KEY` | Only for the lost-account procedure. Must be `l` followed by 31 hex digits. Normally empty. |
 | `DOJO_LAB_SERVER`, `DOJO_LAB_DATABASE` | The Azure SQL server and database for labs (ADR 0003). In Azure, both empty means labs are off: every lab route answers 404 "Labs are not set up on this Dojo.", the Plan schedules no lab sessions, `/api/diag` shows labs off, and in team mode there is no lab-database mirror of the deletion list (`/home` is the only copy). Only one of the two set stops the app at startup. Locally a fake runner is used either way. |
 
@@ -281,7 +286,8 @@ You pay Azure's normal prices. Dojo has no licence fee.
   Cost Management is the truth, and where you set a budget alert (the Money tab links to it).
 - **The fixed part** is the B1 plan and the storage. Check the Azure pricing page for your region.
 - **AI use** (models, speech, avatar) is pay as you go. Background work has daily limits (see
-  [architecture.md](architecture.md#background-services-and-their-limits)). Avatar filming only starts on an explicit click that
+  [architecture.md](architecture.md#background-services-and-their-limits)), and one switch stops all of it
+  ([below](#switching-dojos-own-ai-work-off-and-on)). Avatar filming only starts on an explicit click that
   shows the list price first.
 - **Labs** cost about **USD 28 a month**, even when nobody uses them, because all of it is charged by the day: the
   Basic-tier database (USD 0.161 a day, about USD 5 for a full month; it never pauses), Defender for SQL (about
@@ -351,6 +357,33 @@ data, and they can still export or delete it. **End team mode** asks you to tell
 then ends membership on a date at least 14 days later and deletes members' data on that day. Only after
 that, set `DOJO_TEAM_MODE` back to `false` (or delete it) and run the deploy workflow. See ADR 0009
 ("Pausing and ending team mode") and [privacy.md](privacy.md).
+
+## Switching Dojo's own AI work off and on
+
+Dojo makes much of its content by itself: the search for an added exam's official pages, lessons and rewrites, narration, Deeper
+Listen, diagrams drawn ahead of time (only when you turned that on in Studio), the pool of practice questions and the delivered-meaning check
+(the table in [architecture.md](architecture.md#background-services-and-their-limits)). Each has a daily limit, and all of them share one
+switch (ADR 0029).
+
+- **Off:** `gh variable set DOJO_BACKGROUND_AI --body off --repo <github-owner>/<repo>`, then run the deploy workflow
+  (`gh workflow run deploy.yml --repo <github-owner>/<repo>`, or any push to `main`).
+- **On again:** `gh variable delete DOJO_BACKGROUND_AI --repo <github-owner>/<repo>` (or set it to `on`), then deploy.
+
+The variable is read when the deploy runs, so setting it changes nothing until the next deploy; set it before you merge a change if
+that deploy should already carry it. The deploy log prints `background AI: false` or `background AI: true`. Unset, empty, `on` and `true`
+(any case) mean on. Any other value means off, so a typo stops the spending and does not keep it.
+
+- **What stops:** the search for pages, lessons and rewrites, narration, Deeper Listen, diagrams drawn ahead of time, the refill of the question
+  pool, the deeper lessons search, the delivered-meaning check and the self-test's repeat every 6 hours.
+- **What goes on:** filming the lessons you approved at a price (the Preparer's thread stays, and files only those); the daily read of the official
+  pages, which uses no model; nudges, the sweepers and the daily lab check; and everything a person asks for: Ask, practice exams, checks, judging,
+  Listen when it is played, and a lesson's deck when it is first opened in Present.
+- **What you will notice:** a lesson that a changed page holds back stays held back until the switch is on again. An added exam gets no pages and no
+  lessons. A practice exam takes longer to build, because the pool is not refilled and the questions it lacks are written when the exam is built. Studio's
+  To do and Diagrams cards still talk about background work as if it ran.
+- **How to see that it took:** `/healthz` shows the new build; the web app's setting `DOJO_BACKGROUND` is `0`; the log holds one warning at start,
+  "Dojo's own AI work is switched off"; `/api/diag` shows `"automatic": false` under the preparation; the data share gets no new lesson, narration,
+  Deeper Listen, deck or pool batch.
 
 ## Upgrading
 

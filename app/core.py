@@ -113,6 +113,7 @@ class Settings:
     build: str
     model_sku: str = "GlobalStandard"   # the deployment type of every model (infra/main.bicep, modelSku)
     team: bool = False                  # team mode (ADR 0009): members besides the owner
+    background: bool = True             # Dojo's own AI work (ADR 0029): False when DOJO_BACKGROUND=0
     owner_key: str = ""                 # the owner's learner key after a lost account; empty = derived
 
 
@@ -156,6 +157,7 @@ def load_settings() -> Settings:
         build=build,
         model_sku=env("DOJO_MODEL_SKU") or "GlobalStandard",
         team=team,
+        background=env("DOJO_BACKGROUND") != "0",   # only exactly "0" switches it off: a stray value never stops Dojo's work
         owner_key=owner_key,
     )
 
