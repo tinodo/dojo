@@ -1513,9 +1513,10 @@ Required JSON shape:
         return bool(drift is not None and drift.withheld(lesson_id))
 
     def _written_again(self, lesson_id: str) -> bool:
-        """The lesson will be written again on the deeper template (app/deeper.py, ADR 0008)."""
+        """The lesson will be written again on the deeper template (app/deeper.py, ADR 0008). Never while Dojo's own AI work is switched
+        off (ADR 0029): nothing is written again then, so nothing waits for it."""
         deeper = getattr(self, "deeper", None)
-        return bool(deeper is not None and lesson_id in deeper.to_write_again())
+        return bool(deeper is not None and getattr(self.settings, "background", True) and lesson_id in deeper.to_write_again())
 
     def deep_written(self, lesson_id: str) -> bool:
         """The lesson has a checked Deeper Listen text, whether or not it has been spoken yet."""

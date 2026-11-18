@@ -16,6 +16,7 @@ os.environ.setdefault("DOJO_LOCAL", "1")
 os.environ.setdefault("DOJO_DATA_DIR", tempfile.mkdtemp(prefix="dojo-import-"))
 
 from app.core import load_settings  # noqa: E402
+from app.learning import Dojo  # noqa: E402
 from app.main import background_plan  # noqa: E402
 from app.prepare import Preparer  # noqa: E402
 from app.selftest import SelfTest  # noqa: E402
@@ -160,6 +161,28 @@ class TheSelfTest(unittest.TestCase):
                     test.start(repeat=repeat)
                 self.assertEqual(thread.call_args.kwargs["args"], (repeat,))
                 self.assertEqual(thread.call_args.kwargs["target"], test._loop)
+
+
+class TheLessonRules(unittest.TestCase):
+    @staticmethod
+    def dojo(background: bool) -> SimpleNamespace:
+        writer = mock.Mock()
+        writer.to_write_again.return_value = {"lesson-1"}
+        dojo = SimpleNamespace(settings=SimpleNamespace(background=background), deeper=writer, deep_held=lambda lesson_id: False,
+                               lessons_for=lambda pid, sid: [{"id": "lesson-1"}])
+        dojo._written_again = lambda lesson_id: Dojo._written_again(dojo, lesson_id)
+        return dojo
+
+    def test_nothing_waits_for_a_rewrite_while_it_is_off(self):
+        """Present's first-open deck, Listen's "upgrading" and the films all wait for a lesson to be written again on the deeper template:
+        while the switch is off that never happens, so none of them waits."""
+        lesson = {"id": "lesson-1", "package": "p", "skill": "s"}
+        for background, waits in ((True, True), (False, False)):
+            with self.subTest(background=background):
+                dojo = self.dojo(background)
+                self.assertIs(Dojo._written_again(dojo, "lesson-1"), waits)
+                self.assertEqual(Dojo.scheduled_rewrites(dojo), {"lesson-1"} if waits else set())
+                self.assertEqual(Dojo.deck_wait(dojo, lesson), "upgrading" if waits else None, "None: a deck may be drawn when it is first opened")
 
 
 class TheDeploy(unittest.TestCase):
