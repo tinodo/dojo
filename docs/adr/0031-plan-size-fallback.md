@@ -38,22 +38,22 @@ A new resource group did not help: the same request, in two throw-away groups, w
 ## The decision
 
 - The Bicep parameter `planSku` sets the plan's size. It is `B1` unless told otherwise, and the only values allowed are `B1`, `B2` and `B3`: a bigger plan costs real money, so nothing else can be asked for by accident.
-- The deployment step of `deploy.yml` runs the same incremental deployment with `planSku` set to B1, B1, B1, B2 and B3 in that order, a minute apart. It goes on to the next size **only when the plan is what failed** (counted from the deployment's list of operations); a failure of anything else stops the step at once. B3 failing ends the step red, as before.
-- The log names the size and never an id. A size other than B1 adds one warning line that it costs more, so the owner sees it in the run.
+- The deployment step of `deploy.yml` runs the same incremental deployment with `planSku` set to B1, B1, B1, B2 and B3 in that order, a minute apart. It goes on to the next size **only when the plan is the only operation that failed** (two counts from the deployment's list of operations: failed plan operations above zero, other failed operations zero, and a count that cannot be read counts as "not the plan alone"). Anything else that failed would fail again at the next size, and a larger plan could be left billing for nothing, so then the step stops at once. B3 failing ends the step red, as before.
+- The log names the size and never an id. **Whenever a plan larger than B1 exists after the last attempt** (the list of operations says the plan operation succeeded), one warning line says that it costs more and goes on costing until the plan is deleted, so the owner sees it in the run: also when something after the plan failed and the run is red.
 - **No size is remembered.** Every deploy asks for B1 first, so a plan that had to be B2 goes back to B1 at the first deploy after Azure has a B1 again. If B1 is still short, that request fails and the request for B2 changes nothing.
 - The what-if preview is unchanged: it asks for the template's own B1.
 
 ## Consequences
 
-- **Cost** (Linux, list prices of Sweden Central from the Azure Retail Prices API on 18 November 2026): B1 USD 0.018 an hour, about USD 13 a month; B2 USD 0.036, about USD 26; B3 USD 0.071, about USD 52. Only while a web app exists. Studio's Money tab shows what Azure charged.
+- **Cost** (Linux, list prices of Sweden Central from the Azure Retail Prices API on 18 November 2026): B1 USD 0.018 an hour, about USD 13 a month; B2 USD 0.036, about USD 26; B3 USD 0.071, about USD 52. **A plan costs from the moment it exists until it is deleted, with or without a web app on it** (deleting the last app does not delete the plan; [Manage an App Service plan](https://learn.microsoft.com/azure/app-service/app-service-plan-manage), "Delete an App Service plan"). So a larger plan that was made and then left behind by a failed run keeps billing until someone deletes the plan. Studio's Money tab shows what Azure charged.
 - **A deploy can take about ten minutes longer** when B1 is short (three more tries, a minute apart, and the deployment's own time), so the job's limit is 90 minutes, not 60.
 - **What Dojo supports does not change.** One worker and one thread (ADR 0009); the 30 members of ADR 0009 are still the measured limit, on B1. B2 has more room, which is not used.
 - **Scaling an existing plan back to B1 restarts the app**, as every deploy does.
-- A deploy that fails for another reason is not retried, and the three tries before B2 are spent only on the plan.
+- A deploy that fails for another reason, or for the plan and something else together, is not retried, and the three tries before B2 are spent only on a plan that is alone in failing.
 
 ## How we know it worked
 
-Tests (`tests/test_plan_size.py`) run the step's own shell against a stand-in for the Azure CLI: a deployment that works is done at once with B1; B1 comes back on the second or third try and stays B1; B1 never comes back and B2 is used with the warning; B3 is the last size and then the step fails; a failure that is not the plan stops at once, with no pause. They also pin the template (one parameter, three allowed values) and the workflow (the order of the sizes, the public summary as the last line, no Azure message in the log). Live: the run that carries this change, from a group that held only the storage account.
+Tests (`tests/test_plan_size.py`) run the step's own shell against a stand-in for the Azure CLI: a deployment that works is done at once with B1; B1 comes back on the second or third try and stays B1; B1 never comes back and B2 is used with the warning; B3 is the last size and then the step fails; a failure that is not the plan stops at once, with no pause, and so does the plan failing together with something else (or a count that cannot be read); a larger plan that was made and then followed by a failure is still named in a warning. They also pin the template (one parameter, three allowed values) and the workflow (the order of the sizes, the public summary as the last line, no Azure message in the log). Live: the run that carries this change, from a group that held only the storage account.
 
 ## Review triggers
 

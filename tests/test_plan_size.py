@@ -14,8 +14,10 @@ BICEP = (ROOT / "infra" / "main.bicep").read_text("utf-8")
 STEP = DEPLOY.split("- name: Deploy infrastructure", 1)[1].split("- name: ", 1)[0]
 SCRIPT = textwrap.dedent(STEP.split("run: |\n", 1)[1])
 
-# Stands in for the Azure CLI. A deployment is made with the sizes it is asked for and answers with the next exit code of CREATES; the
-# list of its operations says whether the plan is what failed (PLAN_FAILED). Azure's own message goes to stderr, as the real one does.
+# Stands in for the Azure CLI. A deployment is made with the sizes it is asked for and answers with the next exit code of CODES. The list of
+# its operations answers three counts, per attempt (index n-1): the failed plan operations (PLAN_FAILED), the other failed operations
+# (OTHER_FAILED) and the plan operations that succeeded (PLAN_MADE). `${x[i]-d}` takes d only when the answer is not there at all, so an
+# empty answer (a command that printed nothing) stays empty. Azure's own message goes to stderr, as the real one does.
 FAKE_AZ = r"""
 n=0; sizes=""; slept=0
 az() {
@@ -25,7 +27,13 @@ az() {
       for a in "$@"; do case "$a" in planSku=*) sizes="$sizes ${a#planSku=}";; esac; done
       echo "No available instances in /subscriptions/abc/resourceGroups/rg-secret-swc" >&2
       return "${CODES[$((n-1))]:-1}" ;;
-    "operation group") echo "$PLAN_FAILED"; return 0 ;;
+    "operation group")
+      case "$*" in
+        *"=='Succeeded'"*) echo "${PLAN_MADE[$((n-1))]-0}" ;;
+        *"!='Microsoft.Web/serverfarms'"*) echo "${OTHER_FAILED[$((n-1))]-0}" ;;
+        *) echo "${PLAN_FAILED[$((n-1))]-0}" ;;
+      esac
+      return 0 ;;
   esac
   return 99
 }
@@ -67,11 +75,18 @@ class TheWorkflow(unittest.TestCase):
 class TheLoop(unittest.TestCase):
     """The step's own shell, run with a fake `az` and a `sleep` that only adds up."""
 
-    def run_step(self, codes, plan_failed="1"):
+    @staticmethod
+    def answers(value):
+        """A bash array of what the list of operations answers per attempt: one value for every attempt, or one per attempt."""
+        values = [value] * 5 if isinstance(value, str) else list(value)
+        return "(" + " ".join('"' + str(v) + '"' for v in values) + ")"
+
+    def run_step(self, codes, plan_failed="1", other_failed="0", plan_made="1"):
         script = SCRIPT.rstrip().splitlines()
         self.assertTrue(script[-1].startswith("python tools/public_log.py infra"))
         body = "\n".join(script[:-1])
-        text = (f'CODES=({" ".join(str(c) for c in codes)}); PLAN_FAILED="{plan_failed}"; GITHUB_RUN_NUMBER=7; RESOURCE_GROUP=rg-x\n'
+        text = (f'CODES=({" ".join(str(c) for c in codes)}); PLAN_FAILED={self.answers(plan_failed)}; OTHER_FAILED={self.answers(other_failed)}; '
+                f'PLAN_MADE={self.answers(plan_made)}; GITHUB_RUN_NUMBER=7; RESOURCE_GROUP=rg-x\n'
                 + FAKE_AZ + body + '\necho "RESULT status=$status size=$size sizes=$sizes slept=$slept"\n')
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "step.sh").write_text(text, "utf-8", newline="\n")
@@ -95,20 +110,36 @@ class TheLoop(unittest.TestCase):
         status, size, sizes, slept, out = self.run_step([1, 1, 1, 0])
         self.assertEqual((status, size, sizes, slept), (0, "B2", ["B1", "B1", "B1", "B2"], 180))
         self.assertIn("::warning::The App Service plan is B2, not B1", out)
+        self.assertIn("goes on costing until the plan is deleted", out)
 
     def test_b3_is_the_last_size_and_then_the_step_fails(self):
         status, size, sizes, slept, out = self.run_step([1, 1, 1, 1, 0])
         self.assertEqual((status, size, sizes), (0, "B3", ["B1", "B1", "B1", "B2", "B3"]))
         self.assertIn("::warning::The App Service plan is B3, not B1", out)
-        status, size, sizes, slept, out = self.run_step([1, 1, 1, 1, 1])
+        status, size, sizes, slept, out = self.run_step([1, 1, 1, 1, 1], plan_made="0")   # no plan was made: nothing larger to warn about
         self.assertEqual((status, size, sizes, slept), (1, "B3", ["B1", "B1", "B1", "B2", "B3"], 240))
         self.assertNotIn("::warning::", out)
 
     def test_a_failure_that_is_not_the_plan_stops_at_once(self):
         for plan_failed in ("0", "", "None"):
             with self.subTest(plan_failed=plan_failed):
-                status, size, sizes, slept, out = self.run_step([1, 0], plan_failed)
+                status, size, sizes, slept, out = self.run_step([1, 0], plan_failed, other_failed="1")
                 self.assertEqual((status, size, sizes, slept), (1, "B1", ["B1"], 0))
+        status, size, sizes, slept, out = self.run_step([1, 0], plan_failed="0", other_failed="0")   # nothing failed that Azure names
+        self.assertEqual((status, size, sizes, slept), (1, "B1", ["B1"], 0))
+
+    def test_the_plan_failing_together_with_something_else_stops_at_once(self):
+        """The next size would fail the same other operation again, and could leave a larger plan billing for nothing."""
+        for other_failed in ("1", "2", "", "None"):   # also when the count could not be read
+            with self.subTest(other_failed=other_failed):
+                status, size, sizes, slept, out = self.run_step([1, 0], plan_failed="1", other_failed=other_failed)
+                self.assertEqual((status, size, sizes, slept), (1, "B1", ["B1"], 0))
+
+    def test_a_larger_plan_that_was_made_is_named_when_something_after_it_failed(self):
+        status, size, sizes, slept, out = self.run_step(
+            [1, 1, 1, 1], plan_failed=["1", "1", "1", "0"], other_failed=["0", "0", "0", "1"], plan_made="1")
+        self.assertEqual((status, size, sizes, slept), (1, "B2", ["B1", "B1", "B1", "B2"], 180))
+        self.assertIn("::warning::The App Service plan is B2, not B1", out)
 
 
 if __name__ == "__main__":
