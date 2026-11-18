@@ -158,7 +158,10 @@ Two workflows build and deploy Dojo. Three more never touch the app: `pages.yml`
      a public repository are public, so each `az` step keeps its output in files and `tools/public_log.py`
      prints only how many changes of each kind the preview found, how many lines of warnings there were, and
      on a failure the error codes. Never resource names, ids or messages: see
-     [When a deploy fails](#when-a-deploy-fails).
+     [When a deploy fails](#when-a-deploy-fails). Azure sometimes has no B1 App Service worker free; the plan is then
+     the one thing that fails. The deployment is tried with B1 three times, a minute apart, and then with B2 and B3
+     (the only other sizes the template allows), and a run that had to use a larger size says so in a warning line
+     ([ADR 0031](adr/0031-plan-size-fallback.md)). A failure of anything else is not retried.
   4. Zip `app/`, `requirements.txt`, `docs/user-guide.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md` and a `build.txt`
      that holds the commit SHA.
   5. `az webapp deploy --type zip --track-status false`, and once more after 90 seconds if it fails. App Service
@@ -244,7 +247,9 @@ These have no effect in Azure.
 
 ### Fixed choices in `infra/main.bicep`
 
-- **App Service plan B1 (Linux), Python 3.12**, Always On, health check on `/healthz`.
+- **App Service plan B1 (Linux), Python 3.12**, Always On, health check on `/healthz`. B1 is what Dojo is sized for; when Azure has
+  no B1 left the deploy uses B2 or B3 (ADR 0031), and goes back to B1 at the first deploy after Azure has one again. The template
+  allows no other size.
 - **gunicorn with one worker and one thread** (`UvicornWorker`, timeout 600 s). Dojo's file locks and job
   slots assume one process. Do not scale out or add workers.
 - **Easy Auth** requires sign-in on every path except `/healthz`, `/feed/*` and `/cal/*` (those use secret
@@ -316,7 +321,8 @@ You pay Azure's normal prices. Dojo has no licence fee.
   Dojo's own estimate of what each kind of work costs, at Azure **list price**, sits below it, closed. It reads prices from the public Azure Retail Prices API and counts the tokens,
   characters and minutes Dojo used, and it can differ from the bill (discounts, taxes, other resources). Azure
   Cost Management is the truth, and where you set a budget alert (the Money tab links to it).
-- **The fixed part** is the B1 plan and the data storage: the storage account itself costs a few cents a month (about
+- **The fixed part** is the B1 plan (about USD 13 a month; B2, about USD 26, or B3, about USD 52, when Azure had no B1 left and the
+  deploy run says so, ADR 0031) and the data storage: the storage account itself costs a few cents a month (about
   USD 0.20 for 9 GB, zone redundant, Hot), and its private endpoint (about USD 7.30) and private DNS zone (about USD 0.50)
   are charged by the day, about USD 8 a month in all (ADR 0030). Check the Azure pricing page for your region.
 - **AI use** (models, speech, avatar) is pay as you go. Background work has daily limits (see
@@ -433,6 +439,12 @@ that deploy should already carry it. The deploy log prints `background AI: false
 
 ## Troubleshooting
 
+**The deploy ends with the error code `Conflict` and the plan is what failed.** Azure had no App Service worker free of the size
+asked for ("No available instances to satisfy this request"). The deploy tries B1 three times, a minute apart, and then B2 and
+B3, so this fails the run only when none of them was free; run the workflow again later. The details are in the deployment record
+(`az deployment group show --resource-group <app-resource-group> --name dojo-<run number> --query properties.error`). A run that
+used B2 or B3 has a warning line that says so; the next deploy asks for B1 first and the plan goes back to B1 once Azure has one
+([ADR 0031](adr/0031-plan-size-fallback.md)).
 **The app deploy step fails, but the run goes on.** The infrastructure step can restart the deployment service
 (Kudu) a minute later, in the middle of the zip upload or of the build that installs the requirements. Then
 `az webapp deploy` fails (for example with HTTP 502, 504 or 409) while the build goes on, or the build stops and

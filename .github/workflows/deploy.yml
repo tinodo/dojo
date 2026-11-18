@@ -32,7 +32,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,10 +100,30 @@ jobs:
           TEAM_MODE: ${{ steps.team.outputs.on }}
           BACKGROUND_AI: ${{ steps.background.outputs.on }}
         run: |
-          status=0
-          az deployment group create --resource-group "$RESOURCE_GROUP" --name "dojo-${GITHUB_RUN_NUMBER}" \
-            --template-file infra/main.bicep --mode Incremental \
-            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" backgroundAi="$BACKGROUND_AI" --output none 2> deploy.err || status=$?
+          # Azure sometimes has no B1 worker free for this resource group. The plan is then the one thing that fails ("No available instances"), and
+          # the shortage comes and goes within minutes. So the deployment is tried with B1 three times, a minute apart, and then with B2 and with B3,
+          # the only other sizes the template allows (ADR 0031). A failure of anything else stops at once. B3 must stay last. The log names the
+          # size and never an id.
+          for size in B1 B1 B1 B2 B3; do
+            status=0
+            az deployment group create --resource-group "$RESOURCE_GROUP" --name "dojo-${GITHUB_RUN_NUMBER}" \
+              --template-file infra/main.bicep --mode Incremental \
+              --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" backgroundAi="$BACKGROUND_AI" planSku="$size" --output none 2> deploy.err || status=$?
+            if [ "$status" -eq 0 ] || [ "$size" = B3 ]; then
+              break
+            fi
+            plan_failed=$(az deployment operation group list --resource-group "$RESOURCE_GROUP" --name "dojo-${GITHUB_RUN_NUMBER}" \
+              --query "length([?properties.provisioningState=='Failed' && properties.targetResource.resourceType=='Microsoft.Web/serverfarms'])" \
+              --output tsv 2>/dev/null || echo 0)
+            if ! [ "${plan_failed:-0}" -gt 0 ] 2>/dev/null; then
+              break
+            fi
+            echo "Azure has no App Service plan of size $size free right now. Trying again in a minute."
+            sleep 60
+          done
+          if [ "$status" -eq 0 ] && [ "$size" != B1 ]; then
+            echo "::warning::The App Service plan is $size, not B1: Azure had no B1 left. It costs more (ADR 0031). A later deploy goes back to B1 when Azure has one."
+          fi
           python tools/public_log.py infra "$status" deploy.err
       - name: Package the app
         run: |
