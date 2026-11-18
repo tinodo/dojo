@@ -27,6 +27,7 @@ import os
 import re
 import threading
 import time
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
@@ -481,6 +482,27 @@ def _check_id(value: str, pattern: str = ID) -> str:
     return value
 
 
+def background_plan(settings: Settings, env: Mapping[str, str]) -> dict[str, bool]:
+    """Which of Dojo's own services start, and whether the Preparer works by itself (ADR 0029).
+
+    With DOJO_BACKGROUND=0 nothing that calls a model or Speech starts on its own: no search for pages, no lessons, narration,
+    Deeper Listen or decks, no top-up of the question pool, no delivered-meaning check, and the self-test runs once.
+    The Preparer thread still starts, because it files the films the owner approved. Reading the official pages
+    again needs no model, so Drift keeps running."""
+    real = settings.real_ai
+    prepare = real and (settings.in_azure or env.get("DOJO_PREPARE") == "1")
+    check = real and (settings.in_azure or env.get("DOJO_CHECK") == "1")
+    return {
+        "prepare": prepare,
+        "pool": prepare and settings.background,
+        "deeper": prepare and settings.background,
+        "check": check and settings.background,
+        "drift": settings.in_azure or env.get("DOJO_DRIFT") == "1",   # no model: it also runs with the stub when asked
+        "selftest": real,
+        "automatic": settings.background,
+    }
+
+
 def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = None, http: Any = None,
                avatar: Any = None) -> FastAPI:
     """Builds the app with every part wired together. `ai`, `speech`, `avatar` and `http` (the client
@@ -587,34 +609,38 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         podcast.prune_soon()  # joined files that an earlier run left behind
-        prepare_on = settings.real_ai and (settings.in_azure or os.environ.get("DOJO_PREPARE") == "1")
-        check_on = settings.real_ai and (settings.in_azure or os.environ.get("DOJO_CHECK") == "1")
-        # Reading the official pages again needs no model, so it also runs with the stub when asked.
-        drift_on = settings.in_azure or os.environ.get("DOJO_DRIFT") == "1"
-        if settings.real_ai:
-            selftest.start()
+        plan = background_plan(settings, os.environ)
+        preparer.automatic = plan["automatic"]
+        if not plan["automatic"]:
+            log.warning("Dojo's own AI work is switched off (DOJO_BACKGROUND=0, ADR 0029): no lessons, question pool, "
+                        "Deeper Listen, decks or delivery check by itself. Only the films the owner approved are made.")
+        if plan["selftest"]:
+            selftest.start(repeat=plan["automatic"])
         if settings.team:
             # One thread, a fixed rotation, one batch at a time, and only in a spare work slot. The same
             # first delays as the services' own loops.
-            if prepare_on:
+            if plan["prepare"]:
                 background.add("prepare", preparer.step, 120, wait=preparer.wait_after,
                                wake=preparer._wake, service=preparer)
+            if plan["pool"]:
                 background.add("pool", pool.step, 300, wait=lambda s: max(5, s), wake=pool.wake, service=pool)
-            if drift_on:
+            if plan["drift"]:
                 background.add("drift", drift.step, 900, service=drift)
-            if prepare_on:
+            if plan["deeper"]:
                 background.add("deeper", deeper.search_step, 600, wait=lambda s: max(1, s), service=deeper)
-            if check_on:
+            if plan["check"]:
                 background.add("delivery", checker.step, 600, service=checker)
             background.start()
         else:
-            if prepare_on:
+            if plan["prepare"]:
                 preparer.start()
+            if plan["pool"]:
                 pool.start()
+            if plan["deeper"]:
                 deeper.start()
-            if check_on:
+            if plan["check"]:
                 checker.start()
-            if drift_on:
+            if plan["drift"]:
                 drift.start()
         if settings.team:
             team.start()

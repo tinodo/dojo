@@ -168,7 +168,7 @@ member three. Job documents are kept 14 days; after a restart, unfinished jobs a
 
 | Service | Module | Runs | Main limits |
 |---|---|---|---|
-| Self-test | `selftest.py` | At startup with real AI | Models, Speech both ways, sign-in exchange. The avatar is probed only on request. |
+| Self-test | `selftest.py` | At startup with real AI; again every 6 hours after a pass (every 5 minutes after a failure) unless the AI switch is off | Models, Speech both ways, sign-in exchange. The avatar is probed only on request. |
 | Preparation | `prepare.py` | Real AI, in Azure or with `DOJO_PREPARE=1` | One lesson at a time; waits while the learner has work running. Drift rewrites first (10 a day), then missing lessons, deeper-template upgrades (20 a day), narration, Deeper Listen (20 a day, 2 attempts a lesson, a week apart), visual decks for Present (only when the owner turns that on in Studio: 20 a day, 2 attempts a lesson, a week apart), then approved filming (stops at 90% of the video budget). |
 | Question pool | `exam.py` (`PoolKeeper`) | As preparation | Keeps about 24 checked questions per exam; at most 12 model batches a day (team mode: 6 per member, 24 for all members). |
 | Deeper lessons search | `deeper.py` | As preparation | One group of skills at a time, at least 10 minutes apart; a skill with nothing new is searched again after 30 days. |
@@ -183,6 +183,11 @@ member three. Job documents are kept 14 days; after a restart, unfinished jobs a
 Daily counters are written to the share before the work is paid for, so a restart never hands a service
 a fresh allowance. In team mode the services stop running their own loops, and `background.py` runs one
 batch at a time, only while two slots stay free for learners.
+
+One switch, `DOJO_BACKGROUND` (ADR 0029, set by the Bicep parameter `backgroundAi`), stops everything in this table that calls a model or Speech on its own.
+With it off the preparation thread only files the films the owner approved (`Preparer.automatic` is false), the question pool, the deeper lessons
+search and the delivered-meaning check are not started, the self-test runs once, and the source-drift check goes on because it makes no model call.
+`background_plan` in `app/main.py` decides which services start. What a person asks for is not in this table and does not stop.
 
 ## Speech and avatar
 

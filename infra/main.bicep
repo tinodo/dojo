@@ -14,6 +14,9 @@ param ownerObjectId string
 @description('Team Dojo (docs/adr/0009-team-dojo.md). Off: Easy Auth admits the owner only, exactly as before. On: Easy Auth admits every user of the tenant and the app admits the owner plus approved members. Switching it on is the owner\'s decision, after the outside privacy review.')
 param teamMode bool = false
 
+@description('Dojo\'s own AI work (docs/adr/0029-background-ai-switch.md). On: lessons, narration, Deeper Listen, decks drawn ahead of time, the question pool and the delivered-meaning check are made by Dojo itself, within their daily limits. Off: none of that runs by itself; only the films the owner approved are made, and what the owner asks for still works. The deploy sets it from the repository variable DOJO_BACKGROUND_AI: unset, empty, "on" or "true" leave it on; any other value, "off" above all, switches it off.')
+param backgroundAi bool = true
+
 @description('Only for the owner\'s lost-account procedure (ADR 0009): the owner\'s old learner key, so a new owner object id reaches the same record. Empty: derived from the tenant and owner object id.')
 param ownerLearnerKey string = ''
 
@@ -403,6 +406,10 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'DOJO_TEAM'
           value: teamMode ? '1' : '0'
+        }
+        {
+          name: 'DOJO_BACKGROUND'
+          value: backgroundAi ? '1' : '0'
         }
       ], empty(ownerLearnerKey) ? [] : [
         {

@@ -29,19 +29,23 @@ class SelfTest:
         self.result: dict = {"state": "pending", "checks": {}, "details": {}, "at": None, "build": settings.build}
         self._started = False
 
-    def start(self) -> None:
+    def start(self, repeat: bool = True) -> None:
+        """`repeat=False` (the owner switched Dojo's own AI work off, ADR 0029): the first pass is the one /healthz and
+        the deploy check need, and it does not come back every 6 hours after it."""
         if self._started:
             return
         self._started = True
-        threading.Thread(target=self._loop, name="selftest", daemon=True).start()
+        threading.Thread(target=self._loop, args=(repeat,), name="selftest", daemon=True).start()
 
-    def _loop(self) -> None:
+    def _loop(self, repeat: bool = True) -> None:
         while True:
             try:
                 self.run()
             except Exception:  # noqa: BLE001
                 log.exception("self-test crashed")
             ok = all(self.result.get("checks", {}).values())
+            if ok and not repeat and self.result.get("state") == "done":
+                return
             time.sleep(6 * 3600 if ok else 300)
 
     def run(self, avatar: bool = False) -> dict:

@@ -34,8 +34,8 @@ class BootstrapTests(unittest.TestCase):
         for name in SECRETS:
             self.assertIn(f"{name} ", self.script)
             self.assertIn(f"secrets.{name} }}}}", self.deploy)
-        # One repository variable, a switch and not an identifier: team mode (docs/operations.md).
-        self.assertEqual(re.findall(r"vars\.(\w+)", self.deploy), ["DOJO_TEAM_MODE"])
+        # Two repository variables, both switches and not identifiers: team mode and Dojo's own AI work (docs/operations.md).
+        self.assertEqual(re.findall(r"vars\.(\w+)", self.deploy), ["DOJO_TEAM_MODE", "DOJO_BACKGROUND_AI"])
         for line in self.script.splitlines():
             if "Write-Host" in line:
                 self.assertNotRegex(line, r"\$(Tenant|Subscription|ownerOid|appId|deployClientId|appIdentityClientId)\b", line)

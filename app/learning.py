@@ -1226,10 +1226,11 @@ Narration is a natural spoken conversation between two voices: "guide" explains,
 
     def scheduled_rewrites(self) -> set[str]:
         """The newest lessons that will be written again on the deeper template: a film made for them now would be replaced. A Dojo that
-        has no deeper-lesson writer (a test) has none. When the writer's books cannot be read this raises: "none" would offer and file films
+        has no deeper-lesson writer (a test) has none, and neither has a Dojo whose own AI work is switched off (ADR 0029): nothing is
+        written again, so no film waits for it. When the writer's books cannot be read this raises: "none" would offer and file films
         for lessons that are waiting for a replacement, so the offer fails (Studio then shows no offer) and a filer waits for its next round."""
         deeper = getattr(self, "deeper", None)
-        if deeper is None:
+        if deeper is None or not getattr(self.settings, "background", True):
             return set()
         try:
             return set(deeper.to_write_again())
@@ -1512,9 +1513,10 @@ Required JSON shape:
         return bool(drift is not None and drift.withheld(lesson_id))
 
     def _written_again(self, lesson_id: str) -> bool:
-        """The lesson will be written again on the deeper template (app/deeper.py, ADR 0008)."""
+        """The lesson will be written again on the deeper template (app/deeper.py, ADR 0008). Never while Dojo's own AI work is switched
+        off (ADR 0029): nothing is written again then, so nothing waits for it."""
         deeper = getattr(self, "deeper", None)
-        return bool(deeper is not None and lesson_id in deeper.to_write_again())
+        return bool(deeper is not None and getattr(self.settings, "background", True) and lesson_id in deeper.to_write_again())
 
     def deep_written(self, lesson_id: str) -> bool:
         """The lesson has a checked Deeper Listen text, whether or not it has been spoken yet."""

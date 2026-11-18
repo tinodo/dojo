@@ -64,6 +64,21 @@ jobs:
           if [ "$SWITCH" = "true" ]; then on=true; else on=false; fi
           echo "on=$on" >> "$GITHUB_OUTPUT"
           echo "team mode: $on"
+      # Dojo's own AI work (ADR 0029) stays on when the repository variable DOJO_BACKGROUND_AI is unset, empty, "on" or
+      # "true" (any case). Any other value, "off" above all, switches it off: a typo then stops the AI work, and the
+      # line this step prints says so, where a typo the other way would keep spending. A switch, not an identifier,
+      # so a variable, not a secret.
+      - name: Background AI switch
+        id: background
+        env:
+          SWITCH: ${{ vars.DOJO_BACKGROUND_AI }}
+        run: |
+          case "${SWITCH,,}" in
+            ""|on|true) on=true ;;
+            *) on=false ;;
+          esac
+          echo "on=$on" >> "$GITHUB_OUTPUT"
+          echo "background AI: $on"
       # Public logs: every az step keeps its output in files, and tools/public_log.py prints only counts and, on a
       # failure, the error codes. Never resource names, ids or messages (docs/operations.md, "When a deploy fails").
       - name: Preview infrastructure changes
@@ -71,10 +86,11 @@ jobs:
           AUTH_CLIENT_ID: ${{ secrets.DOJO_AUTH_CLIENT_ID }}
           OWNER_OID: ${{ secrets.DOJO_OWNER_OID }}
           TEAM_MODE: ${{ steps.team.outputs.on }}
+          BACKGROUND_AI: ${{ steps.background.outputs.on }}
         run: |
           status=0
           az deployment group what-if --resource-group "$RESOURCE_GROUP" --template-file infra/main.bicep \
-            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" --no-pretty-print --output json \
+            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" backgroundAi="$BACKGROUND_AI" --no-pretty-print --output json \
             > whatif.json 2> whatif.err || status=$?
           python tools/public_log.py preview "$status" whatif.err whatif.json
       - name: Deploy infrastructure (incremental, rg-dojo-swc only)
@@ -82,11 +98,12 @@ jobs:
           AUTH_CLIENT_ID: ${{ secrets.DOJO_AUTH_CLIENT_ID }}
           OWNER_OID: ${{ secrets.DOJO_OWNER_OID }}
           TEAM_MODE: ${{ steps.team.outputs.on }}
+          BACKGROUND_AI: ${{ steps.background.outputs.on }}
         run: |
           status=0
           az deployment group create --resource-group "$RESOURCE_GROUP" --name "dojo-${GITHUB_RUN_NUMBER}" \
             --template-file infra/main.bicep --mode Incremental \
-            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" --output none 2> deploy.err || status=$?
+            --parameters authClientId="$AUTH_CLIENT_ID" ownerObjectId="$OWNER_OID" teamMode="$TEAM_MODE" backgroundAi="$BACKGROUND_AI" --output none 2> deploy.err || status=$?
           python tools/public_log.py infra "$status" deploy.err
       - name: Package the app
         run: |

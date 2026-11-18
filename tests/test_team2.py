@@ -534,6 +534,40 @@ class SchedulerWiringTests(Team2Case):
         start.assert_called_once()
         self.assertFalse(self.app.state.pool.scheduled)
 
+    def test_the_ai_switch_off_leaves_only_the_films_and_the_page_reading_in_the_scheduler(self):
+        """ADR 0029: no service that calls a model on its own is added, the preparation step files approved films only, and the
+        self-test runs once."""
+        self.app, self.c, _ = make(self.tmp, team=True, background=False)
+        object.__setattr__(self.app.state.settings, "real_ai", True)
+        with mock.patch.dict("os.environ", {"DOJO_PREPARE": "1", "DOJO_CHECK": "1", "DOJO_DRIFT": "1"}), \
+                mock.patch("app.background.BackgroundScheduler.start"), mock.patch.object(self.app.state.team, "start"), \
+                mock.patch.object(self.app.state.selftest, "start") as selftest:
+            with TestClient(self.app):
+                names = [s.name for s in self.app.state.background.services]
+        self.assertEqual(names, ["prepare", "drift"])
+        self.assertFalse(self.app.state.preparer.automatic)
+        selftest.assert_called_once_with(repeat=False)
+
+    def test_the_ai_switch_decides_which_services_start_on_their_own(self):
+        for background in (False, True):
+            with self.subTest(background=background):
+                self.app, self.c, _ = make(self.tmp, team=False, background=background)
+                object.__setattr__(self.app.state.settings, "real_ai", True)
+                state = self.app.state
+                with mock.patch.dict("os.environ", {"DOJO_PREPARE": "1", "DOJO_CHECK": "1", "DOJO_DRIFT": "1"}), \
+                        mock.patch.object(state.selftest, "start") as selftest, \
+                        mock.patch.object(state.preparer, "start") as prepare, mock.patch.object(state.drift, "start") as drift, \
+                        mock.patch.object(state.pool, "start") as pool, mock.patch.object(state.deeper, "start") as deeper, \
+                        mock.patch.object(state.checker, "start") as check:
+                    with TestClient(self.app):
+                        pass
+                for service in (prepare, drift):
+                    service.assert_called_once()   # the films, and the reading of pages, go on either way
+                for service in (pool, deeper, check):
+                    self.assertEqual(service.call_count, 1 if background else 0)
+                selftest.assert_called_once_with(repeat=background)
+                self.assertIs(state.preparer.automatic, background)
+
 
 # ---------------------------------------------------------------- question pools per learner
 
