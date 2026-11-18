@@ -130,7 +130,7 @@ jobs:
               --track-status false --output none 2> webapp.err || status=$?
           fi
           python tools/public_log.py app "$status" webapp.err
-      - name: Smoke test (the running app checks its models, Speech both ways and sign-in)
+      - name: Smoke test (the running app checks its models, Speech both ways, sign-in and its storage)
         run: |
           for i in $(seq 1 60); do
             body=$(curl -fsS --max-time 20 "https://$SITE.azurewebsites.net/healthz" || true)

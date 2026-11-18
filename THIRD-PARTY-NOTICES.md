@@ -56,8 +56,8 @@ page they come from, and writes its own lessons and questions from them.
   cites for it. A `license` field in a cited page's entry is Dojo's own note about that documentation page.
   It is not a license grant, it does not cover the study guide text, and the page's own terms are what
   count.
-- Lessons, questions, audio and video that Dojo generates are stored on the operator's own data share, not
-  in this repository.
+- Lessons, questions, audio and video that Dojo generates are stored in the operator's own private Azure
+  storage account (with a working copy on the web app's disk), not in this repository.
 - Dojo never contains or uses real exam questions.
 
 ## Exam study guides

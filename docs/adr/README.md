@@ -39,6 +39,7 @@ re-labelled. Team mode (0009) and Play's social layer (0010) are built but switc
 | [0027](0027-project-site.md) | The project site on GitHub Pages is built from the repository on every push to `main`, holds only what the repository already makes public, and is kept true by tests and a weekly link check. | Accepted |
 | [0028](0028-lab-database-basic-tier.md) | The lab database leaves the free serverless offer and moves to the Basic tier, about USD 5 a month, in two steps: a tenant policy wakes a paused serverless database every two hours, which empties the free amount before the month ends. A daily check on GitHub reads the database. | Accepted (built) |
 | [0029](0029-background-ai-switch.md) | One setting of the deployment switches off all the AI work Dojo does by itself: lessons, narration, Deeper Listen, diagrams ahead of time, the question pool and the daily checks. Films the owner approved and everything a person asks for still work. | Accepted (built) |
+| [0030](0030-data-in-blob-storage.md) | Everything Dojo keeps is put into a private Azure storage account, reached through a private endpoint; the web app's folder is a working copy that every write goes through, an empty one is filled from storage, and nothing is lost to an outage or a delete that fails. | Accepted (built) |
 ## Writing a new ADR
 
 1. Take the next free number (look in this folder; do not reuse one).

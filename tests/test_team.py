@@ -744,7 +744,7 @@ class PrivacyTests(TeamCase):
                    if s["title"] == "Where your data is stored")
         self.assertNotIn("Lab tables", off)
         self.assertIn('"This Dojo has no lab database."', sheet)
-        self.assertIn(off.split(". ", 1)[1], sheet)
+        self.assertIn(off.split(". ", 2)[2], sheet)   # after the two storage sentences: what stands in place of the lab ones
 
 
 # ---------------------------------------------------------------- logging in Azure

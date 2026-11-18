@@ -86,11 +86,13 @@ It creates:
    - The *deploy identity* has a federated credential for your repository's `main` branch. It has
      Contributor on the app resource group and Managed Identity Operator on the app identity.
    - The *app identity* is what the running app uses. It has Azure AI User, Cognitive Services OpenAI User
-     and Cognitive Services Speech User on the app resource group, and **Cost Management Reader** on it so
-     Studio's Money tab can read what the group cost (ADR 0025). Reader roles change nothing. On an install that
-     was bootstrapped before this role existed, run the bootstrap again (it reuses what it made and adds the
+     and Cognitive Services Speech User on the app resource group, **Cost Management Reader** on it so
+     Studio's Money tab can read what the group cost (ADR 0025), and **Storage Blob Data Contributor** on it so
+     Dojo can keep all of its data in the group's storage account (ADR 0030). Reader roles change nothing. On an install that
+     was bootstrapped before a role existed, run the bootstrap again (it reuses what it made and adds the
      role); until then the Money tab says that Dojo has no read access to Azure Cost Management yet and shows
-     only its own estimates. Granting the role can take a few minutes to take effect.
+     only its own estimates, and (storage) `/healthz` says `"storage": "degraded"` and the smoke test of a deploy
+     does not pass. Granting a role can take a few minutes to take effect.
 3. **The same three AI roles for you**, the signed-in person, so you can run Dojo against the real models
    from your laptop.
 4. **A sign-in app registration** named after the app. It is single tenant, issues ID tokens, and has the
@@ -163,12 +165,16 @@ Two workflows build and deploy Dojo. Three more never touch the app: `pages.yml`
      installs the requirements during the deploy (`SCM_DO_BUILD_DURING_DEPLOYMENT=true`). This step may fail;
      the smoke test decides (see [Troubleshooting](#troubleshooting)).
   6. **Smoke test.** Poll `https://<app-name>.azurewebsites.net/healthz` every 20 seconds for up to 20 minutes.
-     It passes only when `/healthz` reports the new build SHA and status `ok`.
+     It passes only when `/healthz` reports the new build SHA and status `ok`. With the data in storage (ADR 0030)
+     `/healthz` also says `"storage"`, and a Dojo that cannot reach its storage reports `degraded`, so the smoke
+     test does not pass until it can.
 
 The self-test (`app/selftest.py`) runs at startup. It checks the data share, each model role, speech out
 (text to speech), speech in (transcription) and the sign-in credential exchange. `/healthz` is open to
-anyone, so it shows only `{"status": "ok", "build": "<commit-sha>"}`. The status is `ok` only after a
-finished run in which every check passed; otherwise it is `degraded` (also while the first run is pending).
+anyone, so it shows only `{"status": "ok", "build": "<commit-sha>", "storage": "ok"}`; `storage` is `ok`,
+`migrating` (files are still being put into the storage account, which does not stop Dojo) or `degraded`
+(storage does not answer), and is left out when Dojo runs without a storage account. The status is `ok` only after a
+finished run in which every check passed and storage is not `degraded`; otherwise it is `degraded` (also while the first run is pending).
 It always answers HTTP 200, so App Service's health check sees a running app. Each check's result, details
 and time are at `/api/diag`, for the signed-in owner. After a pass it runs again every 6 hours, unless Dojo's own AI work is
 switched off (then it ran once, which is all `/healthz` and the smoke test need); after a failure, every 5 minutes.
@@ -196,7 +202,8 @@ few switches in `app/main.py`.
 
 | Setting | Meaning |
 |---|---|
-| `DOJO_DATA_DIR` | Where Dojo keeps its files. Azure: `/home/dojo-data` (the persistent share). Default locally: `.dojo-data` in the repository. |
+| `DOJO_DATA_DIR` | Where Dojo keeps its working copy of its files. Azure: `/home/dojo-data` (the persistent share). Default locally: `.dojo-data` in the repository. With `DOJO_BLOB_ACCOUNT` set, the data itself is in the storage account and this folder is a copy of it (ADR 0030). |
+| `DOJO_BLOB_ACCOUNT`, `DOJO_BLOB_CONTAINER` | The storage account (a name of 3 to 24 lowercase letters and digits) and the container (default `dojo-data`) that hold Dojo's data. Bicep sets both. Empty = the web app's disk alone, as before; a locally run Dojo ignores them. A wrong name stops the start instead of leaving the data on the disk. Authentication is the app identity's role Storage Blob Data Contributor, no keys. |
 | `DOJO_AI_ENDPOINT` | The OpenAI-compatible endpoint of the AI Services account, `https://<ai-name>.services.ai.azure.com/openai/v1`. |
 | `DOJO_AI_RESOURCE_ID` | The Azure resource ID of the AI Services account. Speech uses it for Entra sign-in to the regional speech endpoints. |
 | `DOJO_SPEECH_ENDPOINT` | The custom-domain endpoint for Speech, `https://<ai-name>.cognitiveservices.azure.com`. |
@@ -209,7 +216,7 @@ few switches in `app/main.py`.
 | `DOJO_TEAM` | `1` switches team mode on (ADR 0009). Default off. See below before you use it. |
 | `DOJO_BACKGROUND` | `0` switches off the AI work Dojo does by itself (ADR 0029). Anything else, or unset, leaves it on. Bicep sets it from `backgroundAi`, so set the repository variable `DOJO_BACKGROUND_AI` and deploy instead of editing it in Azure: [Switching Dojo's own AI work off and on](#switching-dojos-own-ai-work-off-and-on). |
 | `DOJO_OWNER_KEY` | Only for the lost-account procedure. Must be `l` followed by 31 hex digits. Normally empty. |
-| `DOJO_LAB_SERVER`, `DOJO_LAB_DATABASE` | The Azure SQL server and database for labs (ADR 0003). In Azure, both empty means labs are off: every lab route answers 404 "Labs are not set up on this Dojo.", the Plan schedules no lab sessions, `/api/diag` shows labs off, and in team mode there is no lab-database mirror of the deletion list (`/home` is the only copy). Only one of the two set stops the app at startup. Locally a fake runner is used either way. |
+| `DOJO_LAB_SERVER`, `DOJO_LAB_DATABASE` | The Azure SQL server and database for labs (ADR 0003). In Azure, both empty means labs are off: every lab route answers 404 "Labs are not set up on this Dojo.", the Plan schedules no lab sessions, `/api/diag` shows labs off, and in team mode there is no lab-database mirror of the deletion list (the data folder and the storage account are then the only copies). Only one of the two set stops the app at startup. Locally a fake runner is used either way. |
 
 ### Platform settings set by Bicep
 
@@ -218,7 +225,7 @@ few switches in `app/main.py`.
 | `AZURE_CLIENT_ID` | The app identity. The app signs in to the models, Speech and SQL with it. |
 | `OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID` | Tells App Service authentication (Easy Auth) to use the app identity instead of a client secret. |
 | `WEBSITE_AUTH_AAD_ALLOWED_TENANTS` | Team mode only: the tenants whose accounts may sign in. |
-| `WEBSITES_ENABLE_APP_SERVICE_STORAGE` | Keeps `/home` as persistent storage. Dojo's data lives there. |
+| `WEBSITES_ENABLE_APP_SERVICE_STORAGE` | Keeps `/home` as persistent storage, where Dojo's working copy of its data lives. The data itself is in the storage account. |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | Installs `requirements.txt` during the zip deploy. |
 
 App Service sets `WEBSITE_SITE_NAME` and `WEBSITE_HOSTNAME` itself. Dojo uses `WEBSITE_SITE_NAME` to know it
@@ -261,16 +268,41 @@ These have no effect in Azure.
 
 ## Backups and restore
 
-All of Dojo's state is files under `/home/dojo-data`. App Service makes automatic backups of `/home` on Basic
-plans and above: about every hour, kept for 30 days. Automatic backups stop working once the site's content
-is larger than 30 GB, so watch the size (the avatar cache has its own 6 GB budget).
+Everything Dojo stores is in a private Azure storage account, in the container `dojo-data` (ADR 0030). The web app's
+`/home/dojo-data` holds a working copy of it, so deleting the web app, or its plan, loses nothing.
 
-To restore, use the Azure portal (the app → Backups → Restore). A restore puts back the whole share as it was
-at that time. In team mode, tell members first: their work since that backup is lost. Restoring to a new
-app and copying files back is safer than overwriting the live app.
-
-You can also copy `/home/dojo-data` yourself through the Kudu console or SSH. Treat the copy as personal
-data (see [privacy.md](privacy.md)).
+- **What protects the data.** The account is zone redundant (three copies in three datacenters of the region), has no
+  public network access and no keys (only the app identity's role can read and write it), and keeps a deleted or
+  overwritten file recoverable for 7 days (blob soft delete). The B1 plan has no automatic backups of `/home`, and
+  Dojo needs none. It is not geo-redundant: a loss of the whole region is not covered (a one-word change, `Standard_GRS`,
+  in `infra/main.bicep`, and a sentence in the privacy notice).
+- **How it is kept equal.** Every write the Store makes (documents, logs, lessons, narration, video) is also put into the
+  container before the call returns; a write that storage cannot take waits and is put again, in the background, until it
+  can. A delete is written down first and repeated until storage has done it. After every pass Dojo lists the container
+  and compares every file with the folder (size always, MD5 for each file it sent): the result is in
+  `/home/dojo-data/.blob-report.json` (`verification`: `checked`, and counts and the first names of files that are
+  `missing`, of another `size` or of another `md5`; all counts are 0 when they match). The first pass after a deploy that
+  turns this on runs in the background while Dojo serves as usual: it puts the files that were already on the share into the
+  container, about 4,000 small files first and then about 8,000 audio and video files.
+- **Where to look.** `/healthz` says `"storage"` (`ok`, `migrating`, `degraded`); `/api/diag` (the signed-in owner) has
+  `data_storage` with the number of files in storage, how many wait to be put, how many deletes wait, how many audio and
+  video files are still to be sent, the number of errors and the last one. The Money tab shows the storage and its private
+  link. The log line "storage matches the folder" is the end of a clean comparison.
+- **Restore after a lost disk, or on a new web app.** Start the app with an empty `/home/dojo-data`. Before it serves
+  anything it fills the folder from the container: every small file (documents, logs, lessons, sources, the Record), then
+  the audio and video as they are played. It will not start if the container cannot be reached, because starting with
+  nothing would begin a second, empty Record. A folder that holds data is never overwritten from storage: the folder is
+  the truth, and storage is made to match it.
+- **Bring back one file that was deleted or overwritten by mistake.** In the Azure portal, open the storage account, the
+  container `dojo-data`, switch on "Show deleted blobs", and undelete or restore the earlier version (within 7 days).
+  Then create an empty file `/home/dojo-data/.blob-restoring` (Kudu) and restart the app: it copies back every small file
+  the folder lacks. A file deleted through Dojo itself (a learner's "Delete my data") is deleted from both on purpose, and
+  stays deleted: the delete is remembered in `.blob-deletes.json` until storage has done it.
+- **A copy for yourself.** Copy `/home/dojo-data` through the Kudu console or SSH. The folder holds all the small files, and
+  the audio and video that were played or made since the last start with an empty folder. Treat the copy as personal
+  data (see [privacy.md](privacy.md)).
+- **Do not put an old copy back by hand.** Dojo treats a folder that has data as the truth and makes storage match it, so an
+  old copy put back over the folder would be copied into storage over what is there.
 
 ## Costs and cost controls
 
@@ -284,7 +316,9 @@ You pay Azure's normal prices. Dojo has no licence fee.
   Dojo's own estimate of what each kind of work costs, at Azure **list price**, sits below it, closed. It reads prices from the public Azure Retail Prices API and counts the tokens,
   characters and minutes Dojo used, and it can differ from the bill (discounts, taxes, other resources). Azure
   Cost Management is the truth, and where you set a budget alert (the Money tab links to it).
-- **The fixed part** is the B1 plan and the storage. Check the Azure pricing page for your region.
+- **The fixed part** is the B1 plan and the data storage: the storage account itself costs a few cents a month (about
+  USD 0.20 for 9 GB, zone redundant, Hot), and its private endpoint (about USD 7.30) and private DNS zone (about USD 0.50)
+  are charged by the day, about USD 8 a month in all (ADR 0030). Check the Azure pricing page for your region.
 - **AI use** (models, speech, avatar) is pay as you go. Background work has daily limits (see
   [architecture.md](architecture.md#background-services-and-their-limits)), and one switch stops all of it
   ([below](#switching-dojos-own-ai-work-off-and-on)). Avatar filming only starts on an explicit click that
@@ -409,6 +443,19 @@ re-run the workflow; before that, `/healthz` tells you which build runs.
 **The smoke test fails.** Sign in and open `/api/diag`. It shows which self-test check failed and why. Common
 causes: a model deployment missing or out of quota; a role assignment not yet active (it can take a few
 minutes after the first deploy); Speech not reachable.
+
+**`/healthz` says `"storage": "degraded"`.** Storage is not doing what Dojo needs, so Dojo goes on with the files on the web
+app's disk and keeps trying (every 15 seconds at first, then every few minutes while it keeps failing; nothing written
+meanwhile is lost). Open `/api/diag`: `data_storage.last_error` says why. `403` means the app identity does not have the
+role Storage Blob Data Contributor yet, or only a reading role (run the bootstrap again, then wait a few minutes; storage
+that lists but refuses writes is `degraded` too, as long as something waits to be put); a connection error or a name that
+does not resolve means the private endpoint or its private DNS zone (`privatelink.blob.core.windows.net`, linked to the
+lab VNet) is missing or not ready. It also says `degraded` when the folder and storage were found different twice in a
+row (`data_storage.differs` and `.blob-report.json` name the files), and when the list of deletes owed could not be
+written or read (`.blob-deletes.json`; an unreadable one is moved to `.blob-deletes.json.unreadable`, and for as long as that
+file is there storage says `degraded` and a Dojo that must restore from storage will not start: look at it, then remove it
+in Kudu). A Dojo whose data folder is empty and cannot reach storage does not
+start at all: its log says why (see [Backups and restore](#backups-and-restore)).
 
 **Sign-in loops on "Pick an account".** The account you chose is not allowed: it is not assigned to the
 sign-in app, or (with team mode off) it is not the owner. Sign out at `https://<app-name>.azurewebsites.net/.auth/logout`,

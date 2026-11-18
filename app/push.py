@@ -226,6 +226,7 @@ class VapidKeys:
                 if doc is None:
                     new = _new_vapid()
                     if _create_vapid(path, new):
+                        self.store.publish("push", "vapid.json")   # written outside the Store: put it into storage too (ADR 0030)
                         return new
                     continue   # lost the race: read the winner's key
                 if clock.monotonic() >= deadline:

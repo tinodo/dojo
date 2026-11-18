@@ -251,8 +251,17 @@ class DeliveryCheck:
 
     def _media(self, name: str) -> bytes | None:
         """One of Dojo's own media files, read outside the store's lock as playback reads it: a video
-        can be tens of megabytes, and media files are written whole and never changed."""
-        path = self.dojo.store.path("media", name)
+        can be tens of megabytes, and media files are written whole and never changed. With the data in storage
+        the file is fetched onto the disk first (ADR 0030)."""
+        was_here = self.dojo.store.path("media", name).is_file()
+        path = self.dojo.store.fetch("media", name)
+        if path is None:
+            return None
+        if not was_here and name.endswith(".webm"):
+            try:
+                self.dojo.avatar.evict()   # a film brought back from storage takes the disk's room: the coldest others leave the disk
+            except OSError:
+                pass
         try:
             if path.stat().st_size > MAX_CHECK_BYTES:
                 raise UserError(f"{name} is larger than {MAX_CHECK_BYTES // (1024 * 1024)} MB")

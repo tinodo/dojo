@@ -28,7 +28,7 @@ from .labs import SURROGATE, new_surrogate
 
 log = logging.getLogger("dojo")
 
-NOTICE_VERSION = 2          # 2: the notice says what Microsoft's performance monitoring of the lab database records (ADR 0023)
+NOTICE_VERSION = 3          # 3: the data is kept in a storage account and the web app's disk holds a copy (ADR 0030); 2: the lab database's performance monitoring (ADR 0023)
 GRACE_DAYS = 30            # a removed member keeps export and delete this long, then the data is deleted
 REQUEST_DAYS = 30          # open and declined access requests are deleted after this
 TOMBSTONE_DAYS = 40        # longer than the 30-day App Service backups
@@ -1028,7 +1028,7 @@ def notice_view(team: "Team", models: dict[str, str], labs: bool = True) -> dict
     od = team.owner_doc()
     operator = od.get("display_name") or od.get("entra_name") or "the owner of this Dojo"
     names = ", ".join(f"{v} ({k})" for k, v in models.items())
-    stored = f"On this web app's own storage {where_stored()}, in your own folder. " + (
+    stored = f"In a private storage account {where_stored()}, in your own folder. The web app's own disk holds a working copy. " + (
         f"Lab tables live in one Azure SQL database in the same region. {LAB_MONITORING}" if labs else "This Dojo has no lab database.")
     sections = [
         ("Who runs this Dojo",
