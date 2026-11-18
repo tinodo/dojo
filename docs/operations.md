@@ -463,7 +463,8 @@ role Storage Blob Data Contributor yet, or only a reading role (run the bootstra
 that lists but refuses writes is `degraded` too, as long as something waits to be put); a connection error or a name that
 does not resolve means the private endpoint or its private DNS zone (`privatelink.blob.core.windows.net`, linked to the
 lab VNet) is missing or not ready. It also says `degraded` when the folder and storage were found different twice in a
-row (`data_storage.differs` and `.blob-report.json` name the files), and when the list of deletes owed could not be
+row (`data_storage.differs` and `.blob-report.json` name the files; a deploy runs the old and the new container side by side for some
+minutes, and a pass takes storage's bytes as the baseline when they are the folder's, so a file that is right does not stay "different": ADR 0030), and when the list of deletes owed could not be
 written or read (`.blob-deletes.json`; an unreadable one is moved to `.blob-deletes.json.unreadable`, and for as long as that
 file is there storage says `degraded` and a Dojo that must restore from storage will not start: look at it, then remove it
 in Kudu). A Dojo whose data folder is empty and cannot reach storage does not

@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -899,6 +900,25 @@ class SafetyTests(Base):
         svc.put("docs/a.json", b'{"v": "else"}', lm=1)   # the same size, other bytes
         mirror.sync_once()
         self.assertEqual(svc.data("docs/a.json"), b'{"v": "mine"}', "the folder wins")
+
+    def test_a_second_writer_that_put_the_same_bytes_does_not_leave_storage_degraded(self):
+        """While the platform replaces the old container with the new one, both run for minutes, on the same folder and the same
+        container. One writes the file and puts it after the other: storage then holds exactly the folder's bytes, but the sum this
+        process last sent is another. That is not a difference (18 Nov 2026: one such file kept /healthz at degraded, and a deploy red)."""
+        svc, tmp = FakeBlobService(), self.folder()
+        self.lay(tmp, {"docs/a.json": b'{"v": 1}'})
+        _, mirror = connect(tmp, svc, reconcile_s=0)   # every pass compares storage with the folder, as the hourly one does
+        mirror.sync_once()
+        path = Path(tmp, "docs", "a.json")
+        path.write_bytes(b'{"v": 2}')                                     # the other container writes the folder's file...
+        os.utime(path, (time.time() + 5, time.time() + 5))
+        svc.put("docs/a.json", b'{"v": 2}', lm=2)                         # ...and puts the same bytes
+        mirror.index["docs/a.json"] = dataclasses.replace(mirror.index["docs/a.json"], modified=0.0)   # put long ago: the listing decides
+        with self.assertNoLogs("dojo.blob", "ERROR"):
+            mirror.sync_once()
+            mirror.sync_once()
+        self.assertEqual((mirror.status()["state"], mirror.status()["differs"]), ("ok", 0))
+        self.assertEqual(svc.data("docs/a.json"), b'{"v": 2}')
 
     def test_a_pass_that_keeps_failing_is_tried_less_and_less_often(self):
         svc, tmp = FakeBlobService(), self.folder()
