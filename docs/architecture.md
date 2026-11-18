@@ -320,8 +320,9 @@ The B1 plan's `/home` share is 10 GB. Presenter videos are capped at 6 GB of it;
   token and never asks the managed identity for a new one; the background thread renews it at least every 10 minutes.
 
 Presenter-video budget and automatic backups: eviction frees only the disk's copy of the coldest video; the video stays in
-storage. The gate that pauses approved filming (90% of the 6 GB) still counts every film Dojo holds, on the disk or only
-in storage, so it caps the total and the disk's share of films can never pass the budget. A B1 plan has no automatic
+storage, and a film that playback (or the delivery check) brings back from storage makes the coldest others leave the disk
+in the same way, so the disk's share of films stays inside the 6 GB. The gate that pauses the filming Dojo does by itself
+(90% of the 6 GB) still counts every film Dojo holds, on the disk or only in storage. A B1 plan has no automatic
 backups of `/home`, and needs none (see [operations.md](operations.md#backups-and-restore)).
 
 ## Concurrency limits

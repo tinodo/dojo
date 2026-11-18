@@ -429,10 +429,11 @@ class Store:
             cold = self.mirror is not None and self.mirror.kind(p) == COLD
             if self.mirror is not None and not cold:
                 self.mirror.wrote(p, data)
+            gen = self.mirror.generation(p) if cold else 0   # remembered under the lock: a delete after this makes the put stale
         if cold:
             # Audio and video are written once and never changed: put after the lock is released, so a long upload
             # does not hold up everything else.
-            self.mirror.wrote(p, data)   # type: ignore[union-attr]
+            self.mirror.wrote(p, data, gen=gen)   # type: ignore[union-attr]
 
     def exists(self, *parts: str) -> bool:
         p = self.path(*parts)

@@ -1443,14 +1443,21 @@ def create_app(settings: Settings | None = None, ai: Any = None, speech: Any = N
             raise HTTPException(404, "Not found.")
         # A learner's own check-question audio first (ADR 0009), then the shared narration and video. With the data in
         # storage the file may be only there: it is fetched onto the disk now (ADR 0030).
+        film = media_type == AVATAR_CONTENT_TYPE
+        on_disk = not film or dojo.store.path("media", name).is_file()
         try:
             path = dojo.store.fetch("learners", learner.key, "media", name) or dojo.store.fetch("media", name)
         except BlobError:
             raise HTTPException(503, "The storage that holds this file is not answering. Try again in a minute.") from None
         if path is None:
             raise HTTPException(404, "Not found.")
-        if media_type == AVATAR_CONTENT_TYPE:
+        if film:
             dojo.avatar.touch(media_id)  # videos are evicted least-recently-served first
+            if not on_disk:
+                try:
+                    dojo.avatar.evict()   # a film brought back from storage takes the disk's room: the coldest others leave the disk (and stay in storage)
+                except OSError:
+                    log.warning("could not make room on the disk for a film brought back from storage")
         return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/items")

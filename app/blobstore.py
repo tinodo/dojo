@@ -24,8 +24,10 @@ Rules that keep the data safe:
   be written), and is repeated until the container has done it, so a delete that storage could not do at the time is
   not undone by a later restore. A folder deleted while the container had never been listed in this run is written down
   as a folder, and what the container holds under it is found and deleted as soon as it can be listed. A put or a
-  download that began before a delete never undoes it (`_gen`); a file that only left the disk, as eviction makes it,
-  is not a delete, and a copy leaves the disk only when the container holds exactly its bytes (`safe_to_evict`).
+  download that began before a delete never undoes it (`_gen`, noted under the Store's lock when the file is written;
+  a download arrives under a name the background pass ignores and is put in place under that lock); a file that only
+  left the disk, as eviction makes it, is not a delete, and a copy leaves the disk only when the container holds
+  exactly its bytes (`safe_to_evict`).
 - A write that storage cannot take is not lost and does not fail the request: the folder has it, and the background
   thread puts it again until storage takes it. `status()` says how many wait, and /healthz says "degraded" while
   storage does not answer, takes no writes while some wait, was found different from the folder twice in a row, or
@@ -336,14 +338,18 @@ class BlobMirror:
     def start(self, thread: bool = True) -> None:
         """Connects, restores an empty folder from the container, and starts the background sync. Raises BlobError
         when the folder has nothing to stand on and storage cannot be reached."""
+        quarantined = (self.root / (JOURNAL + ".unreadable")).exists()
         bad_journal = self._load_journal()
         needs_storage = (self.root / RESTORING).exists() or not self._has_local_hot()
-        if bad_journal and needs_storage:
-            raise BlobError(f"{JOURNAL}, the list of deletes still owed to storage, is there and cannot be read, and restoring "
-                            "from storage without it could bring back data that was deleted: Dojo does not start. Fix or "
-                            "remove that file.")
+        if (bad_journal or quarantined) and needs_storage:
+            raise BlobError(f"{JOURNAL}, the list of deletes still owed to storage, is there and cannot be read (or an earlier one was "
+                            f"set aside as {JOURNAL}.unreadable and not looked at), and restoring from storage without it could bring "
+                            "back data that was deleted: Dojo does not start. Fix or remove that file.")
         if bad_journal:
             self._set_aside_journal()
+        elif quarantined:
+            with self._state:
+                self._journal_bad = True   # deletes may have been owed that nobody knows of: degraded until the file is looked at and removed
         try:
             self._connect_with_retries()
         except BlobError as e:
@@ -428,7 +434,13 @@ class BlobMirror:
 
     # ------------------------------------------------------------ the Store's calls
 
-    def wrote(self, path: Path, data: bytes | None = None) -> None:
+    def generation(self, path: Path) -> int:
+        """How many deletes of this file have begun. A writer remembers it before it reads or writes the file's bytes and
+        hands it to `wrote`, so a delete that is over before the put starts still makes the put stale."""
+        with self._state:
+            return self._gen.get(self._rel(path), 0)
+
+    def wrote(self, path: Path, data: bytes | None = None, gen: int | None = None) -> None:
         """A file was written in the folder: put it into the container too. Never raises: if storage cannot take
         it now, the name waits and the background thread puts it. A small file is put under the Store's lock, so it
         is put quickly or not at all; an audio or video file is put without it, with the usual patience."""
@@ -439,7 +451,7 @@ class BlobMirror:
         try:
             if data is None:
                 data = path.read_bytes()
-            self._put(rel, data, path.stat().st_mtime_ns, path, fast=kind == HOT)
+            self._put(rel, data, path.stat().st_mtime_ns, path, fast=kind == HOT, gen=gen)
         except Exception as e:  # noqa: BLE001 - a write must never fail because storage did
             if not isinstance(e, BlobError):
                 log.warning("could not put %s into storage: %s", rel, type(e).__name__)
@@ -447,9 +459,10 @@ class BlobMirror:
                 self._pending.add(rel)
             self._wake.set()
 
-    def _put(self, rel: str, data: bytes, mtime_ns: int, path: Path | None = None, fast: bool = False) -> None:
-        with self._state:
-            gen = self._gen.get(rel, 0)
+    def _put(self, rel: str, data: bytes, mtime_ns: int, path: Path | None = None, fast: bool = False, gen: int | None = None) -> None:
+        if gen is None:
+            with self._state:
+                gen = self._gen.get(rel, 0)
         md5 = md5_b64(data)
         self._call(self.client.put, rel, data, md5, mtime_ns, fast=fast, write=True)
         with self._state:
@@ -552,7 +565,9 @@ class BlobMirror:
 
     def fetch(self, path: Path) -> bool:
         """Brings a cold file from the container into the folder. False when storage does not have it; BlobError when
-        storage has it and cannot be reached."""
+        storage has it and cannot be reached. The file arrives under a name the background pass does not look at and is
+        put in place under the Store's lock, which every delete takes: a delete is either over before that (the file is
+        dropped) or begins after it (and removes the file), so a download can never bring back what was deleted."""
         rel = self._rel(path)
         with self._state:
             if rel not in self.index or rel in self._dead or classify(rel) != COLD:
@@ -563,22 +578,26 @@ class BlobMirror:
             if path.is_file():
                 return True
             path.parent.mkdir(parents=True, exist_ok=True)
+            staging = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.fetch")
             try:
-                self._call(self.client.get, rel, path)
+                self._call(self.client.get, rel, staging)
             except BlobError as e:
+                staging.unlink(missing_ok=True)
                 if e.status == 404:
                     with self._state:
                         self.index.pop(rel, None)
                     return False
                 raise
+        with self.lock:
             with self._state:
                 deleted = self._gen.get(rel, 0) != gen or rel in self._dead or rel not in self.index
-            if deleted:
-                path.unlink(missing_ok=True)   # deleted while it was coming: what arrived must not stay, or it would be put again
-                return False
+            if deleted or path.is_file():
+                staging.unlink(missing_ok=True)   # deleted while it was coming, or another download got there first
+                return not deleted
+            os.replace(staging, path)
             st = path.stat()
-            with self._state:
-                self._known[rel] = (st.st_size, st.st_mtime_ns)
+        with self._state:
+            self._known[rel] = (st.st_size, st.st_mtime_ns)
         return True
 
     def safe_to_evict(self, path: Path) -> bool:
@@ -626,7 +645,8 @@ class BlobMirror:
 
     def _set_aside_journal(self) -> None:
         """A journal that cannot be read is moved out of the way, not deleted (its owner may want to read it), and storage
-        reports "degraded" until Dojo is started again: some deletes may be owed that nobody knows of."""
+        reports "degraded", and will not restore an empty folder, for as long as the moved file is there: some deletes
+        may be owed that nobody knows of."""
         try:
             os.replace(self.root / JOURNAL, self.root / (JOURNAL + ".unreadable"))
         except OSError:
@@ -703,6 +723,7 @@ class BlobMirror:
         with self._state:
             want = [n for n in self.index if classify(n) == HOT and valid(n) and n not in self._dead]
         missing = [n for n in want if not (self.root / n).exists()]
+        missing_set = set(missing)
         log.warning("restoring %d of %d files from storage into the data folder", len(missing), len(want))
 
         def one(rel: str) -> None:
@@ -720,6 +741,9 @@ class BlobMirror:
                 continue
             with self._state:
                 self._known[rel] = (st.st_size, st.st_mtime_ns)
+                info = self.index.get(rel)
+                if rel in missing_set and info and info.md5:
+                    self._sent.setdefault(rel, info.md5)   # what came down was checked against this sum: the baseline for later comparisons
         marker.unlink(missing_ok=True)
         log.warning("restore finished")
 
@@ -818,14 +842,15 @@ class BlobMirror:
         if not trees:
             return
         for prefix, when in trees.items():
-            with self._state:
-                held = [n for n in self.index if n.startswith(prefix + "/") and classify(n) != SKIP and valid(n)]
-            gone = [n for n in held if not (self.root / n).exists()]
-            with self._state:
-                for n in gone:
-                    self._dead.setdefault(n, when)
-                    self._gen[n] = self._gen.get(n, 0) + 1
-                self._trees.pop(prefix, None)
+            with self.lock:   # a write cannot slip in between "the folder does not have it" and the note that it is owed
+                with self._state:
+                    held = [n for n in self.index if n.startswith(prefix + "/") and classify(n) != SKIP and valid(n)]
+                gone = [n for n in held if not (self.root / n).exists()]
+                with self._state:
+                    for n in gone:
+                        self._dead.setdefault(n, when)
+                        self._gen[n] = self._gen.get(n, 0) + 1
+                    self._trees.pop(prefix, None)
         self._save_journal()
 
     def _retry_pending(self) -> int:
@@ -937,8 +962,9 @@ class BlobMirror:
             rel, path = item
             if halt.is_set() or self._stop.is_set():
                 return
+            gen = self.generation(path)   # before the file is read: a delete that is over before the put starts makes it stale
             try:
-                self._put(rel, path.read_bytes(), path.stat().st_mtime_ns, path)
+                self._put(rel, path.read_bytes(), path.stat().st_mtime_ns, path, gen=gen)
             except BlobError:
                 halt.set()   # storage is not answering: the next pass tries again
                 return
