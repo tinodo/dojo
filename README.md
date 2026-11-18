@@ -146,7 +146,7 @@ Read [docs/operations.md](docs/operations.md) for the steps, every setting, back
 
 ## Costs
 
-You pay normal Azure prices for what you use: a B1 App Service plan, a private storage account for everything Dojo keeps (a few
+You pay normal Azure prices for what you use: a B1 App Service plan (B2 or B3 when Azure has no B1 left), a private storage account for everything Dojo keeps (a few
 cents for the files, about USD 8 a month for its private network path), the AI models, Speech, avatar video
 and (for labs) about USD 28 a month for the SQL sandbox: the small Basic-tier database, its private network path and security add-ons. Dojo's Studio page
 shows its own estimates at Azure **list price**; your bill is in Azure Cost Management. Background work has

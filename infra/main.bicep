@@ -50,6 +50,14 @@ param graderModel object = {
 @description('Deployment type of the three models. The app looks up their list prices for this type (app/costs.py).')
 param modelSku string = 'GlobalStandard'
 
+@description('App Service plan size (docs/adr/0031-plan-size-fallback.md). B1 is what Dojo is sized for. When Azure has no B1 left for this resource group, the deploy workflow tries B1 a few times and then asks for B2, then B3; nothing else is allowed, because a bigger plan costs real money. A plan that had to be B2 goes back to B1 at the first deploy after Azure has a B1 again.')
+@allowed([
+  'B1'
+  'B2'
+  'B3'
+])
+param planSku string = 'B1'
+
 param tags object = {
   project: 'dojo'
   owner: 'tinodo'
@@ -228,7 +236,7 @@ resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   tags: tags
   kind: 'linux'
   sku: {
-    name: 'B1'
+    name: planSku
   }
   properties: {
     reserved: true
